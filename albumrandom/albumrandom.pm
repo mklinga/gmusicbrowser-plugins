@@ -43,6 +43,7 @@ use Gtk2::Notify -init, ::PROGRAM_NAME;
 ::SetDefaultOptions(OPT, store_cache => 0);
 ::SetDefaultOptions(OPT, follow_filter => 0);
 ::SetDefaultOptions(OPT, show_notifications => 0);
+::SetDefaultOptions(OPT, multi_amount => 5);
 
 
 my $ON;
@@ -69,6 +70,12 @@ my %menuentry=
  	label => "Select as AR source",
  	code => \&ChooseSource,
  	notempty => 'IDs',
+ },
+ generatemulti =>
+ {
+ 	label => "Generate multiple albums",
+ 	code => \&GenerateMultipleAlbums,
+ 	notempty => 'IDs',
  }
 );
 
@@ -82,6 +89,12 @@ my %FLmenuentry=
  {
  	label => "Select as AR source",
  	code => \&ChooseSource,
+ 	isdefined => 'filter',
+ },
+  generatemulti =>
+ {
+ 	label => "Generate multiple albums",
+ 	code => \&GenerateMultipleAlbums,
  	isdefined => 'filter',
  }
 );
@@ -124,6 +137,9 @@ my $content;
 my @needsupdate;
 my $update_on_change = 0;
 my $update_item=-1;
+my @forbiddenalbums;
+my $albumcount;
+my $just_calculate = 0;
 
 my $startup = 1;
 
@@ -167,7 +183,9 @@ sub Stop
 }
 
 sub prefbox
-{	my $vbox= Gtk2::VBox->new(::FALSE, 2);
+{
+	my $vbox= Gtk2::VBox->new(::FALSE, 2);
+	my $vbox2= Gtk2::VBox->new(::FALSE, 2);
 	my $sg1=Gtk2::SizeGroup->new('horizontal');
 	
 	my $check=::NewPrefCheckButton(OPT."play_immediately",'Start playing immediately', horizontal=>1, sizegroup=>$sg1);
@@ -191,6 +209,7 @@ sub prefbox
 	$button->set_label($button_text);
 
 	my $frame1=Gtk2::Frame->new(_"Options");
+	my $frame2=Gtk2::Frame->new(_"Album Generation");
 	
 	my $lastlabel=Gtk2::Label->new();
 	$lastlabel->set_label($lastupdate);
@@ -199,11 +218,28 @@ sub prefbox
 
 	my $l2=Gtk2::Label->new();
 	$l2->set_label("Current source: ".scalar@$IDs." items ");
+
+	my @list2 = ::GetListOfSavedLists();
+	my $listcombo= ::NewPrefCombo( OPT.'albumplaylist', \@list2);
+	my $listlabel=Gtk2::Label->new();
+	$listlabel->set_label("Generate to playlist: ");
+	
+	
+	my $album_spin=::NewPrefSpinButton(OPT."multi_amount", 1,1000, step=>1, page=>4, wrap=>0);
+	my $albumlabel1=Gtk2::Label->new('Generate ');
+	my $albumlabel2=Gtk2::Label->new(' albums');
+	
+	my $button2=Gtk2::Button->new();
+	$button2->signal_connect(clicked => \&GenerateMultipleAlbums);
+	$button2->set_label("Generate multiple albums now");
 	
 	$vbox=::Vpack( [$check2,$check],[$check3,$check4],[$check5,$check6],[$check8,$check7],[$check9,$topcheck],[$lastlabel,$nextlabel,$l2,$button] );
+	$vbox2=::Vpack([$albumlabel1,$album_spin,$albumlabel2], [$listlabel,$listcombo],$button2 );
+
 	$frame1->add($vbox);
+	$frame2->add($vbox2);
 	
-	return ::Vpack( $frame1);
+	return ::Vpack( $frame1, $frame2);
 	
 }
 
@@ -405,10 +441,23 @@ sub CalculateAlbum
 			if ($::Options{OPT.'only_top'} == 1) {$temp += $topprob[$item];}
 			else {$temp += $data_album_prob[$item];}
 		}
-		if (($::Options{OPT.'only_top'} == 1) && ($topid[$item] != $data_album_first[$current_item])) { $isOK = 1;}
-		elsif (($item) != $current_item) { $isOK = 1;}
+		if (($::Options{OPT.'only_top'} == 1) && ($topid[$item] != $data_album_first[$current_item])) 
+		{ 
+			$isOK = 1;
+			foreach my $j (@forbiddenalbums)
+			{
+				if ($data_album_first[$j] == $topid[$item]) { $isOK = 0; }
+			}
+		}
+		elsif (($::Options{OPT.'only_top'} == 0) && ($item != $current_item))
+		{ 
+			$isOK = 1;
+			foreach my $j (@forbiddenalbums)
+			{
+				if ($j == $item) { $isOK = 0; }
+			}
+		}
 	}		
-
 	if ($::Options{OPT.'only_top'} == 1) 
 	{
 		#change $item according to the whole table!
@@ -429,19 +478,21 @@ sub CalculateAlbum
 	$current_artistalbum = $aa.$da.$ca;
 
 	#print("Item: ".$item." Number: ".$number." Songid:".$idtaulu[$item]." prob:".$probtaulu[$item]);
-	my $filt = Songs::MakeFilterFromID('album',$data_album_first[$item]);
+	#my $filt = Songs::MakeFilterFromID('album',$data_album_first[$item]);
 	
-	#let's go back to normal!
-	::ToggleSort if ($::RandomMode);
-	::Enqueue($data_album_first[$item]);
-	
-	if (($autocalculate == 0) && ($::Options{OPT.'play_immediately'} ==1)) 
+	if ($just_calculate == 0)
 	{
-		::NextSong; 
-		::Play;
-	}
-	#if nothing is playing let's move to next song immediately and wait
-	elsif (!(defined $::TogPlay)) {::NextSong;} 
+		::ToggleSort if ($::RandomMode);
+		::Enqueue($data_album_first[$item]);
+	
+		if (($autocalculate == 0) && ($::Options{OPT.'play_immediately'} ==1)) 
+		{
+			::NextSong; 
+			::Play;
+		}
+		#if nothing is playing let's move to next song immediately and wait
+		elsif (!(defined $::TogPlay)) {::NextSong;}
+	} 
 	
 
 	$current_last_ID = $data_album_last[$item];
@@ -553,8 +604,7 @@ sub CalculateDB
 	}
 	
 	@songtaulu = sort @songtaulu;
-	# biisit on järjestettyinä muodossa: artist - (date) album : track|||id 
-
+	
 	my $oldaa = '';
 	my $oldsongid = '';
 	my $count = 0;
@@ -613,6 +663,9 @@ sub CalculateDB
 		}
 	}
 	
+	#let's take a note about how many albums we have in total
+	$albumcount = scalar@data_album_aa;
+
 	#export cache if wanted
 	if ($::Options{OPT.'store_cache'} == 1)
 	{
@@ -791,7 +844,53 @@ sub ChooseSourceAndCalculate
 	ExportStats;
 	CalculateAlbum;
 }
+sub GenerateMultipleAlbums
+{
+	if ($current_item == -1)
+	{
+		CalculateDB;
+		ExportStats;
+	}
+	
+	my @finallist;
+	my $curID;
+	my $goal = $::Options{OPT.'multi_amount'};
+	my $count=0;
+	my @already;
+	my $isOK = 1;
+	
+	$just_calculate = 1;
+	
+	@forbiddenalbums = ();
+	
+	if ($goal > $albumcount) { $goal = $albumcount; }
+	
+	while ($count<$goal)
+	{
+		CalculateAlbum;
+		$curID = $current_item;
+		
+		push(@forbiddenalbums,$curID);
+		
+		$count++;
+		
+		my $alb=Songs::Get_gid($data_album_first[$curID],'album');
+		my $l=AA::GetIDs('album',$alb);
 
+		push (@finallist,@$l);
+	}
+	
+	#foreach my $a (@forbiddenalbums) { print "a".$a." = ".$data_album_aa[$a]."\n"; }
+
+    @forbiddenalbums = ();
+	$just_calculate = 0;
+
+	::SaveList($::Options{OPT.'albumplaylist'},\@finallist);
+
+	#::Select(song=>'first',play=>1,staticlist => \@finallist ) if scalar@finallist > 0;
+	#::DoActionForList('playlist',@finallist);
+	
+}
 sub Changed
 {
 
