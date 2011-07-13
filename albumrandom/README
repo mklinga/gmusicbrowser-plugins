@@ -1,0 +1,88 @@
+'Albumrandom' is a plugin for gmusicbrowser. I have only tested it with gmb 1.1.7, so feel free to report any problems.
+
+You need Gtk2::Notify for this plugin, since it's used by popup notifications.
+
+
+** How to install:
+
+1) Copy albumrandom.pm to /usr/share/gmusicbrowser/plugins
+
+If you want to use layout button:
+*1) Copy plugin-albumrandom.png to /usr/share/gmusicbrowser/pix
+*2) Add item called Albumrandom to your layout
+
+2) Restart gmb
+3) Enable Albumrandom from Preferences -> Plugins
+
+
+** How to use:
+
+Using Albumrandom is simple - just find some genre/year/label you wish to hear (or choose 'all genres' etc. for every album) from your filter box, open context menu with your mouse and go 'xxx Songs' => 'Choose an album for me!'. Depending on your set options in plugins preferences the musical fun may start immediately, or just after current song. Plugin uses gmb's queue by putting first song of album there and switching to 'normal' playmode (as opposed to 'random mode').
+
+** How it works?
+
+Albumrandom calculates average randoms on your albums based on currently selected 'weighted random' mode. If you have selected 'shuffle' instead of weighted random it (should, haven't tested thoroughly :) sees all albums' propabilities equal and plays them accordingly.
+
+** Options
+
+*'Infinite Mode': Selects new album with same settings after album is played without user having to interrupt. If at any point user changes music manually, infinite mode is automatically cut off.
+
+*'Export stats': Does what it says. Not very informative for regular user, so you might want to turn this off.
+
+*'Use cached data whenever possible': As it says - eliminates the need for recalculating in every turn. Played albums get updated always, and this setting may be overdriven with 'automatic update'
+
+*'Update automatically every X hours': If checked, plugin will create timer to update DB. You can show info about this in the botton row of plugin preferences (click some other plugin and return for it to refresh after selecting)
+
+*'Select only from top Y albums': My personal favourite! No need to listen all those horrible records, just the stuff you like - with weighted random. Top albums are obviously measured by their propability according to your random settings.
+
+*'Start playing immediately': Nothing fancy here, just starts playing without user input.
+
+*'Switch to random mode after album is played (Only when infinite mode is disabled)': I personally like to listen music as random, and this keeps me an opportunity to play some album (from beginning to end) and revert back to my random playmode without me having to do anything. Obviously this doesn't work with 'Infinity Mode'.
+
+*'Store cache between sessions': I've added an option to save cache to disk - this eliminates the need for that first DB update when gmb starts. This is [not recommended] for few reasons: first of all, your results might depend on updating DB regularly, and secondly, this is kind of 'experimental feature', which means it might do something unexpected. But you're the boss. Check this if you dare.
+*'Show notifications': Shows notifications
+*'Source follows playlist filter changes': Whenever you change your main playlist source Albumrandom makes it default source for it. Please note that context menu overrides this setting and selects source according to your selection despite the filter.
+
+
+** Important
+
+Albumrandom relies on you having your tags in order! Artist, Album and Tracknumber are needed in order to use plugin as intended. I take no responsibility what happens if your tags are a mess. (don't fear, it won't do anything _that_ bad, I promise...)
+
+** Caching
+
+Since calculation of the entire library is quite slow, I've added many options for caching. Basically you need recalculating if your selected random mode uses 'time based' elements, such as %last_played or %added. Personally I find that updating once a day is enough, but depending on your library size, random settings and personal preferences you might want to use 'automatic update' with caching, or turn cache off. Once again, it's all up to you.
+
+** Unknown behaviour
+
+Please report any problems and/or suggestions for features.
+
+
+** Version History
+
+2011-07-05 v.0.23
+- Bugfixes
+- Made sure that played album gets updated
+
+2011-06-23 v.0.22
+- Generate album - button for layout (right click button to switch Infinite Mode ON/OFF)
+- Notifications with libnotify
+- Option to follow filter changes (these are always overdriven by manual selection from context menu!)
+- Additional 'Select as AR source' option to context menu
+- bugfix
+
+2011-06-23 v.0.2
+- Most of the code is rewritten - more adjustable, more simple
+- Caching with many possible options, automatic update, saving to disk etc.
+- Option to select only from highest scoring albums
+
+2011-06-22 v.0.11 
+- Fixed random album selector to follow more strictly selected weighting (no room for unwanted surprises!)
+- Removed need to update whole library between albums in Infinite Mode
+- Added option to switch to randommode after album is played
+- Various optimations and simplifications to code
+
+2011-06-21 v.0.1 Initial release
+
+-
+Thanks,
+laite

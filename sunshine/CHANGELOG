@@ -1,0 +1,35 @@
+Sunshine - plugin for gmusicbrowser
+
+v.0.21 - 2011.05.24
+- added option for choosing which buttons are enabled in layout
+
+v.0.2 - 2011.04.18
+- option to sleep when queue is empty
+- option to start from the first song in switched playlist
+- fixed bugs & cosmetic issues, made code prettier and simpler
+
+v.0.15 - 2011.04.16
+- added option to fade volume during wakeup
+- squished a bug
+- 'repeat alarm' now remembers to repeat even when gmb is restarted
+
+v.0.14a - 2011.04.15 (codename "function before pretty!")
+- added option to repeat alarm daily
+- added option to set separate wake times (daily fixed)
+- fixed option to sleep immediately
+
+v.0.13 - 2011.04.15
+- added option to start from specific playlist
+- option to sleep immediately
+
+v.0.12 - 2011.04.14
+- added button to start sleepmode without alarm
+- bugfixes
+- small adjustments to fade mode
+- fixed (hopefully) bug where suspending computer broke alarm
+
+v.0.11 - 2011.04.13
+- fixed bugs
+
+v.0.1 - 2011.04.12
+initial release
