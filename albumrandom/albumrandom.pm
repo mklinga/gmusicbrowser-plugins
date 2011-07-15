@@ -478,7 +478,6 @@ sub CalculateAlbum
 	$current_artistalbum = $aa.$da.$ca;
 
 	#print("Item: ".$item." Number: ".$number." Songid:".$idtaulu[$item]." prob:".$probtaulu[$item]);
-	#my $filt = Songs::MakeFilterFromID('album',$data_album_first[$item]);
 	
 	if ($just_calculate == 0)
 	{
@@ -887,7 +886,8 @@ sub GenerateMultipleAlbums
 
 	if ($::Options{OPT.'save_list'} == 0)
 	{
-		::Select(song=>'first',play=>1,staticlist => \@finallist ) if scalar@finallist > 0;			
+		::Select(staticlist => \@finallist ) if scalar@finallist > 0;
+		::SetPosition(0);			
 	}
 	else
 	{
