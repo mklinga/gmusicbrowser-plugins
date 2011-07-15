@@ -43,6 +43,7 @@ use Gtk2::Notify -init, ::PROGRAM_NAME;
 ::SetDefaultOptions(OPT, store_cache => 0);
 ::SetDefaultOptions(OPT, follow_filter => 0);
 ::SetDefaultOptions(OPT, show_notifications => 0);
+::SetDefaultOptions(OPT, save_list => 0);
 ::SetDefaultOptions(OPT, multi_amount => 5);
 
 
@@ -221,8 +222,7 @@ sub prefbox
 
 	my @list2 = ::GetListOfSavedLists();
 	my $listcombo= ::NewPrefCombo( OPT.'albumplaylist', \@list2);
-	my $listlabel=Gtk2::Label->new();
-	$listlabel->set_label("Generate to playlist: ");
+	my $check10=::NewPrefCheckButton(OPT."save_list",'Save results to playlist ',widget=>$listcombo,horizontal=>1);
 	
 	
 	my $album_spin=::NewPrefSpinButton(OPT."multi_amount", 1,1000, step=>1, page=>4, wrap=>0);
@@ -234,7 +234,7 @@ sub prefbox
 	$button2->set_label("Generate multiple albums now");
 	
 	$vbox=::Vpack( [$check2,$check],[$check3,$check4],[$check5,$check6],[$check8,$check7],[$check9,$topcheck],[$lastlabel,$nextlabel,$l2,$button] );
-	$vbox2=::Vpack([$albumlabel1,$album_spin,$albumlabel2], [$listlabel,$listcombo],$button2 );
+	$vbox2=::Vpack([$albumlabel1,$album_spin,$albumlabel2], $check10,$button2 );
 
 	$frame1->add($vbox);
 	$frame2->add($vbox2);
@@ -885,10 +885,15 @@ sub GenerateMultipleAlbums
     @forbiddenalbums = ();
 	$just_calculate = 0;
 
-	::SaveList($::Options{OPT.'albumplaylist'},\@finallist);
-
-	#::Select(song=>'first',play=>1,staticlist => \@finallist ) if scalar@finallist > 0;
-	#::DoActionForList('playlist',@finallist);
+	if ($::Options{OPT.'save_list'} == 0)
+	{
+		::Select(song=>'first',play=>1,staticlist => \@finallist ) if scalar@finallist > 0;			
+	}
+	else
+	{
+		if ($::Options{OPT.'albumplaylist'} ne ''){::SaveList($::Options{OPT.'albumplaylist'},\@finallist);}
+		else {::SaveList('albumrandom',\@finallist);}
+	}
 	
 }
 sub Changed
