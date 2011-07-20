@@ -1,0 +1,36 @@
+Lastfm_pcget is a simple plugin that fetches currently playing tracks playcount from last.fm and saves it according to preferences. It DOES NOT fetch the whole library, only the one song that is currently playing.
+
+** User Settings **
+
+Your last.fm username, password and API key are required to use this plugin. You can get your API key from http://www.last.fm/api/account
+
+** Behaviour settings **
+
+First option is quite simple - you can choose whether plugin always sets last.fm playcount, or if it differs from local playcount, you can select either to set biggest or lowest. If your track doesn't have playcount it will be treated as zero.
+
+The second option is more interesting. One difficulty in this plugin is that user may have in their library many songs from same artist, with exact same title. Since last.fm doesn't concern from which album track was played this behaviour comes ultimately down to users preference. 
+
+* Only set current song
+
+Quite simply, this does not care about other tracks with same artist/title - combination.
+
+* Split values evenly
+
+This finds all songs that are similar to playing, and divides playcount evenly amongst them.
+
+* Set every tracks playcount separately
+
+This finds all songs with same artist/title and sets playcount according to First option. It handles all songs separately, so it might not change every one of them.
+Example: You have Song a on records A and B. Playcount for a in A is 10, in B it's 3. In last.fm it has been played 8 times. Now, if you have set 'set biggest value' from first and 'set all songs' from second option, plugin will set 8 to track from record B, but leave 10 from A. Works similarly with 'set smallest value'. With 'always set last.fm value' both record A and B would have track a with 8 plays.
+
+* Handle different songs as one
+
+This option finds all artist/title - matches, calculates average playcount for files and sets all files' playcount accordingly. This is obviously only useful with set biggest/smallest value - option.
+
+** Miscallenous **
+
+Some time ago I made unbelievably ugly script (but hey, it worked!) called 'lastfm_laite' to fetch playcount info from last.fm, which was launched through 'Now Playing' plugin. If you have been using that, please disable (and preferably destroy) it from preferences.
+
+** Contact **
+
+Bugs/Suggestions are welcome at gmusicbrowser's IRC channel (I'm laite) or at the gmb forums.
