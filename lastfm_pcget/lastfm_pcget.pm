@@ -49,8 +49,6 @@ sub prefbox
 	my $sg1=Gtk2::SizeGroup->new('horizontal');
 	my $sg2=Gtk2::SizeGroup->new('horizontal');
 	my $entry1=::NewPrefEntry(OPT.'USER',_"username :", cb => \&userpass_changed, sizeg1 => $sg1,sizeg2=>$sg2);
-	my $entry2=::NewPrefEntry(OPT.'PASS',_"password :", cb => \&userpass_changed, sizeg1 => $sg1,sizeg2=>$sg2, hide => 1);
-	#my $entry3=::NewPrefEntry(OPT.'APIKEY',_"API Key :", sizeg1 => $sg1,sizeg2=>$sg2);
 	
 	my @list = ( 'Always set last.fm value', 'Set bigger amount', 'Set smaller amount');
 	my $listcombo= ::NewPrefCombo( OPT.'pcvalue', \@list);
@@ -61,7 +59,7 @@ sub prefbox
 	my $l2=Gtk2::Label->new('In case of multiple tracks with same artist and title: ');
 	
 	
-	$vbox=::Vpack($entry1,$entry2,[$l,$listcombo],[$l2,$listcombo2]);
+	$vbox=::Vpack($entry1,[$l,$listcombo],[$l2,$listcombo2]);
 	$vbox->add( ::LogView($Log) );
 	return $vbox;
 }
