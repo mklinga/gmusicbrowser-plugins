@@ -33,6 +33,7 @@ my ($Serrors,$Stop);
 my $Log=Gtk2::ListStore->new('Glib::String');
 my $syncing=0;
 my $sync_timeout;
+my $APIKEY = 'f39afc8f749e2bde363fc8d3cfd02aae';
 
 sub Start
 {	::Watch($self,PlayingSong=> \&SongChanged);
@@ -49,7 +50,7 @@ sub prefbox
 	my $sg2=Gtk2::SizeGroup->new('horizontal');
 	my $entry1=::NewPrefEntry(OPT.'USER',_"username :", cb => \&userpass_changed, sizeg1 => $sg1,sizeg2=>$sg2);
 	my $entry2=::NewPrefEntry(OPT.'PASS',_"password :", cb => \&userpass_changed, sizeg1 => $sg1,sizeg2=>$sg2, hide => 1);
-	my $entry3=::NewPrefEntry(OPT.'APIKEY',_"API Key :", sizeg1 => $sg1,sizeg2=>$sg2);
+	#my $entry3=::NewPrefEntry(OPT.'APIKEY',_"API Key :", sizeg1 => $sg1,sizeg2=>$sg2);
 	
 	my @list = ( 'Always set last.fm value', 'Set bigger amount', 'Set smaller amount');
 	my $listcombo= ::NewPrefCombo( OPT.'pcvalue', \@list);
@@ -60,7 +61,7 @@ sub prefbox
 	my $l2=Gtk2::Label->new('In case of multiple tracks with same artist and title: ');
 	
 	
-	$vbox=::Vpack($entry1,$entry2,$entry3,[$l,$listcombo],[$l2,$listcombo2]);
+	$vbox=::Vpack($entry1,$entry2,[$l,$listcombo],[$l2,$listcombo2]);
 	$vbox->add( ::LogView($Log) );
 	return $vbox;
 }
@@ -85,23 +86,19 @@ sub Sync_Awake()
 }
 sub Sync()
 {
-	#Send(\&response_cb,'http://post.audioscrobbler.com/?hs=true&p=1.2&c='.CLIENTID.'&v='.VERSION."&u=$user&t=$time&a=$auth");
-	#my ($got_cb,$url,$post)=@_;
-
 	return if ($syncing == 1);
 
 	$syncing = 1;
 
 	my $user=$::Options{OPT.'USER'};
-	my $key=$::Options{OPT.'APIKEY'};
-	
-	if (($user eq '') or ($key eq '')) { return;}
+
+	if (($user eq '') or ($APIKEY eq '')) { return;}
 
 	my $artist = Songs::GetTagValue($::SongID,'artist');
 	my $title = Songs::GetTagValue($::SongID,'title');
 	my $oc = Songs::GetTagValue($::SongID,'playcount');
 
-	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getinfo&username='.$user.'&api_key='.$key.'&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title);
+	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getinfo&username='.$user.'&api_key='.$APIKEY.'&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title);
 	my $upc = '<userplaycount>';
 	my $upc2 = '</userplaycount>';
 	my $foundupc = 0;
