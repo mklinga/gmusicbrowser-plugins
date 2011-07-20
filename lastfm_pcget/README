@@ -2,7 +2,7 @@ Lastfm_pcget is a simple plugin that fetches currently playing tracks playcount 
 
 ** User Settings **
 
-Your last.fm username, password and API key are required to use this plugin. You can get your API key from http://www.last.fm/api/account
+Your last.fm username is required to use this plugin.
 
 ** Behaviour settings **
 
@@ -29,7 +29,7 @@ This option finds all artist/title - matches, calculates average playcount for f
 
 ** Miscallenous **
 
-Some time ago I made unbelievably ugly script (but hey, it worked!) called 'lastfm_laite' to fetch playcount info from last.fm, which was launched through 'Now Playing' plugin. If you have been using that, please disable (and preferably destroy) it from preferences.
+Some time ago I made unbelievably ugly script (but hey, it worked!) called 'lastfm_laite' to fetch playcount info from last.fm, which was launched through 'Now Playing' plugin. If you have been using that, please disable (and preferably destroy) it.
 
 ** Contact **
 
