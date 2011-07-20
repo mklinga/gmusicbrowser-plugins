@@ -106,7 +106,7 @@ sub Sync()
 	my $upc2 = '</userplaycount>';
 	my $foundupc = 0;
 
-	my $multifilter=Filter->newadd(1,'title:s:'.$title, 'artist:s:'.$artist)->filter_all;
+	my $multifilter=Filter->newadd(1,'title:e:'.$title, 'artist:e:'.$artist)->filter;
 	my $act=0;
 	my $type;
 	my $total = 0;
@@ -247,7 +247,7 @@ sub Sync()
 						foreach my $d (@$multifilter)
 						{
 							my $album = Songs::GetTagValue($d,'album');
-							Log("Splitted playcount for ".$artist." - ".$album." - ".$title." (".($whole+$rest).")");
+							Log("Split playcount for ".$artist." - ".$album." - ".$title." (".($whole+$rest).")");
 							Songs::SetTagValue($d,'playcount',($whole+$rest));
 							if ($rest > 0) { $rest--; }
 						}
