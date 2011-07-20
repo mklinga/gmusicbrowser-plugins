@@ -157,17 +157,21 @@ sub Sync()
 					#always set last.fm value
 					if ($pcvalue == 1)
 					{
-						if ($multiple == 1)	{push(@changeID,$::SongID); push(@changevalue,$1);}
+						if ($multiple == 1)	{ if ($1 != $oc) {push(@changeID,$::SongID); push(@changevalue,$1);}}
 						elsif ($multiple == 2)	#even split
 						{
-							my $whole = int($1/scalar@$multifilter);
-							my $rest = $1%scalar@$multifilter;
-
-							foreach my $b (@$multifilter)
+							if ((scalar@$multifilter == 1) and ($1 != $oc)) {push(@changeID,$::SongID); push(@changevalue,$1);}
+							elsif (scalar@$multifilter > 1)
 							{
-								push(@changeID,$b); 
-								push(@changevalue,($whole+$rest));
-								if ($rest > 0) { $rest--; }
+								my $whole = int($1/scalar@$multifilter);
+								my $rest = $1%scalar@$multifilter;
+
+								foreach my $b (@$multifilter)
+								{
+									push(@changeID,$b); 
+									push(@changevalue,($whole+$rest));
+									if ($rest > 0) { $rest--; }
+								}
 							}
 						}
 						elsif (($multiple == 3) or ($multiple == 4))#separate or as_one
