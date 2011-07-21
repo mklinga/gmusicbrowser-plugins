@@ -24,6 +24,10 @@ use constant
 	OPT => 'PLUGIN_LASTFM_PCGET_',#used to identify the plugin's options
 	APIKEY => 'f39afc8f749e2bde363fc8d3cfd02aae',
 };
+
+
+::SetDefaultOptions(OPT, checkcorrections => 1);
+
 use Digest::MD5 'md5_hex';
 require $::HTTP_module;
 
@@ -31,23 +35,38 @@ my $self=bless {},__PACKAGE__;
 my $Log=Gtk2::ListStore->new('Glib::String');
 my $waiting;
 my $oldID = -1;
+my $Datafile = $::HomeDir.'lastfm_corrections';
+my $Banfile = $::HomeDir.'lastfm_corrections.banned';
+my @corrections;
 
+use base 'Gtk2::Box';
+use base 'Gtk2::Dialog';
+use utf8;
+
+my @checks;
+my @banned;
+
+my $s2;
 
 sub Start
 {
 	::Watch($self,PlayingSong=> \&SongChanged);
+	loadCorrections();
+	loadBanned();
 }
 sub Stop
 {
 	$waiting->abort if ($waiting);
-	::UnWatch_all($self);	
+	::UnWatch_all($self);
 }
 
 sub prefbox
-{	my $vbox=Gtk2::VBox->new(::FALSE, 2);
+{
+	my $vbox=Gtk2::VBox->new(::FALSE, 2);
+	my $vbox2=Gtk2::VBox->new(::FALSE, 2);
 	my $sg1=Gtk2::SizeGroup->new('horizontal');
 	my $sg2=Gtk2::SizeGroup->new('horizontal');
-	my $entry1=::NewPrefEntry(OPT.'USER',_"username :", sizeg1 => $sg1,sizeg2=>$sg2);
+	my $entry1=::NewPrefEntry(OPT.'USER',_"Username: ", sizeg1 => $sg1,sizeg2=>$sg2);
 	
 
 	my $listcombo= ::NewPrefCombo( OPT.'pcvalues', { always => 'Always set last.fm value', biggest => 'Set bigger amount', smallest => 'Set smaller amount',});
@@ -55,10 +74,31 @@ sub prefbox
 
 	my $listcombo2= ::NewPrefCombo( OPT.'multiple', { playing => 'Set only playing tracks playcount', split_evenly => 'Split playcount evenly', separate => 'Set every tracks playcount separately', as_one => 'Handle different songs as one',});
 	my $l2=Gtk2::Label->new('In case of multiple tracks with same artist and title: ');
+
+	my $button2=Gtk2::Button->new();
+	$button2->signal_connect(clicked => \&Correct);
+	$button2->set_label("Show Corrections");
+
+	my $check=::NewPrefCheckButton(OPT."checkcorrections",'Check for corrections',horizontal=>1);
+	my $cl=Gtk2::Label->new();
 	
+	if (scalar@corrections == 1){$cl->set_label(" ".scalar@corrections." correction noted");}
+	else {$cl->set_label(" ".scalar@corrections." corrections noted");}
+	
+
+	my $frame1=Gtk2::Frame->new(_" Playcount fetching ");
+	my $frame2=Gtk2::Frame->new(_" Track/Artist correction ");
+
 	$vbox=::Vpack($entry1,[$l,$listcombo],[$l2,$listcombo2]);
-	$vbox->add( ::LogView($Log) );
-	return $vbox;
+	$vbox2=::Vpack($check,[$cl,$button2]);
+
+	$frame1->add($vbox);
+	$frame2->add($vbox2);
+	
+	my $fi = ::Vpack( $frame2, $frame1);
+	$fi->add(::LogView($Log));
+	
+	return $fi;
 }
 
 sub SongChanged
@@ -77,6 +117,72 @@ sub Log
 	if (my $iter=$Log->iter_nth_child(undef,50)) { $Log->remove($iter); }
 }
 
+sub loadCorrections()
+{
+	open(my $fh, '<', $Datafile) or return;
+	@corrections = <$fh>;
+	close($fh);
+}
+
+sub saveCorrections()
+{
+		return 'no datafile' unless defined $Datafile;
+
+		my $content = '';
+		
+		foreach my $a (@corrections) { if ($a =~ m/(\d+)\t(.+)\t(.+)/) {$content .= $a;}}
+
+		open my $fh,'>',$Datafile or warn "Error opening '$Datafile' for writing : $!\n";
+		print $fh $content   or warn "Error writing to '$Datafile' : $!\n";
+		close $fh;
+}
+
+sub checkCorrection()
+{
+	return if ($waiting);
+
+	my $artist = Songs::Get($::SongID,'artist');
+	my $title = Songs::Get($::SongID,'title');
+
+	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getcorrection&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title).'&api_key=b25b959554ed76058ac220b7b2e0a026';
+
+	my $correcttrack = '';
+	my $correctartist = '';
+	
+	my $cb=sub
+	{	
+		$waiting=undef;
+		my @r=(defined $_[0])? split "\012",$_[0] : ();
+		foreach my $a (@r) 
+		{
+			#if there is no corrections, <name> won't exist
+			#if there is, it's always track first, then artist
+			
+			if ( $a =~ m/<name>(.+)<\/name>/)
+			{
+				 if ($correcttrack eq '') { $correcttrack = $1; }
+				 elsif ($correctartist eq '') { $correctartist = $1; }
+			}
+		}
+		
+		if ($correcttrack ne '') 
+		{
+			my $new_correction = $::SongID."\t".$correctartist."\t".$correcttrack."\n";
+			my $is_banned = 0;
+
+			#then we check if current file has been banned or if it's already on @corrections
+			foreach my $bb (@banned) { if ($bb eq $new_correction) { $is_banned = 1; }} 
+			foreach my $bb (@corrections) { if ($bb eq $new_correction) { $is_banned = 1; }} 
+
+			if ($is_banned == 0)
+			{
+				push(@corrections,$new_correction); 
+				saveCorrections();
+			} 
+		}
+	};
+	my $waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => '');
+}
 sub Sync()
 {
 	return if ($waiting);
@@ -253,8 +359,152 @@ sub Sync()
 			}
 		}
 		else { Log("Nothing to change for ".$artist." - ".$album." - ".$title) }
+		
+		if ($::Options{OPT.'checkcorrections'} == 1) {checkCorrection();}
 	};
 	my $waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => '');
 }
+sub Correct
+{
+	$s2 = bless(Gtk2::Dialog->new(_"Searching AMG for ",undef,'destroy-with-parent'));
+	@checks = ();
+	
+	$s2->set_default_size(700, 400);
+	$s2->set_position('center-always');
+	$s2->set_border_width(6);
 
+	# Contents: textentry, searchbutton, stopbutton and scrollwindow (for radiobuttons).
+	$s2->{selall}= my $selall = ::NewIconButton('gtk-select-all', _"Select all");
+	$s2->{selnone}	= my $selnone	  = ::NewIconButton('gtk-clear', _"Select none");
+	$s2->{remsel}= my $remsel = ::NewIconButton('gtk-delete', _"Remove selected");
+	$s2->{corsel}	= my $corsel	  = ::NewIconButton('gtk-save', _"Correct selected");
+	$s2->{close}= my $close = ::NewIconButton('gtk-close', _"Close");
+	$s2->{label1} = my $label1 = Gtk2::Label->new('These are last.fm\'s suggestions for corrections');
+	$s2->{vbox}	= my $vbox = Gtk2::VBox->new(0,0);
+	
+	my $scrwin = Gtk2::ScrolledWindow->new();
+	$scrwin->set_policy('automatic', 'automatic');
+	$scrwin->add_with_viewport($vbox);
+	$s2->get_content_area()->add( ::Vpack($label1,'_', $scrwin,[$selall, $selnone, $remsel, $corsel,$close]) );
+
+	foreach my $a (@corrections)
+	{
+		if ($a =~ m/(\d+)\t(.+)\t(.+)/)
+		{
+			push(@checks, Gtk2::CheckButton->new(Songs::Get($1,'artist')." - ".Songs::Get($1,'title')." -> ".$2." - ".$3));
+		}
+	}
+	$s2->{vbox}->pack_start($_,0,0,0) foreach @checks;
+
+	# Handle the relevant events (signals).
+	#
+	$close ->signal_connect(clicked => sub {$s2->destroy();});
+
+
+	$remsel ->signal_connect(clicked => sub { confirm_action(1);});
+	$corsel ->signal_connect(clicked => sub { confirm_action(2);});
+	
+	$s2->signal_connect(response => sub {$s2->destroy();});
+	$s2->signal_connect(destroy => \&saveBanned);
+	$selall->signal_connect(clicked  => sub {
+		foreach my $c (@checks) { $c->set_active(1);}
+	});
+	$selnone->signal_connect(clicked  => sub {
+		foreach my $c (@checks) { $c->set_active(0);}
+	});
+
+	$s2->show_all();
+}
+
+sub loadBanned()
+{
+	open(my $fh, '<', $Banfile) or return;
+	@banned = <$fh>;
+	close($fh);
+}
+sub saveBanned
+{
+	#write banned files to 'lastfm_corrections.banned' so they don't appear ever again
+	return 'no datafile' unless defined $Banfile;
+
+	my $content = '';
+	
+	return if (scalar@banned == 0);
+	
+	foreach my $a (@banned) { $content .= $a;}
+
+	open my $fh,'>',$Banfile or warn "Error opening '$Banfile' for writing : $!\n";
+	print $fh $content   or warn "Error writing to '$Banfile' : $!\n";
+	close $fh;
+}
+
+sub confirm_action()
+{
+	my $type = $_[0];
+	my $dialog = Gtk2::Dialog->new ('Confirmation', undef,[qw/modal destroy-with-parent/],'gtk-ok'     => 'ok','gtk-cancel' => 'cancel');
+	$dialog->set_position('center-always');
+	$dialog->set_border_width(4);
+
+	$dialog->signal_connect(response => sub {$_[0]->destroy;
+		if ($_[1] eq 'ok') 
+		{ 
+			if ($type == 1) {remove_selected();}
+			elsif ($type == 2) {correct_selected();}
+		}
+	});
+	
+    my $label = Gtk2::Label->new();
+    my $label2 = Gtk2::Label->new();
+    if ($type == 1) 
+    { 
+    	$label->set_label('Selected corrections will be removed from list.');
+    	$label2->set_label('To see them again you have to manually edit banned-file (see README).')
+    }
+    elsif ($type == 2) 
+    { 
+    	$label->set_label('Selected corrections will now be applied to filetags.');
+    	$label2->set_label('You can\'t undo this operation.')
+    	
+    }
+    $dialog->get_content_area ()->add ($label);
+    $dialog->get_content_area ()->add ($label2);
+    $dialog->show_all;
+}
+
+sub remove_selected
+{
+	for (my $c=(scalar@checks-1);$c >= 0; $c--)
+	{
+		if ($checks[$c]->get_active) 
+		{ 
+			push (@banned,$corrections[$c]); 
+			$s2->{vbox}->remove($checks[$c]);
+			splice @checks, $c, 1;				
+			splice @corrections, $c, 1;
+		}
+	}
+	saveBanned();
+	saveCorrections();
+}
+sub correct_selected
+{
+	for (my $c=(scalar@checks)-1; $c >= 0; $c--)
+	{
+		if ($corrections[$c] =~ m/(\d+)\t(.+)\t(.+)/)
+		{
+			my $artist =  Songs::Get($1,'artist');
+			my $title =  Songs::Get($1,'title');
+
+			if ($checks[$c]->get_active) 
+			{ 
+				Log('Corrected tag for '.$artist.' - '.$title.' -> '.$2.' - '.$3);
+				Songs::Set($1, artist=> $2, title => $3);
+				$s2->{vbox}->remove($checks[$c]);
+ 				splice @checks, $c, 1;				
+ 				splice @corrections, $c, 1;
+			}				
+		}
+	}
+	saveCorrections();
+}
 1;
