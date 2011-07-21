@@ -6,6 +6,20 @@ Your last.fm username is required to use this plugin.
 
 ** Behaviour settings **
 
+1) last.fm correction
+
+When correction checking is enabled, plugin silently checks every track for possible correction. When it finds one, it logs it to database waiting for user to handle it. You can see amount of tracks in plugin preferences (X corrections noted). 'Show corrections' will launch dialog window where you see every suggestion for correction. There are two important buttons:
+
+* Remove Selected
+
+Removes selected suggestions from list and puts them on ban-file, so you won't see them ever again. If you wish to see/edit banfile it's called 'lastfm_corrections.banned' in gmusicbrowsers config directory.
+
+* Correct selected
+
+This option permanently replaces selected files' tags with last.fm suggestion. There is no undo, so be careful.
+
+2) last.fm playcount
+
 First option is quite simple - you can choose whether plugin always sets last.fm playcount, or if it differs from local playcount, you can select either to set biggest or lowest. If your track doesn't have playcount it will be treated as zero.
 
 The second option is more interesting. One difficulty in this plugin is that user may have in their library many songs from same artist, with exact same title. Since last.fm doesn't concern from which album track was played this behaviour comes ultimately down to users preference. 
