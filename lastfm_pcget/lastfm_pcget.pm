@@ -12,7 +12,6 @@ desc	Downloads playcount for currently playing song
 =cut
 
 #TODO
-#make sure that don't try to correct songs that have already been corrected through 'correct all'!
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -200,7 +199,8 @@ sub findSimilar
 	{
 		my $artist = lc Songs::Get($a,'artist');
 		my $title = lc Songs::Get($a,'title');
-		if (($oldartist eq $artist) and ($oldtitle eq $title)) { push @final,$a;}
+		
+		if ((($oldartist eq '') or ($oldartist eq $artist)) and (($oldtitle eq '') or ($oldtitle eq $title))) { push @final,$a;}
 	}
 	
 	return \@final;
@@ -513,7 +513,17 @@ sub remove_selected
 }
 sub correctSelected()
 {
-	my $force = $_[0];
+	my @correctIDs = ();
+
+	for (my $c=0; $c < scalar@checks; $c++)
+	{
+		if ($corrections[$c] =~ m/(.+)\t(.+)\t(.+)/)
+		{
+			push @correctIDs, Songs::FindID($1);
+		}
+	}
+
+
 	for (my $c=(scalar@checks)-1; $c >= 0; $c--)
 	{
 		if ($corrections[$c] =~ m/(.+)\t(.+)\t(.+)/)
@@ -544,8 +554,15 @@ sub correctSelected()
 			
 			if (($changetype == 2) or ($changetype == 3))
 			{
-				$trackfilter = findSimilar(Filter->newadd(1,'artist:s:'.$oldartist)->filter,$oldartist,$oldtitle); 
+				$trackfilter = findSimilar(Filter->newadd(1,'artist:s:'.$oldartist)->filter,$oldartist,''); 
 				if ($::Options{OPT.'artistchange'} eq 'change_all') { foreach my $a (@$trackfilter) { push @changeArtist,$a;} }
+			}
+
+			#don't fix something that is already in the @corrections!			
+			foreach my $ch (@correctIDs)
+			{
+				for (my $ca=0;$ca<scalar@changeArtist;$ca++) { if (($changeArtist[$ca] != $ID) and ($changeArtist[$ca] == $ch)) { splice @changeArtist, $ca, 1;}}
+				for (my $ct=0;$ct<scalar@changeTitle;$ct++) { if (($changeTitle[$ct] != $ID) and ($changeTitle[$ct] == $ch)) { splice @changeTitle, $ct, 1;}}
 			}
 			
 			if ($checks[$c]->get_active) 
@@ -559,6 +576,8 @@ sub correctSelected()
 				{
 					Songs::Set(\@changeTitle, title => $newtitle);
 					Songs::Set(\@changeArtist, artist => $newartist);
+					if (scalar@changeTitle > 0) {Log('Corrected title tag to \''.$newtitle.'\' for '.scalar@changeTitle.' tracks');}
+					if (scalar@changeArtist > 0) {Log('Corrected artist tag to \''.$newartist.'\' for '.scalar@changeArtist.' tracks');}
 				}
 				
 				$s2->{vbox}->remove($checks[$c]);
