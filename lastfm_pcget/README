@@ -10,9 +10,9 @@ Your last.fm username is required to use this plugin.
 
 When correction checking is enabled, plugin silently checks every track for possible correction. When it finds one, it logs it to database waiting for user to handle it. You can see amount of tracks in plugin preferences (X corrections noted). 'Show corrections' will launch dialog window where you see every suggestion for correction. There are two important buttons:
 
-* Remove Selected
+* Hide Selected
 
-Removes selected suggestions from list and puts them on ban-file, so you won't see them ever again. If you wish to see/edit banfile it's called 'lastfm_corrections.banned' in gmusicbrowsers config directory.
+Hides selected suggestions from list and puts them on ban-file, so you won't see them ever again. If you wish to see/edit banfile it's called 'lastfm_corrections.banned' in gmusicbrowsers config directory.
 
 * Correct selected
 

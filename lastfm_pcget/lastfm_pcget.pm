@@ -187,6 +187,24 @@ sub checkCorrection()
 	};
 	my $waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => '');
 }
+
+sub findSimilar
+{
+	my $initialfilter = $_[0];
+	my $oldartist = lc $_[1];
+	my $oldtitle = lc $_[2];
+	
+	my @final = ();
+	
+	foreach my $a (@$initialfilter) 
+	{
+		my $artist = lc Songs::Get($a,'artist');
+		my $title = lc Songs::Get($a,'title');
+		if (($oldartist eq $artist) and ($oldtitle eq $title)) { push @final,$a;}
+	}
+	
+	return \@final;
+}
 sub Sync()
 {
 	return if ($waiting);
@@ -195,16 +213,16 @@ sub Sync()
 
 	if ($user eq '') { return;}
 
-	my $artist = Songs::GetTagValue($::SongID,'artist');
-	my $album = Songs::GetTagValue($::SongID,'album');
-	my $title = Songs::GetTagValue($::SongID,'title');
+	my $artist = Songs::Get($::SongID,'artist');
+	my $album = Songs::Get($::SongID,'album');
+	my $title = Songs::Get($::SongID,'title');
 
 	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getinfo&username='.$user.'&api_key='.APIKEY.'&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title);
 	my $foundupc = 0;
 	my $pcvalue = 0;
 	my $multiple = 0;
 
-	my $multifilter=Filter->newadd(1,'title:e:'.$title, 'artist:e:'.$artist)->filter;
+	my $multifilter=findSimilar(Filter->newadd(1,'title:s:'.$title, 'artist:s:'.$artist)->filter,$artist,$title);
 	
 	#always => 'Always set last.fm value', 
 	#biggest => 'Set bigger amount', 
@@ -520,13 +538,13 @@ sub correctSelected()
 			
 			if (($changetype == 1) or ($changetype == 3))
 			{	
-				$trackfilter = Filter->newadd(1,'title:e:'.$oldtitle, 'artist:e:'.$oldartist)->filter;
+				$trackfilter = findSimilar(Filter->newadd(1,'title:s:'.$oldtitle, 'artist:s:'.$oldartist)->filter,$oldartist,$oldtitle); 
 				if ($::Options{OPT.'titlechange'} eq 'change_all') { foreach my $a (@$trackfilter) { push @changeTitle,$a;} }
 			}
 			
 			if (($changetype == 2) or ($changetype == 3))
 			{
-				$trackfilter = Filter->newadd(1,'artist:e:'.$oldartist)->filter;
+				$trackfilter = findSimilar(Filter->newadd(1,'artist:s:'.$oldartist)->filter,$oldartist,$oldtitle); 
 				if ($::Options{OPT.'artistchange'} eq 'change_all') { foreach my $a (@$trackfilter) { push @changeArtist,$a;} }
 			}
 			
@@ -539,7 +557,6 @@ sub correctSelected()
 				}
 				else
 				{
-					print "cT: ".scalar@changeTitle." cA: ".scalar@changeArtist;
 					Songs::Set(\@changeTitle, title => $newtitle);
 					Songs::Set(\@changeArtist, artist => $newartist);
 				}
