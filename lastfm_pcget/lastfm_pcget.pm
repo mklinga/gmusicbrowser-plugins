@@ -12,6 +12,7 @@ desc	Downloads playcount for currently playing song
 =cut
 
 #TODO
+#make sure that don't try to correct songs that have already been corrected through 'correct all'!
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -262,30 +263,31 @@ sub Sync()
 			if ( $a =~ m/<userplaycount>(\d+)<\/userplaycount>/)
 			{
 					$foundupc = 1;
+					my $userplaycount = $1;
 				
 					#always set last.fm value
 					if ($pcvalue == 1)
 					{
-						if ($multiple == 1)	{ if ($1 != $oc) {push(@changeID,$::SongID); push(@changevalue,$1);}}
+						if ($multiple == 1)	{ if ($userplaycount != $oc) {push(@changeID,$::SongID); push(@changevalue,$userplaycount);}}
 						elsif ($multiple == 2)	#even split
 						{
-							if ((scalar@$multifilter == 1) and ($1 != $oc)) {push(@changeID,$::SongID); push(@changevalue,$1);}
+							if ((scalar@$multifilter == 1) and ($userplaycount != $oc)) {push(@changeID,$::SongID); push(@changevalue,$userplaycount);}
 							elsif (scalar@$multifilter > 1)
 							{
-								my $whole = int($1/scalar@$multifilter);
-								my $rest = $1%scalar@$multifilter;
+								my $whole = int($userplaycount/scalar@$multifilter);
+								my $rest = $userplaycount%scalar@$multifilter;
 
 								foreach my $b (@$multifilter)
 								{
 									push(@changeID,$b); 
-									push(@changevalue,($whole+$rest));
-									if ($rest > 0) { $rest--; }
+									if ($rest > 0) { push(@changevalue,($whole+1)); $rest--; }
+									else { push(@changevalue,($whole));}
 								}
 							}
 						}
 						elsif (($multiple == 3) or ($multiple == 4))#separate or as_one
 						{
-							foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$1);	}
+							foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$userplaycount);	}
 						}
 					}
 					else #set biggest/smallest value
@@ -295,25 +297,25 @@ sub Sync()
 						
 						if ($multiple == 1)#current only
 						{
-							if ($modifier*($oc-$1) < 0) 
+							if ($modifier*($oc-$userplaycount) < 0) 
 							{ 
 								foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$oc);}							
 							}
-							else {foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$1);}}
+							else {foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$userplaycount);}}
 						}
 						elsif ($multiple == 2)#split even
 						{
 							my $whole;
 							my $rest;
-							if ($modifier*($oc-$1) < 0) 
+							if ($modifier*($oc-$userplaycount) < 0) 
 							{
 								$whole = int($oc/scalar@$multifilter);
 								$rest = $oc%scalar@$multifilter;
 							}
 							else
 							{
-								$whole = int($1/scalar@$multifilter);
-								$rest = $1%scalar@$multifilter;
+								$whole = int($userplaycount/scalar@$multifilter);
+								$rest = $userplaycount%scalar@$multifilter;
 							}
 
 							foreach my $b (@$multifilter)
@@ -328,19 +330,19 @@ sub Sync()
 							foreach my $b (@$multifilter)
 							{
 								my $curoc = Songs::Get($b,'playcount');
-								if ($modifier*($curoc-$1) > 0)
+								if ($modifier*($curoc-$userplaycount) > 0)
 								{
 									#only change if last.fm has wanted value 
 									push(@changeID,$b); 
-									push(@changevalue,$1);
+									push(@changevalue,$userplaycount);
 								}
 							}
 						}
 						elsif ($multiple == 4)#handle as one
 						{
 							my $curoc;
-							if ($modifier*($oc-$1) < 0)	{$curoc = $oc;}
-							else {$curoc = $1; }
+							if ($modifier*($oc-$userplaycount) < 0)	{$curoc = $oc;}
+							else {$curoc = $userplaycount; }
 
 							foreach my $b (@$multifilter)
 							{
@@ -498,10 +500,10 @@ sub correctSelected()
 	{
 		if ($corrections[$c] =~ m/(.+)\t(.+)\t(.+)/)
 		{
-			my $ID = $1;
+			my $ID = Songs::FindID($1);
 			
-			my $oldartist =  Songs::Get($1,'artist');
-			my $oldtitle =  Songs::Get($1,'title');
+			my $oldartist =  Songs::Get(Songs::FindID($1),'artist');
+			my $oldtitle =  Songs::Get(Songs::FindID($1),'title');
 			
 			my $newartist = $2;
 			my $newtitle = $3;
