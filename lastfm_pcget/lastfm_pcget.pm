@@ -12,9 +12,6 @@ desc	Downloads playcount for currently playing song
 =cut
 
 #TODO
-#Handle different versions of same song
-#Always keep the bigger amount?
-
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -84,13 +81,19 @@ sub prefbox
 	
 	if (scalar@corrections == 1){$cl->set_label(" ".scalar@corrections." correction noted");}
 	else {$cl->set_label(" ".scalar@corrections." corrections noted");}
+
+	my $listcombo3= ::NewPrefCombo( OPT.'titlechange', { change_one => 'Change only the noted track', change_all => 'Change all songs with same artist/title',});
+	my $l3=Gtk2::Label->new('When correcting track title: ');
+
+	my $listcombo4= ::NewPrefCombo( OPT.'artistchange', {change_one => 'Change only for the noted track', change_all => 'Change all tracks from artist',});
+	my $l4=Gtk2::Label->new('When correcting artist: ');
 	
 
 	my $frame1=Gtk2::Frame->new(_" Playcount fetching ");
 	my $frame2=Gtk2::Frame->new(_" Track/Artist correction ");
 
 	$vbox=::Vpack($entry1,[$l,$listcombo],[$l2,$listcombo2]);
-	$vbox2=::Vpack($check,[$cl,$button2]);
+	$vbox2=::Vpack($check,[$l3,$listcombo3,$l4,$listcombo4],[$button2,$cl]);
 
 	$frame1->add($vbox);
 	$frame2->add($vbox2);
@@ -130,7 +133,7 @@ sub saveCorrections()
 
 		my $content = '';
 		
-		foreach my $a (@corrections) { if ($a =~ m/(\d+)\t(.+)\t(.+)/) {$content .= $a;}}
+		foreach my $a (@corrections) { if ($a =~ m/(.+)\t(.+)\t(.+)/) {$content .= $a;}}
 
 		open my $fh,'>',$Datafile or warn "Error opening '$Datafile' for writing : $!\n";
 		print $fh $content   or warn "Error writing to '$Datafile' : $!\n";
@@ -167,7 +170,7 @@ sub checkCorrection()
 		
 		if ($correcttrack ne '') 
 		{
-			my $new_correction = $::SongID."\t".$correctartist."\t".$correcttrack."\n";
+			my $new_correction = Songs::Get($::SongID,'fullfilename')."\t".$correctartist."\t".$correcttrack."\n";
 			my $is_banned = 0;
 
 			#then we check if current file has been banned or if it's already on @corrections
@@ -355,7 +358,9 @@ sub Sync()
 			for (my $c=0;$c<(scalar@changeID);$c++)
 			{
 				Songs::Set($changeID[$c],'playcount',$changevalue[$c]);
-				Log "Set playcount to ".$changevalue[$c]." for ".Songs::Get($changeID[$c],'artist')." - ".Songs::Get($changeID[$c],'album')." - ".Songs::Get($changeID[$c],'title');
+				my $num = '';
+				if (scalar@changeID > 1) { $num = '['.($c+1).'/'.scalar@changeID.'] '; }
+				Log($num."Set playcount to ".$changevalue[$c]." for ".Songs::Get($changeID[$c],'artist')." - ".Songs::Get($changeID[$c],'album')." - ".Songs::Get($changeID[$c],'title'));
 			}
 		}
 		else { Log("Nothing to change for ".$artist." - ".$album." - ".$title) }
@@ -366,7 +371,7 @@ sub Sync()
 }
 sub Correct
 {
-	$s2 = bless(Gtk2::Dialog->new(_"Searching AMG for ",undef,'destroy-with-parent'));
+	$s2 = bless(Gtk2::Dialog->new(_"last.fm suggestions",undef,'destroy-with-parent'));
 	@checks = ();
 	
 	$s2->set_default_size(700, 400);
@@ -376,7 +381,7 @@ sub Correct
 	# Contents: textentry, searchbutton, stopbutton and scrollwindow (for radiobuttons).
 	$s2->{selall}= my $selall = ::NewIconButton('gtk-select-all', _"Select all");
 	$s2->{selnone}	= my $selnone	  = ::NewIconButton('gtk-clear', _"Select none");
-	$s2->{remsel}= my $remsel = ::NewIconButton('gtk-delete', _"Remove selected");
+	$s2->{remsel}= my $remsel = ::NewIconButton('gtk-delete', _"Hide selected");
 	$s2->{corsel}	= my $corsel	  = ::NewIconButton('gtk-save', _"Correct selected");
 	$s2->{close}= my $close = ::NewIconButton('gtk-close', _"Close");
 	$s2->{label1} = my $label1 = Gtk2::Label->new('These are last.fm\'s suggestions for corrections');
@@ -389,9 +394,9 @@ sub Correct
 
 	foreach my $a (@corrections)
 	{
-		if ($a =~ m/(\d+)\t(.+)\t(.+)/)
+		if ($a =~ m/(.+)\t(.+)\t(.+)/)
 		{
-			push(@checks, Gtk2::CheckButton->new(Songs::Get($1,'artist')." - ".Songs::Get($1,'title')." -> ".$2." - ".$3));
+			push(@checks, Gtk2::CheckButton->new(Songs::Get(Songs::FindID($1),'artist')." - ".Songs::Get(Songs::FindID($1),'title')." -> ".$2." - ".$3));
 		}
 	}
 	$s2->{vbox}->pack_start($_,0,0,0) foreach @checks;
@@ -449,7 +454,7 @@ sub confirm_action()
 		if ($_[1] eq 'ok') 
 		{ 
 			if ($type == 1) {remove_selected();}
-			elsif ($type == 2) {correct_selected();}
+			elsif ($type == 2) {correctSelected(0);}
 		}
 	});
 	
@@ -486,19 +491,57 @@ sub remove_selected
 	saveBanned();
 	saveCorrections();
 }
-sub correct_selected
+sub correctSelected()
 {
+	my $force = $_[0];
 	for (my $c=(scalar@checks)-1; $c >= 0; $c--)
 	{
-		if ($corrections[$c] =~ m/(\d+)\t(.+)\t(.+)/)
+		if ($corrections[$c] =~ m/(.+)\t(.+)\t(.+)/)
 		{
-			my $artist =  Songs::Get($1,'artist');
-			my $title =  Songs::Get($1,'title');
-
+			my $ID = $1;
+			
+			my $oldartist =  Songs::Get($1,'artist');
+			my $oldtitle =  Songs::Get($1,'title');
+			
+			my $newartist = $2;
+			my $newtitle = $3;
+			
+			my $changetype;
+			
+			if ($newtitle ne $oldtitle) { $changetype = 1;}
+			if ($newartist ne $oldartist) { $changetype = 2;}
+			if (($newartist ne $oldartist) and ($newtitle ne $oldtitle)) { $changetype = 3;}
+			
+			my $trackfilter;
+			my @changeTitle;
+			my @changeArtist;
+			
+			if (($changetype == 1) or ($changetype == 3))
+			{	
+				$trackfilter = Filter->newadd(1,'title:e:'.$oldtitle, 'artist:e:'.$oldartist)->filter;
+				if ($::Options{OPT.'titlechange'} eq 'change_all') { foreach my $a (@$trackfilter) { push @changeTitle,$a;} }
+			}
+			
+			if (($changetype == 2) or ($changetype == 3))
+			{
+				$trackfilter = Filter->newadd(1,'artist:e:'.$oldartist)->filter;
+				if ($::Options{OPT.'artistchange'} eq 'change_all') { foreach my $a (@$trackfilter) { push @changeArtist,$a;} }
+			}
+			
 			if ($checks[$c]->get_active) 
 			{ 
-				Log('Corrected tag for '.$artist.' - '.$title.' -> '.$2.' - '.$3);
-				Songs::Set($1, artist=> $2, title => $3);
+				if ((scalar@changeTitle == 0) and (scalar@changeArtist == 0))
+				{
+					Songs::Set($ID, artist=> $newartist, title => $newtitle);
+					Log('Corrected tag for '.$oldartist.' - '.$oldtitle.' -> '.$newartist.' - '.$newtitle);	
+				}
+				else
+				{
+					print "cT: ".scalar@changeTitle." cA: ".scalar@changeArtist;
+					Songs::Set(\@changeTitle, title => $newtitle);
+					Songs::Set(\@changeArtist, artist => $newartist);
+				}
+				
 				$s2->{vbox}->remove($checks[$c]);
  				splice @checks, $c, 1;				
  				splice @corrections, $c, 1;
@@ -506,5 +549,9 @@ sub correct_selected
 		}
 	}
 	saveCorrections();
+}
+sub askForChange()
+{
+	
 }
 1;
