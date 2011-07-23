@@ -496,8 +496,30 @@ sub confirm_action()
     $dialog->show_all;
 }
 
+sub okDialog
+{
+	my $text1 = $_[0];
+	my $text2 = $_[1];
+	
+	my $dialog = Gtk2::Dialog->new ('Success', undef,[qw/modal destroy-with-parent/],'gtk-ok'     => 'ok');
+	$dialog->set_position('center-always');
+	$dialog->set_border_width(4);
+
+	$dialog->signal_connect(response => sub {$_[0]->destroy;});
+	
+    my $label = Gtk2::Label->new();
+    my $label2 = Gtk2::Label->new();
+   	$label->set_label($text1);
+   	$label2->set_label($text2);
+
+    $dialog->get_content_area ()->add ($label);
+    $dialog->get_content_area ()->add ($label2);
+    $dialog->show_all;
+	
+}
 sub remove_selected
 {
+	my $ramount=0;
 	for (my $c=(scalar@checks-1);$c >= 0; $c--)
 	{
 		if ($checks[$c]->get_active) 
@@ -506,20 +528,25 @@ sub remove_selected
 			$s2->{vbox}->remove($checks[$c]);
 			splice @checks, $c, 1;				
 			splice @corrections, $c, 1;
+			$ramount++;
 		}
 	}
 	saveBanned();
 	saveCorrections();
+	okDialog('Succesfully removed '.$ramount.' tracks from suggestions list','Succesfully updated \'lastfm_corrections.banned\'');
 }
 sub correctSelected()
 {
 	my @correctIDs = ();
+	my $tamount=0;
+	my $camount=0;
 
 	for (my $c=0; $c < scalar@checks; $c++)
 	{
 		if ($corrections[$c] =~ m/(.+)\t(.+)\t(.+)/)
 		{
 			push @correctIDs, Songs::FindID($1);
+			$camount++;
 		}
 	}
 
@@ -571,6 +598,7 @@ sub correctSelected()
 				{
 					Songs::Set($ID, artist=> $newartist, title => $newtitle);
 					Log('Corrected tag for '.$oldartist.' - '.$oldtitle.' -> '.$newartist.' - '.$newtitle);	
+					$tamount++;
 				}
 				else
 				{
@@ -578,8 +606,9 @@ sub correctSelected()
 					Songs::Set(\@changeArtist, artist => $newartist);
 					if (scalar@changeTitle > 0) {Log('Corrected title tag to \''.$newtitle.'\' for '.scalar@changeTitle.' tracks');}
 					if (scalar@changeArtist > 0) {Log('Corrected artist tag to \''.$newartist.'\' for '.scalar@changeArtist.' tracks');}
+					$tamount += scalar@changeTitle;
+					$tamount += scalar@changeArtist;
 				}
-				
 				$s2->{vbox}->remove($checks[$c]);
  				splice @checks, $c, 1;				
  				splice @corrections, $c, 1;
@@ -587,9 +616,7 @@ sub correctSelected()
 		}
 	}
 	saveCorrections();
+	okDialog('Succesfully updated '.$camount.' tracks from suggestions list','Total of '.$tamount.' tracks were updated');
 }
-sub askForChange()
-{
-	
-}
+
 1;
