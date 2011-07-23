@@ -597,17 +597,26 @@ sub correctSelected()
 				if ((scalar@changeTitle == 0) and (scalar@changeArtist == 0))
 				{
 					Songs::Set($ID, artist=> $newartist, title => $newtitle);
-					Log('Corrected tag for '.$oldartist.' - '.$oldtitle.' -> '.$newartist.' - '.$newtitle);	
+					Log('Corrected tag for '.$oldartist.' - '.$oldtitle.' -> '.$newartist.' - '.$newtitle);
+					push @correctIDs, $ID;	
 					$tamount++;
 				}
 				else
 				{
-					Songs::Set(\@changeTitle, title => $newtitle);
-					Songs::Set(\@changeArtist, artist => $newartist);
-					if (scalar@changeTitle > 0) {Log('Corrected title tag to \''.$newtitle.'\' for '.scalar@changeTitle.' tracks');}
-					if (scalar@changeArtist > 0) {Log('Corrected artist tag to \''.$newartist.'\' for '.scalar@changeArtist.' tracks');}
-					$tamount += scalar@changeTitle;
-					$tamount += scalar@changeArtist;
+					if (scalar@changeTitle > 0) 
+					{
+						Songs::Set(\@changeTitle, title => $newtitle);
+						Log('Corrected title tag to \''.$newtitle.'\' for '.scalar@changeTitle.' tracks');
+						foreach my $cT (@changeTitle) { push @correctIDs, $cT; }					
+						$tamount += scalar@changeTitle;
+					}
+					if (scalar@changeArtist > 0) 
+					{
+						Songs::Set(\@changeArtist, artist => $newartist);
+						Log('Corrected artist tag to \''.$newartist.'\' for '.scalar@changeArtist.' tracks');
+						foreach my $cA (@changeArtist) { push @correctIDs, $cA; }					
+						$tamount += scalar@changeArtist;
+					}
 				}
 				$s2->{vbox}->remove($checks[$c]);
  				splice @checks, $c, 1;				
