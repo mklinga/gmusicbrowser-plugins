@@ -298,7 +298,7 @@ sub Sync()
 								foreach my $b (@$multifilter)
 								{
 									push(@changeID,$b); 
-									if ($rest > 0) { push(@changevalue,($whole+1)); $rest--; }
+									if (($rest > 0) and ($b != $::SongID)) { push(@changevalue,($whole+1)); $rest--; }
 									else { push(@changevalue,($whole));}
 								}
 							}
@@ -339,8 +339,8 @@ sub Sync()
 							foreach my $b (@$multifilter)
 							{
 								push(@changeID,$b); 
-								push(@changevalue,($whole+$rest));
-								if ($rest > 0) { $rest--; }
+								if (($rest > 0) and ($b != $::SongID)) { push(@changevalue,($whole+1)); $rest--; }
+								else { push(@changevalue,($whole));}
 							}
 						}
 						elsif ($multiple == 3)# each track separate
