@@ -546,7 +546,6 @@ sub correctSelected()
 		if ($corrections[$c] =~ m/(.+)\t(.+)\t(.+)/)
 		{
 			push @correctIDs, Songs::FindID($1);
-			$camount++;
 		}
 	}
 
@@ -594,6 +593,7 @@ sub correctSelected()
 			
 			if ($checks[$c]->get_active) 
 			{ 
+				$camount++;
 				if ((scalar@changeTitle == 0) and (scalar@changeArtist == 0))
 				{
 					Songs::Set($ID, artist=> $newartist, title => $newtitle);
