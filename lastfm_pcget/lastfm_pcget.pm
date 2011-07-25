@@ -12,6 +12,7 @@ desc	Downloads playcount for currently playing song
 =cut
 
 #TODO
+#utf8 recieved forms??
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -170,6 +171,9 @@ sub checkCorrection()
 		
 		if ($correcttrack ne '') 
 		{
+			if (my $utf8=Encode::decode_utf8($correcttrack)) {$correcttrack=$utf8}
+			if (my $utf8=Encode::decode_utf8($correctartist)) {$correctartist=$utf8}
+			
 			my $new_correction = Songs::Get($::SongID,'fullfilename')."\t".$correctartist."\t".$correcttrack."\n";
 			my $is_banned = 0;
 
