@@ -45,7 +45,8 @@ use Gtk2::Notify -init, ::PROGRAM_NAME;
 ::SetDefaultOptions(OPT, show_notifications => 0);
 ::SetDefaultOptions(OPT, save_list => 0);
 ::SetDefaultOptions(OPT, multi_amount => 5);
-
+::SetDefaultOptions(OPT, update_automatically => 0);
+::SetDefaultOptions(OPT, hour => 12);
 
 my $ON;
 my $IDs;
