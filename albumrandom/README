@@ -5,8 +5,8 @@ You need Gtk2::Notify for this plugin, since it's used by popup notifications.
 
 ** How to install:
 
-1) Copy albumrandom.pm to /usr/share/gmusicbrowser/plugins
-2) Copy plugin-albumrandom.png to /usr/share/gmusicbrowser/pix
+1) Copy 'albumrandom.pm' to /usr/share/gmusicbrowser/plugins
+2) Copy 'plugin-albumrandom.png' and 'plugin-albumrandom-on.png' to /usr/share/gmusicbrowser/pix
 
 If layout button doesn't appear automatically (you need to have Extrabuttons in your layout):
 *) Add item called Albumrandom to your layout
