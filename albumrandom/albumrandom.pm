@@ -167,7 +167,18 @@ sub Changed
 	my $isInAlbum=0;
 	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
 
-	if ($isInAlbum == 0) { $ON = 0; ::HasChanged('InfiniteOn'); Log("*** Manual change noted - shutting plugin off ***"); return;}
+	if ($isInAlbum == 0) 
+	{ 
+		$ON = 0; 
+		::HasChanged('InfiniteOn'); 
+		Log("*** Manual change noted ***");
+		Log("Trying to update last good album...");
+		if ($selected != -1){ UpdateAlbumFromID($selected);}
+		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
+		else { Log("Couldn't update - no suitable albumID left.");}
+		
+		return;
+	}
 
 	
 	if ($::SongID == $lastSong)
