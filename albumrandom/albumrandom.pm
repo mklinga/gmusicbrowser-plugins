@@ -41,13 +41,17 @@ use Gtk2::Notify -init, ::PROGRAM_NAME;
 ::SetDefaultOptions(OPT, writestats => 1, infinite => 1, shownotifications => 0, recalculate_time => 12, recalculate => 1
 , requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3);
 
+my $ON=0;
+
 my %arb2=
 (	class	=> 'Layout::Button',
-	stock	=> 'plugin-albumrandom',
-	tip	=> "Albumrandom2",	click1	=> \&CalculateButton,
+	state	=> sub {$ON==1? 'inf_on' : 'inf_off'},
+	stock	=> {inf_on => 'plugin-albumrandom-on', inf_off => 'plugin-albumrandom' },
+	tip	=> "Albumrandom",	click1	=> \&CalculateButton,
 	click2	=> \&RecalculateButton,
 	click3 => \&ToggleInfinite,
 	autoadd_type	=> 'button main',
+	event	=> 'InfiniteOn',
 );
 
 use base 'Gtk2::Box';
@@ -62,7 +66,7 @@ my $notify;
 my ($Daemon_name,$can_actions,$can_body);
 
 my $handle;
-my $ON;
+my $handle2;
 my $IDs = ();
 my $logContent = '';
 my $lastSong = -1;
@@ -77,8 +81,7 @@ sub Start
 {
 	my $self=shift;
 
-	$ON = 1;
-	Log("*** Starting Albumrandom ***");
+	Log("*** Initializing Albumrandom ***");
 
 	Layout::RegisterWidget(Albumrandom=>\%arb2);
 	
@@ -91,15 +94,17 @@ sub Start
 
 	$handle={};	#the handle to the Watch function must be a hash ref, if it is a Gtk2::Widget, UnWatch will be called when the widget is destroyed
 	::Watch($handle, PlayingSong	=> \&Changed);
+	::Watch($handle2, Save	=> \&WriteStats);
 }
 sub Stop
 {
-	Log("*** Shutting down ***");
-	WriteStats();
+	Log("*** Shutting down Albumrandom ***");
 	$ON=0;
+	::HasChanged('InfiniteOn');
 	$notify=undef;
 	Layout::RegisterWidget('Albumrandom');
 	::UnWatch($handle,'PlayingSong');
+	::UnWatch($handle2,'Save');
 }
 
 sub prefbox
@@ -147,15 +152,6 @@ sub Changed
 	Log("Playing song changed from ".$oldID." to ".$::SongID);
 	$oldID = $::SongID;
 	
-	my $al;
-	
-	if ($oldSelected != -1) { $al = AA::GetIDs('album',$IDs->[0]->[$oldSelected]); }
-	else {$al = AA::GetIDs('album',$IDs->[0]->[$selected]);}
-	
-	my $isInAlbum=0;
-	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
-	
-	if ($isInAlbum == 0) { $ON = 0; Log("*** Manual change noted - shutting plugin off ***"); return;}
 	
 	#this has to be before checking if song is last from album, so we don't update until the last song has finished playing
 	if ($oldSelected != -1)
@@ -164,6 +160,14 @@ sub Changed
 		$oldSelected = -1;
 		Log("Reset \$oldselected to -1");
 	}
+
+	my $al;
+	if ($oldSelected != -1) { $al = AA::GetIDs('album',$IDs->[0]->[$oldSelected]); }
+	else {$al = AA::GetIDs('album',$IDs->[0]->[$selected]);}
+	my $isInAlbum=0;
+	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
+
+	if ($isInAlbum == 0) { $ON = 0; ::HasChanged('InfiniteOn'); Log("*** Manual change noted - shutting plugin off ***"); return;}
 
 	
 	if ($::SongID == $lastSong)
@@ -176,6 +180,7 @@ sub Changed
 		{
 			#no more albums to play
 			$ON = 0; 
+			::HasChanged('InfiniteOn');
 			Log("No infinite mode - checking original playmode!");
 			if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
 			elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
@@ -183,6 +188,7 @@ sub Changed
 			return;
 		}
 	}
+
 	
 	WriteStats();
 }
@@ -229,6 +235,7 @@ sub ToggleInfinite
 sub GenerateMultipleAlbums
 {
 	$ON = 1;
+	::HasChanged('InfiniteOn');
 	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
 	
 	my $res = CalculateAlbum($::Options{OPT.'multipleamount'});
@@ -243,6 +250,7 @@ sub GenerateMultipleAlbums
 sub GenerateRandomAlbum
 {
 	$ON = 1;
+	::HasChanged('InfiniteOn');
 	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
 	if (CalculateAlbum() == 0) { Log("CalculateAlbum FAILED"); return;};
 
@@ -339,12 +347,8 @@ sub CalculateAlbum
 	my $propabilities = @$IDs->[1];
 	my @okAlbums = ();
 	
-	my $songlist = (); 
+	my $songlist = $::ListPlay; 
 	
-	if (defined $::ListMode) { $songlist = $::ListMode; Log("Selecting from playlist");}
-	elsif ($::SelectedFilter->is_empty) { $songlist = $::Library; Log("Selecting from library");}
-	else {$songlist = $::SelectedFilter->filter; Log("Using current filter (".$::SelectedFilter->explain.")");}
-
 	#if we want only top albums, we must arrange albumtable so that bigger values are in the top (aka sort descending by propability)
 	if ($::Options{OPT.'topalbumsonly'} == 1)
 	{
