@@ -14,14 +14,19 @@
 # =cut
 =gmbplugin ALBUMRANDOM
 name	Albumrandom
-title	AlbumRandom plugin
-desc	Albumrandom plays albums according to set weighted random. Use context menu to choose albums to play.
+title	AlbumRandom plugin (v.2)
+desc	Albumrandom plays albums according to set weighted random.
 =cut
 
 # the plugin package must be named GMB::Plugin::PID (replace PID), and must have these sub :
 # Start	: called when the plugin is activated
 # Stop	: called when the plugin is de-activated
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
+
+#TODO
+#change button icon (if possible?)
+#handle shuffle better?
+
 
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
@@ -33,132 +38,50 @@ use constant
 
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
-::SetDefaultOptions(OPT, play_immediately => 0);
-::SetDefaultOptions(OPT, infinite => 1);
-::SetDefaultOptions(OPT, export => 0);
-::SetDefaultOptions(OPT, return_playmode_after_album => 1);
-::SetDefaultOptions(OPT, only_top => 1);
-::SetDefaultOptions(OPT, only_top_nb => "100");
-::SetDefaultOptions(OPT, use_cache => 1);
-::SetDefaultOptions(OPT, store_cache => 0);
-::SetDefaultOptions(OPT, follow_filter => 0);
-::SetDefaultOptions(OPT, show_notifications => 0);
-::SetDefaultOptions(OPT, save_list => 0);
-::SetDefaultOptions(OPT, multi_amount => 5);
-::SetDefaultOptions(OPT, update_automatically => 0);
-::SetDefaultOptions(OPT, hour => 12);
+::SetDefaultOptions(OPT, writestats => 1, infinite => 1, shownotifications => 0, recalculate_time => 12, recalculate => 1
+, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3);
 
-my $ON;
-my $IDs;
-
-
-my %button_definition=
+my %arb2=
 (	class	=> 'Layout::Button',
 	stock	=> 'plugin-albumrandom',
-	tip	=> "Choose an album for me!",	click1	=> \&CalculateButton,
-	click3	=> \&ToggleInfinite,
-	#activate=> \&CalculateButton,
+	tip	=> "Albumrandom2",	click1	=> \&CalculateButton,
+	click2	=> \&RecalculateButton,
+	click3 => \&ToggleInfinite,
 	autoadd_type	=> 'button main',
 );
 
-my %menuentry=
-( tom3u =>
- {	label => _"Choose an album for me!",
-	code => \&ChooseSourceAndCalculate,
-	notempty => 'IDs',
- },
- selectsource =>
- {
- 	label => "Select as AR source",
- 	code => \&ChooseSource,
- 	notempty => 'IDs',
- },
- generatemulti =>
- {
- 	label => "Generate multiple albums",
- 	code => \&GenerateMultipleAlbums,
- 	notempty => 'IDs',
- }
-);
+use base 'Gtk2::Box';
+use base 'Gtk2::Dialog';
+use utf8;
 
-my %FLmenuentry=
-(tom3u =>
- {	label => _"Choose an album for me!",
-	code => \&ChooseSourceAndCalculate,
-	isdefined => 'filter',
- },
- selectsource =>
- {
- 	label => "Select as AR source",
- 	code => \&ChooseSource,
- 	isdefined => 'filter',
- },
-  generatemulti =>
- {
- 	label => "Generate multiple albums",
- 	code => \&GenerateMultipleAlbums,
- 	isdefined => 'filter',
- }
-);
 
-my $Cachefile = $::HomeDir.'albumcache.save';
-my $Datafile = $::HomeDir.'albumstats';
+my $Logfile = $::HomeDir.'albumrandom.log';
+my $Log=Gtk2::ListStore->new('Glib::String');
 
 my $notify;
 my ($Daemon_name,$can_actions,$can_body);
 
-my $notify_header = "Albumrandom";
-my $notify_text = "";
-
 my $handle;
-my $handle2;
-my $autocalculate = 0;
-my $current_last_ID = -1;
-my $current_artistalbum = '';
-my $current_item = -1;
-my $text='';
+my $ON;
+my $IDs = ();
+my $logContent = '';
+my $lastSong = -1;
+my $originalMode=-1;
 
-my @data_song_prob;
-my @data_album_prob;
-my @data_album_aa;
-my @data_album_first;
-my @data_album_last;
-
-my $first_time;
-my $force_db_update = 0;
-my $button_text = "Calculate database now (resets currently playing album)";
-
-my @songtaulu;
-
-my $alarm;
-my $alarm_started=0;
-my $lastupdate='DB not updated in this session.';
-my $nextupdate="   No automatic update set";
-
-my $content;
-my @needsupdate;
-my $update_on_change = 0;
-my $update_item=-1;
-my @forbiddenalbums;
-my $albumcount;
-my $just_calculate = 0;
-
-my $startup = 1;
-
+my $selected=-1;
+my $oldSelected = -1;
+my $oldID = -1;
+my $lastDBUpdate;
 
 sub Start
 {
 	my $self=shift;
-	srand(time);
-	
-	Layout::RegisterWidget(Albumrandom=>\%button_definition);
-	
-	$ON=1;
-	$first_time = 1;
-	
-	$IDs=$::SelectedFilter->filter;
-	#print ("Filter : ".scalar@$array." | ".$::SelectedFilter->explain);	
 
+	$ON = 1;
+	Log("*** Starting Albumrandom ***");
+
+	Layout::RegisterWidget(Albumrandom=>\%arb2);
+	
 	$notify=Gtk2::Notify->new('empty','empty');
 	my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
 	$Daemon_name= "$name $version ($vendor)";
@@ -166,792 +89,450 @@ sub Start
 	$can_body=	grep $_ eq 'body',	@caps;
 	$can_actions=	grep $_ eq 'actions',	@caps;
 
-	if ($::Options{OPT.'update_automatically'} == 1){ settimedupdate();}
-	
-	updatemenu();
 	$handle={};	#the handle to the Watch function must be a hash ref, if it is a Gtk2::Widget, UnWatch will be called when the widget is destroyed
 	::Watch($handle, PlayingSong	=> \&Changed);
-	::Watch($handle2, Filter	=> \&updateFilter);
-
 }
 sub Stop
-{	$ON=0;
+{
+	Log("*** Shutting down ***");
+	WriteStats();
+	$ON=0;
 	$notify=undef;
-	updatemenu();
 	Layout::RegisterWidget('Albumrandom');
 	::UnWatch($handle,'PlayingSong');
-	Glib::Source->remove($alarm) if $alarm;		$alarm=undef;
-	
 }
 
 sub prefbox
 {
 	my $vbox= Gtk2::VBox->new(::FALSE, 2);
-	my $vbox2= Gtk2::VBox->new(::FALSE, 2);
-	my $sg1=Gtk2::SizeGroup->new('horizontal');
-	
-	my $check=::NewPrefCheckButton(OPT."play_immediately",'Start playing immediately', horizontal=>1, sizegroup=>$sg1);
-	my $check2=::NewPrefCheckButton(OPT."infinite",'Infinite Mode', horizontal=>1, sizegroup=>$sg1);
-	my $check3=::NewPrefCheckButton(OPT."export",'Export stats to \'~/.config/gmusicbrowser/albumstats\'', horizontal=>1, sizegroup=>$sg1);
-	my $check4=::NewPrefCheckButton(OPT."return_playmode_after_album",'Switch to Random mode after album is played (Only when Infinite mode is disabled)', horizontal=>1, sizegroup=>$sg1);
-	my $check5=::NewPrefCheckButton(OPT."use_cache",'Use cached data whenever possible', horizontal=>1, sizegroup=>$sg1);
-	my $check6=::NewPrefCheckButton(OPT."store_cache",'Store cache between sessions [NOT RECOMMENDED]', horizontal=>1, sizegroup=>$sg1);
-	my $check8=::NewPrefCheckButton(OPT."show_notifications",'Show notifications', horizontal=>1, sizegroup=>$sg1);
-	my $check9=::NewPrefCheckButton(OPT."follow_filter",'Source follows playlist filter changes', horizontal=>1, sizegroup=>$sg1);
 
-	my $time_spin=::NewPrefSpinButton(OPT."hour", 0,23, step=>1, page=>4, wrap=>1, cb=>\&Updateprefchange);
-	my $time_entry=::Hpack($time_spin,Gtk2::Label->new(' hours'));
-	my $check7=::NewPrefCheckButton(OPT."update_automatically",'Update automatically every',cb=>\&Updateprefchange, widget=>$time_entry,horizontal=>1);
+	my $check=::NewPrefCheckButton(OPT."writestats",'Write statistics',horizontal=>1);
+	my $check2=::NewPrefCheckButton(OPT."infinite",'Infinite mode',horizontal=>1);
+	my $check3=::NewPrefCheckButton(OPT."shownotifications",'Show notifications',horizontal=>1);
+	my $check4=::NewPrefCheckButton(OPT."requireallinfilter",'Require all tracks of album in filter',horizontal=>1);	
 	
-	my $top_nb=::NewPrefSpinButton(OPT."only_top_nb", 2,5000, step=>1,text1=>_" ", text2=>_" albums");
-	my $topcheck=::NewPrefCheckButton(OPT."only_top",'Select only from top ', , widget=>$top_nb, horizontal=>1);
-
 	my $button=Gtk2::Button->new();
-	$button->signal_connect(clicked => \&Recalculate);
-	$button->set_label($button_text);
+	$button->signal_connect(clicked => \&GenerateRandomAlbum);
+	$button->set_label("Generate (and enqueue) random album now");
 
-	my $frame1=Gtk2::Frame->new(_"Options");
-	my $frame2=Gtk2::Frame->new(_"Album Generation");
-	
-	my $lastlabel=Gtk2::Label->new();
-	$lastlabel->set_label($lastupdate);
-	my $nextlabel=Gtk2::Label->new();
-	$nextlabel->set_label($nextupdate);
-
-	my $l2=Gtk2::Label->new();
-	$l2->set_label("Current source: ".scalar@$IDs." items ");
-
-	my @list2 = ::GetListOfSavedLists();
-	my $listcombo= ::NewPrefCombo( OPT.'albumplaylist', \@list2);
-	my $check10=::NewPrefCheckButton(OPT."save_list",'Save results to playlist ',widget=>$listcombo,horizontal=>1);
-	
-	
-	my $album_spin=::NewPrefSpinButton(OPT."multi_amount", 1,1000, step=>1, page=>4, wrap=>0);
-	my $albumlabel1=Gtk2::Label->new('Generate ');
-	my $albumlabel2=Gtk2::Label->new(' albums');
-	
 	my $button2=Gtk2::Button->new();
 	$button2->signal_connect(clicked => \&GenerateMultipleAlbums);
 	$button2->set_label("Generate multiple albums now");
 	
-	$vbox=::Vpack( [$check2,$check],[$check3,$check4],[$check5,$check6],[$check8,$check7],[$check9,$topcheck],[$lastlabel,$nextlabel,$l2,$button] );
-	$vbox2=::Vpack([$albumlabel1,$album_spin,$albumlabel2], $check10,$button2 );
+	my $time_spin=::NewPrefSpinButton(OPT."recalculate_time", 1,168, step=>1, page=>4, wrap=>0);
+	my $time_entry=::Hpack($time_spin,Gtk2::Label->new(' hours'));
+	my $checkn=::NewPrefCheckButton(OPT."recalculate",'Re-calculate DB after ', widget=>$time_entry,horizontal=>1);
+	
+	my $top_nb=::NewPrefSpinButton(OPT."topalbumamount", 2,5000, step=>1,text1=>_" ", text2=>_" albums");
+	my $topcheck=::NewPrefCheckButton(OPT."topalbumsonly",'Select only from top ', , widget=>$top_nb, horizontal=>1);
+	
+	my @list2 = ::GetListOfSavedLists();
+	my $listcombo= ::NewPrefCombo( OPT.'multiplelist', \@list2);
+	
+	my $album_spin=::NewPrefSpinButton(OPT."multipleamount", 1,1000, step=>1, page=>4, wrap=>0);
+	my $albumlabel1=Gtk2::Label->new('Multiple random: Generate ');
+	my $albumlabel2=Gtk2::Label->new(' albums to ');
+	
+	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$topcheck,$checkn,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2]);
+	$fi->add(::LogView($Log));
+	
+	return $fi;
 
-	$frame1->add($vbox);
-	$frame2->add($vbox2);
+}
+sub Changed
+{
+	return Log("Tried to change with same ID twice!") if ($oldID == $::SongID);
+	return if ($selected == -1);#no business here, if haven't selected an album	
 	
-	return ::Vpack( $frame1, $frame2);
+	Log("Playing song changed from ".$oldID." to ".$::SongID);
+	$oldID = $::SongID;
 	
+	my $al;
+	
+	if ($oldSelected != -1) { $al = AA::GetIDs('album',$IDs->[0]->[$oldSelected]); }
+	else {$al = AA::GetIDs('album',$IDs->[0]->[$selected]);}
+	
+	my $isInAlbum=0;
+	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
+	
+	if ($isInAlbum == 0) { $ON = 0; Log("*** Manual change noted - shutting plugin off ***"); return;}
+	
+	#this has to be before checking if song is last from album, so we don't update until the last song has finished playing
+	if ($oldSelected != -1)
+	{
+		UpdateAlbumFromID($oldSelected);
+		$oldSelected = -1;
+		Log("Reset \$oldselected to -1");
+	}
+
+	
+	if ($::SongID == $lastSong)
+	{
+		Log("Last song playing, setting oldSelected");
+		$oldSelected = $selected;
+		
+		if ($::Options{OPT.'infinite'} == 1){ Log("Infinite Mode: Generating next album"); GenerateRandomAlbum(); }
+		else
+		{
+			#no more albums to play
+			$ON = 0; 
+			Log("No infinite mode - checking original playmode!");
+			if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
+			elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
+			Log("*** No more albums to play - shutting plugin off ***");
+			return;
+		}
+	}
+	
+	WriteStats();
+}
+sub Notify
+{
+	return if ($ON == 0);
+	return if ($::Options{OPT.'shownotifications'} == 0); 
+	
+	my $notify_text = $_[0];
+	my $notify_header = "Albumrandom";
+	$notify->update($notify_header,$notify_text);
+	$notify->set_timeout(4000);
+	$notify->show;
 }
 
-sub updateFilter
+sub Log
 {
-	if ($::Options{OPT.'follow_filter'} == 1)
-	{
-		$IDs=$::SelectedFilter->filter;
-		if (($::Options{OPT.'show_notifications'}) == 1 && ($startup != 1))
-		{
-			$notify_text = "Changed source to match playlist filter\nItems in filter: ".scalar@$IDs;
+	my $text=$_[0];
 	
-			$notify->update($notify_header,$notify_text);
-			$notify->set_timeout(4000);
-			$notify->show;
-		}
-		$startup = 0;
-	}
-		#print "Yep.";
+	$Log->set( $Log->prepend,0, localtime().'  '.$text );
+	if (my $iter=$Log->iter_nth_child(undef,5000)) { $Log->remove($iter); }
+	
+	$logContent .= localtime().' '.$text."\n";
+}
+
+sub CalculateButton
+{
+	GenerateRandomAlbum();
+}
+
+sub RecalculateButton
+{
+	if (CalculateDB(1) != 0) {Notify("Forced DB-update successfull");}
+	WriteStats();
 }
 
 sub ToggleInfinite
 {
-	if ($::Options{OPT.'infinite'} == 0) { $::Options{OPT.'infinite'} = 1 }else{ $::Options{OPT.'infinite'} = 0;}
-	
-	if ($::Options{OPT.'show_notifications'} == 1)
-	{
-		if ($::Options{OPT.'infinite'} == 1){$notify_text = "Infinite Mode is: ON";}
-		else{$notify_text = "Infinite Mode is: OFF";	}
-	
-		$notify->update($notify_header,$notify_text);
-		$notify->set_timeout(4000);
-		$notify->show;
-	}
+	if ($::Options{OPT.'infinite'} == 0) { $::Options{OPT.'infinite'} = 1; Notify("Infinite mode is ON"); }
+	else { $::Options{OPT.'infinite'} = 0; Notify("Infinite mode is OFF"); }
 	
 }
-sub settimedupdate
+
+sub GenerateMultipleAlbums
 {
-
-	Glib::Source->remove($alarm) if $alarm; $alarm=undef;
+	$ON = 1;
+	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
 	
-	$alarm_started=1;
+	my $res = CalculateAlbum($::Options{OPT.'multipleamount'});
+	if ($res == 0) { Log("CalculateAlbum FAILED"); return;}
+	elsif ($res != 4) { Log("CalculateAlbum returned ".$res." for multiple generation. I wonder why."); return;}
 
-	my $now=time;
-	my ($s0,$m0,$h0,$mday0,$mon,$year,$wday0,$yday,$isdst)= localtime($now);
+	Log("Successfully generated multiple albums");
 	
-	my $next=0;
-	my $time;
-		
-	my $h=0;
-			
-	$h=($h0+$::Options{OPT.'hour'})%24;
-
-	$time=::mktime($s0,$m0,$h,$mday0,$mon,$year);
-	if ($time <= $now)
-	{
-		$time += 86400;
-		($s0,$m0,$h0,$mday0,$mon,$year,$wday0,$yday,$isdst)= localtime($time);
-	}
-	$next=$time;
-
-	return unless $next;
-	$alarm=Glib::Timeout->add(($next-$now)*1000,\&timer);
-	
-	
-	$nextupdate="   Automatic update: ".$mday0.".".($mon+1).".".($year+1900)."  ".sprintf("%02d",$h).":".sprintf("%02d",$m0).":".sprintf("%02d",$s0)."   ";
-
-	if ($::Options{OPT.'show_notifications'} == 1)
-	{
-		$notify_text = "Automatic update in ".$::Options{OPT.'hour'}." hours";
-		$notify->update($notify_header,$notify_text);
-		$notify->set_timeout(4000);
-		$notify->show;
-	}
-}
-
-sub updatemenu
-{	my $removeall=!$ON;
-	for my $eid (keys %menuentry)
-	{	my $menu=\@::SongCMenu;
-		my $entry=$menuentry{$eid};
-		if (!$removeall )
-		{	push @$menu,$entry unless (grep $_==$entry, @$menu);
-		}
-		else
-		{	@$menu =grep $_!=$entry, @$menu;
-		}
-	}
-	for my $eid (keys %FLmenuentry)
-	{	my $menu=\@FilterList::FLcMenu;
-		my $entry=$FLmenuentry{$eid};
-		if (!$removeall)
-		{	push @$menu,$entry unless (grep $_==$entry, @$menu);
-		}
-		else
-		{	@$menu =grep $_!=$entry, @$menu;
-		}
-	}
-
-}
-
-sub Updateprefchange
-{
-	if ($::Options{OPT.'update_automatically'} == 1) 
-	{
-	  settimedupdate;	
-	}
-	else
-	{
-		$nextupdate="   No automatic update set";
-	}
-	
-}
-
-sub ExportStats
-{
-	$content="#Albumstats\nIDtaulu:";
-	foreach my $ab (@data_album_first) {	$content.= " $ab"; }
-	$content .= "\nLastIDs: ".scalar@data_album_first;
-	$content .= "\nProbtaulu:";
-	my $c=0;
-	my $avg=0;
-	foreach my $ab (@data_album_prob) 
-	{ 
-		$avg += $ab;
-		$c++;
-		$content.= " $ab"; 
-	}
-	
-	$content .= "\nTotal: ".$c." albums,"." Avg: ".sprintf("%.3f",($avg/$c));	
-	$content .= "\nAlbums:\n";
-	for (my $a=0;$a<scalar@data_album_aa;$a++)
-	{
-		$content .= $data_album_aa[$a].sprintf("%.3f",$data_album_prob[$a])."\n";
-	}
-	
-}
-
-sub CalculateAlbum
-{
-	
-	return 'non- IDs' unless @$IDs;
-
-	#meillä on kaksi taulua, joiden [id]:t täsmäävät
-	#valitaan satunnaisesti, kunnes natsaa
-
-	my $isOK = 0;
-	my $counter = 0;
-	my $number = 0;
-	my $curitem;
-	my $item;
-	my $totalprob=0;
-	my @topalbums = ();
-	my $topamount;
-	my @topprob = ();
-	my @topid = ();
-
-	if ($::Options{OPT.'only_top'} == 1)
-	{
-		$topamount = $::Options{OPT.'only_top_nb'};
-		my $count = 0;
-		foreach my $it (@data_album_prob)
-		{
-			my $topid = sprintf("%.5f",$it)."|||".$data_album_first[$count];
-			push (@topalbums,$topid);
-			$count++;
-		}
-		
-		@topalbums = sort @topalbums;
-
-		if (scalar@topalbums < $topamount) { $topamount = scalar@topalbums;}
-		
-		for (my $i=0;$i<$topamount;$i++)
-		{
-			my $brk = (rindex $topalbums[scalar@topalbums-($i+1)],"|||");
-			push(@topprob,substr($topalbums[scalar@topalbums-($i+1)],0,$brk));
-			push(@topid,substr($topalbums[scalar@topalbums-($i+1)],$brk+3));
-			#print Songs::Get($topid[$i],qw/album/)." : ".$topprob[$i]."\n";	
-		}
-		foreach my $tp (@topprob) { $totalprob += $tp; }
-
-		#print "Top".scalar@topid.":\n1. ".Songs::Get($topid[0],qw/album/)."\n2. ".Songs::Get($topid[1],qw/album/)."\n3. ".Songs::Get($topid[2],qw/album/)."\n";
-
-	}
-	else
-	{
-		foreach my $tp (@data_album_prob) { $totalprob += $tp; }
-	}
-
-	while (($isOK == 0) && ($counter < 500))
-	{
-		$counter++;
-		$number = rand()*$totalprob; # 0<$number<totalprob
-		my $temp = 0;
-		$item = -1;
-		while ($temp < $number)
-		{
-			$item++;
-			if ($::Options{OPT.'only_top'} == 1) {$temp += $topprob[$item];}
-			else {$temp += $data_album_prob[$item];}
-		}
-		if (($::Options{OPT.'only_top'} == 1) && ($topid[$item] != $data_album_first[$current_item])) 
-		{ 
-			$isOK = 1;
-			foreach my $j (@forbiddenalbums)
-			{
-				if ($data_album_first[$j] == $topid[$item]) { $isOK = 0; }
-			}
-		}
-		elsif (($::Options{OPT.'only_top'} == 0) && ($item != $current_item))
-		{ 
-			$isOK = 1;
-			foreach my $j (@forbiddenalbums)
-			{
-				if ($j == $item) { $isOK = 0; }
-			}
-		}
-	}		
-	if ($::Options{OPT.'only_top'} == 1) 
-	{
-		#change $item according to the whole table!
-		my $found = 0;
-		my $count = 0;
-		while (($found == 0) && $count < scalar@data_album_first)
-		{
-			if ($data_album_first[$count] == $topid[$item]) { $found = 1; $item = $count;}
-			$count++; 
-			
-		}
-	}
-
-	$content .= "\n### Randomizer: ".$item.". ".$data_album_aa[$item]." - ".sprintf("%.3f",$number)."/".sprintf("%.3f",$totalprob)."(".sprintf("%.3f",$data_album_prob[$item]).")\n";
-	
-	my ($aa,$da,$ca)= Songs::Get($data_album_first[$item],qw/album_artist year album/);
-	
-	$current_artistalbum = $aa.$da.$ca;
-
-	#print("Item: ".$item." Number: ".$number." Songid:".$idtaulu[$item]." prob:".$probtaulu[$item]);
-	
-	if ($just_calculate == 0)
-	{
-		::ToggleSort if ($::RandomMode);
-		::Enqueue($data_album_first[$item]);
-	
-		if (($autocalculate == 0) && ($::Options{OPT.'play_immediately'} ==1)) 
-		{
-			::NextSong; 
-			::Play;
-		}
-		#if nothing is playing let's move to next song immediately and wait
-		elsif (!(defined $::TogPlay)) {::NextSong;}
-	} 
-	
-
-	$current_last_ID = $data_album_last[$item];
-	$current_item = $item;
-
-    if ($::Options{OPT.'export'} == 1)
-    {
-	
-		return 'no datafile' unless defined $Datafile;
-
-		open my $fh,'>',$Datafile or warn "Error opening '$Datafile' for writing : $!\n";
-		print $fh $content   or warn "Error writing to '$Datafile' : $!\n";
-		close $fh;
-
-    }
+	WriteStats();
 	return 1;
+}
+sub GenerateRandomAlbum
+{
+	$ON = 1;
+	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
+	if (CalculateAlbum() == 0) { Log("CalculateAlbum FAILED"); return;};
 
+	Log("Successfully generated new album");
+	
+	WriteStats();
+	return 1;	
 }
 
 sub CalculateDB
 {
-
-	if (scalar@$IDs == 1){return "Can't make random album from one track!";	}
+	my $force = $_[0] if ($_[0]);
 	
-	::ToggleSort if !($::RandomMode);
-
-	#my @songcache;
-	#my @probcache;
-	#my @idcache;
-	#my @aacache;
-	#if ($::Options{OPT.'use_cache'} == 1)
-	#{
-	#	push (@probcache,@probtaulu);
-	#	push (@idcache,@idtaulu);
-	#	push (@congcache,@songtaulu);
-	#	push (@aacache,@aataulu);
-	#}
-
-    #empty tables
-	@songtaulu = ();
-	@needsupdate = ();
-	
-	@data_album_aa = ();
-	@data_album_first = ();
-	@data_album_last = ();
-	@data_album_prob = ();
-
-	if ($first_time == 1)
+	return if ($ON == 0);
+	if ((not defined $force) and (defined $IDs->[0]))
 	{
-
-		#no data anywhere at the first time, unless 'store cache' option in place - let's check it out!
-		my $cacheLoaded = 0;
-		if ($::Options{OPT.'store_cache'} == 1)
+		#don't calculate again, unless it's about time
+		if ($::Options{OPT.'recalculate'} == 1)
 		{
-
-			if (defined $Cachefile)
-			{
-				open my $fh,'<',$Cachefile or $cacheLoaded = -1;
-				
-				if ($cacheLoaded != -1)
-				{
-					my @lines = <$fh>;
-					close($fh);
-				
-					foreach my $line (@lines)
-					{
-						chomp($line);
-						push(@data_song_prob,$line);	
-					}
-
-					# There might be some new IDs so we must expand table with -1's
-					my $biggest=-1;
-					foreach my $id (@$IDs) { if ($id > $biggest) { $biggest = $id;}}
-					for (my $i=scalar@data_song_prob; $i<($biggest+1);$i++) { push (@data_song_prob,-1);}
-
-
-					$cacheLoaded = 1;
-					print "Albumrandom: cache loaded successfully (".scalar@data_song_prob." items)\n";
-				}
-				else { $cacheLoaded = 0; print "Couldn't open $Cachefile";}
-			}
-			else {} 			
+			my $updatetime = $lastDBUpdate + ($::Options{OPT.'recalculate_time'}*3600);
+			if (time > $updatetime) { Log("Re-calculating DB (timed update)"); }
+			else {Log("DB already calculated - will update after ".int(0.5+(($updatetime-time)/60))." minutes (timed update)");return 3;}
 		}
-		
-		if ($cacheLoaded == 0)
-		{
-			# No cache -> let's find biggest ID and assign all prob's to -1
-			my $biggest=-1;
-			foreach my $id (@$IDs) { if ($id > $biggest) { $biggest = $id;}}
-			for (my $i=0; $i<($biggest+1);$i++) { push (@data_song_prob,-1);}
-		}
-		$first_time = 0;
+		else {Log("DB already calculated - returning");return 2;}
 	}
 
-	for (my $counter=0;$counter<scalar@$IDs;$counter++)
+	if (defined $force) {Log("Starting Database calculation (FORCED)");}
+	else {Log("Starting Database calculation");}
+	Notify('Calculating DB');
+
+	my $al=AA::GetAAList('album');
+	Log("Found ".scalar@$al." albums");
+
+	my $totalPropability=0;
+	my @albumPropabilities = ();
+	
+	if ($::RandomMode)
 	{
-		my ($artist,$album,$date,$track)= Songs::Get(@$IDs[$counter],qw/album_artist album year track/);
-		$text=$artist." - (".$date.") ".$album." : ".sprintf("%3d",$track)."|||".@$IDs[$counter];
+		Log("Found RandomMode - setting originalMode to \'1\'");
+
+		$originalMode = 1;
 		
-		if (($force_db_update == 1) || ($::Options{OPT.'use_cache'} == 0))#no cache or force_update => calculate everything.
+		#calculate random values according to selected mode
+		foreach my $key (@$al)
 		{
-			$data_song_prob[@$IDs[$counter]] = $::RandomMode->CalcScore(@$IDs[$counter]);
-		}
-		elsif (($data_song_prob[@$IDs[$counter]] == -1) && ($::Options{OPT.'use_cache'} == 1))
-		{
-			$data_song_prob[@$IDs[$counter]] = $::RandomMode->CalcScore(@$IDs[$counter]);
-		}
-		push(@songtaulu,$text);
-	}
-	
-	@songtaulu = sort @songtaulu;
-	
-	my $oldaa = '';
-	my $oldsongid = '';
-	my $count = 0;
-	my $totalcounter = 0;
-	my $item;
-	my $albumprob = 0;
-	my $oldlastid;
-	
-	foreach $item (@songtaulu)
-	{
-		my $songid = substr($item,(rindex $item,"|||")+3,(length($item)-(rindex $item,"|||")-2));
-		#print $songid;
-		my $aa=substr($item,0,(rindex $item,"|||")-3);
-		my $prob = $data_song_prob[$songid];
-		$count++;
-		$totalcounter++;
-		
-		if ($aa eq $oldaa)
-		{
-			#same aa than previous <=> same album than previous
-			$albumprob += $prob;
-			$data_album_last[(scalar@data_album_last)-1] = $songid;
+			my $list=AA::GetIDs('album',$key);
+			my $curPropability=0;
 			
-			#if last item in the table -> close album
-			if ($totalcounter == scalar@songtaulu)
-			{
-				push(@data_album_prob,($albumprob/$count));
-				#print "AA:".$aa." Prob: ".$prob." totprob: ".$albumprob." cnt: ".$count."\n";
-			}
+			foreach my $track (@$list) { $curPropability += $::RandomMode->CalcScore($track); }
+			
+			$curPropability /= scalar@$list;
+			push @albumPropabilities,$curPropability;
+			
+			Log("Set propability ".sprintf("%.3f",$curPropability)." for ".Songs::Get(@$list->[0],'album'));
+			
+			$totalPropability += $curPropability;
 		}
-		else
+	}
+	else #straight playmode -> treat every album as equal
+	{
+		Log("No RandomMode selected - setting originalMode to zero");
+		 
+		$originalMode = 0;
+		
+		foreach my $a (@$al) {push @albumPropabilities,1;}
+		$totalPropability = scalar@$al;
+		
+	}
+
+	Log("Total propability seems to be ".sprintf("%.3f",$totalPropability));
+	@$IDs = (\@$al,\@albumPropabilities);
+
+	$lastDBUpdate = time;
+	Log("DB succesfully updated");
+	
+	return 1;
+}
+
+sub CalculateAlbum
+{
+	my $wanted = $_[0] if ($_[0]);
+	
+	if (not defined $wanted) { $wanted = 1; Log("Set \$wanted to \'1\'");}
+	
+	return if ($ON == 0);
+	return Log("No IDs") unless @$IDs;
+	
+	Log("Calculating Album");
+	
+	my $previous = $selected;
+	$selected=-1;
+	my $albumAmount = -1;
+	my $albumkeys = @$IDs->[0];
+	my $propabilities = @$IDs->[1];
+	my @okAlbums = ();
+	
+	my $songlist = (); 
+	
+	if (defined $::ListMode) { $songlist = $::ListMode; Log("Selecting from playlist");}
+	elsif ($::SelectedFilter->is_empty) { $songlist = $::Library; Log("Selecting from library");}
+	else {$songlist = $::SelectedFilter->filter; Log("Using current filter (".$::SelectedFilter->explain.")");}
+
+	#if we want only top albums, we must arrange albumtable so that bigger values are in the top (aka sort descending by propability)
+	if ($::Options{OPT.'topalbumsonly'} == 1)
+	{
+		my @c = ();
+		for (my $aa=0;$aa<scalar@$albumkeys;$aa++) { push @c, (join "\t",$propabilities->[$aa],$albumkeys->[$aa]);}
+
+		@$albumkeys = @$propabilities = ();
+		@c = sort { $b cmp $a } @c;
+	
+		foreach my $dd (@c) 
 		{
-			if ($oldaa eq '')
+			my @e = split /\t/, $dd;
+			push @$propabilities,$e[0];
+			push @$albumkeys,$e[1];
+		}
+		
+		$albumAmount = $::Options{OPT.'topalbumamount'};
+		
+		Log("Calculated top albums (rearranged tables)");
+		Log("Set albumlimit to ".$albumAmount." top albums");
+	}	
+
+	#then we find out which albums are 'ok' to choose
+	#don't put previously selected album to okTable, to prevent from playing same album twice in a row
+	my $current = -1;
+	my $totalPropability = 0;
+	
+	foreach my $alb (@$albumkeys)
+	{
+		$current++;
+		if ($current != $previous)
+		{
+			if ($songlist == $::Library)
 			{
-				#first item
-				$albumprob = $prob;
-				$oldaa = $aa;
-				push (@data_album_first, $songid);
-				push (@data_album_last, $songid);
-				push(@data_album_aa,$aa);
+					push @okAlbums, $current;
+					$totalPropability += $propabilities->[$current]; 
 			}
 			else
 			{
-				#change of album, current $item, $prob are from next album!
-				#closing album has ($count-1) items
-				push(@data_album_prob,($albumprob/($count-1)));
-
-				#then let's handle the new album
-				$count = 1;
-				$albumprob = $prob;
-				$oldaa = $aa;				
-				push (@data_album_first, $songid);
-				push (@data_album_last, $songid);
-				push(@data_album_aa,$aa);
+				my $aID = AA::GetIDs('album',$alb);
+				my $inFilter = 0;
+				foreach my $trk (@$aID)	{
+					if (::IDIsInList($songlist,$trk)) {	$inFilter++; }
+				}
+				if ((($::Options{OPT.'requireallinfilter'} == 1) and ($inFilter == scalar@$aID)) or (($::Options{OPT.'requireallinfilter'} == 0) and ($inFilter > 0))) 
+				{
+					push @okAlbums, $current;
+					$totalPropability += $propabilities->[$current]; 
+				}
 			}
 		}
+
+		#$albumAmount defaults to -1, if 'topalbumsonly' isn't selected
+		if (scalar@okAlbums == $albumAmount) { Log("Enough albums found for okAlbums, skipping rest"); last; }
 	}
 	
-	#let's take a note about how many albums we have in total
-	$albumcount = scalar@data_album_aa;
 
-	#export cache if wanted
-	if ($::Options{OPT.'store_cache'} == 1)
-	{
-		open my $fh,'>',$Cachefile or warn "Error opening '$Cachefile' for writing : $!\n";
-		foreach my $prob (@data_song_prob)
-		{
-			print $fh $prob."\n" or warn "Error writing to '$Cachefile' : $!\n";
-		}
-		close $fh;
-		print "Albumrandom: cache stored (".scalar@data_song_prob." items)\n";
+	if ($totalPropability == 0) { Log("Error! \$totalPropability == 0 in CalculateAlbum"); return 0;}
+	if (scalar@okAlbums == 0)  { Log("Error! No okAlbums in CalculateAlbum"); return 0;}
+
+	Log("Generating from ".scalar@okAlbums." albums");
+	
+	if (($wanted > 1) and (scalar@okAlbums <= $wanted)) 
+	{ 
+			Log("All albums selected for multiple random!"); 
+			MultipleAlbums(\@okAlbums); 
+			return 4;
 	}
 
-	$button_text = "Re-calculate data now (resets currently playing album)";
-
-	my $now=time;
-	my ($s,$m,$h,$mday,$mon,$year,undef,undef,undef)= localtime($now);
-	
-	$lastupdate="DB updated ".$mday.".".($mon+1).".".($year+1900)."  ".sprintf("%02d",$h).":".sprintf("%02d",$m).":".sprintf("%02d",$s)." ";
-
-	$force_db_update = 0;
-
-	return 1;	
-}
-
-sub CalculateUpdate
-{
-	#This only updates album that was selected for albumrandom, when the last song is played!
-	#Shouldn't be any songs that are not from $current_item!!
-
-	return "No \$current_item!" unless $update_item >= 0;
-	
-	return "No need for updating" unless @needsupdate;
-	return unless @$IDs;
-	
-	my @finalupdates = ();
-	
-	foreach my $updateID (@needsupdate)
+	#generate random number and scroll through okTable, until $wanted is met
+	my @foundAlbums = ();
+	my $counter = 0;
+	while ((scalar@foundAlbums < $wanted) and ($counter < 32768))
 	{
-		my $alb=Songs::Get_gid($updateID,'album');
-		my $l=AA::GetIDs('album',$alb);
-
-	  	push (@finalupdates,@$l);
-	}		
-
-	#remove duplicates with hash
-	my %hash   = map { $_, 1 } @finalupdates;
-	@finalupdates = keys %hash;
-
-	my $count = 0;
-	my $totalprob = 0;
-
-	my $sort_chg=0;
-	if (!($::RandomMode)) {$sort_chg=1; ::ToggleSort;}
-	
-	foreach my $usID (@finalupdates)
-	{
-		my ($uaa,$ud,$ual) = Songs::Get($usID,qw/album_artist year album/);
-		my $u = $uaa." - (".$ud.") ".$ual;
-		my $dest = substr($data_album_aa[$update_item],0,length($u));
+		$counter++;
+		my $r=rand($totalPropability);
+		my $tp=0;
+		my $current=-1;
+		Log("Random number: ".$r." (of ".$totalPropability.")");
 		
-		if (!($u eq $dest)) { warn "current_item and needsupdate doesn't match :("; last;}
-		else
+		foreach my $okA (@okAlbums)
 		{
-			#täsmää, päivitetään
-			$data_song_prob[$usID] = $::RandomMode->CalcScore($usID);
-			$totalprob += $data_song_prob[$usID];
-			$count++;
+			$current++;
+			$tp += $propabilities->[$okA];
+			if ($tp > $r)
+			{
+				push @foundAlbums, $okA;
+				Log ("Found ".scalar@foundAlbums.". random album!");
+				last; 
+			}
 		}
+		$totalPropability -= $propabilities->[$current];
+		splice @okAlbums, $current, 1;
 	}
 
-	if ($sort_chg == 1) {::ToggleSort;}
+	#if we were generating multiple albums, send them forward and exit gracefully
+	if ($wanted > 1) { Log("Sending ".scalar@foundAlbums." random albums to MultipleAlbum()"); MultipleAlbums(\@foundAlbums); return 4;}
+
+	#otherwise our only selected album should be in foundAlbums[0]
+	$selected = $foundAlbums[0];
 	
-	return "couldn't update" unless $count > 0;
-
-	$notify_text = "CalculateUpdate successful! (with ".$count." items)";
-	$notify->update($notify_header,$notify_text);
-	$notify->set_timeout(4000);
-	$notify->show;
-	$data_album_prob[$update_item] = $totalprob/$count;
-
-	return 1;
+	my $al = AA::GetIDs('album',$IDs->[0]->[$selected]);
+	Log("Selected album: ".Songs::Get(@$al->[0],'album'));
+	Log("propability for selected: ".$IDs->[1]->[$selected]);
 	
-}
+	Songs::SortList($al,'track file');
+	my $firstSong = @$al->[0];
+	$lastSong = @$al->[scalar@$al-1]; 
+	
+	Log("Found first song of the album: ".Songs::Get($firstSong,'title'));
+	Log("Found last song of the album: ".Songs::Get($lastSong,'title'));
 
-sub timer
-{
-	#time to update!
-	return "no IDs for timed update!" unless @$IDs;
-
-	if ($::Options{OPT.'show_notifications'} == 1)
+	if ($::RandomMode || $::Options{Sort}=~m/shuffle/)
 	{
-		$notify_text = "Starting automatic update...";
+		Log('Changing playmode to \'straight\'');
+		::Select('sort' => 'album_artist album track');
+	}
+	::Enqueue($firstSong);
 	
-		$notify->update($notify_header,$notify_text);
-		$notify->set_timeout(4000);
-		$notify->show;
-	}
-
-	
-	$force_db_update = 1;
-	CalculateDB;
-
-	if ($::Options{OPT.'update_automatically'} == 1) 
-	{
-	  settimedupdate;	
-	}
-	else
-	{
-		$nextupdate="   No automatic update set";
-	}
-
+	Log("Random Album generation successfull!");
 	return 1;
 }
 
-sub Recalculate
+sub UpdateAlbumFromID
 {
-	return "no IDs" unless @$IDs;
+	my $albumID = $_[0];
+
+	return if ($ON == 0);
 	
-	$force_db_update = 1;
-	CalculateDB;
+	Log("Starting Album Update");
+	
+	my $rmtoggled = 0;
+
+	if (($originalMode == 1) and (!($::RandomMode)))
+	{
+		Log("Switching to RandomMode for calculation");
+		::ToggleSort;
+		$rmtoggled = 1;
+	}
+	
+	my $al = AA::GetIDs('album',$IDs->[0]->[$albumID]);
+	Log("Old propability for ".Songs::Get(@$al->[0],'album').": ".$IDs->[1]->[$albumID]);
+	
+	my $curPropability = 0; 
+	if ($::RandomMode) {
+		foreach my $track (@$al) { $curPropability += $::RandomMode->CalcScore($track);}
+		$curPropability /= scalar@$al;
+		Log("Updating with Random Mode");
+	}
+	else {$curPropability = 1; Log("Updating with Straight Mode"); }
+	
+	$IDs->[1]->[$albumID] = $curPropability;
+		
+	Log("Updated new propability for ".Songs::Get(@$al->[0],'album').": ".sprintf("%.3f",$curPropability));
+	
+	if ($rmtoggled == 1) {Log("Reverting play mode after update"); ::ToggleSort;}
+	
 	return 1;
 }
 
-sub ChooseSource
+sub MultipleAlbums()
 {
-	$IDs=$_[0]{IDs} || $_[0]{filter}->filter;
-	return unless @$IDs;
-	$startup = 0;
-		
-	if ($::Options{OPT.'show_notifications'} == 1)
+	my $albumlistref = $_[0];
+	Log("MultipleAlbums() here! I have ".scalar@$albumlistref." albums and I'm going to put them to static list.");
+	
+	my @trackIDs = ();
+	foreach my $alr (@$albumlistref)
 	{
-		$notify_text = "New source selected\nItems: ".scalar@$IDs;
-		$notify->update($notify_header,$notify_text);
-		$notify->set_timeout(4000);
-		$notify->show;
+		my $al = AA::GetIDs('album',$IDs->[0]->[$alr]);
+		foreach my $trc (@$al) { push @trackIDs,$trc;}
 	}
 	
-	
+	if ($::Options{OPT.'multiplelist'} ne ''){::SaveList($::Options{OPT.'multiplelist'},\@trackIDs);}
+	else {::SaveList('albumrandom',\@trackIDs);}
 }
-sub CalculateButton
+
+sub WriteStats()
 {
-	#generate random with existing IDs
-	return unless @$IDs;
+	return 'no logfile' unless defined $Logfile;
+	return 'statwriting not enabled' if ($::Options{OPT.'writestats'} == 0);
 
-	if ($::Options{OPT.'show_notifications'} == 1)
-	{
-		$notify_text = 'Calculating random album';
-		$notify->update($notify_header,$notify_text);
-		$notify->set_timeout(4000);
-		$notify->show;
-	}
+	open my $fh,'>',$Logfile or warn "Error opening '$Logfile' for writing : $!\n";
+	print $fh $logContent   or warn "Error writing to '$Logfile' : $!\n";
+	close $fh;
 	
-	$startup = 0;
-	$autocalculate = 0;
+	print $logContent;
 	
-	CalculateDB;
-	ExportStats;
-	CalculateAlbum;	
-}
-sub ChooseSourceAndCalculate
-{	
-
-	$IDs=$_[0]{IDs} || $_[0]{filter}->filter;
-	return unless @$IDs;
-
-	if ($::Options{OPT.'show_notifications'} == 1)
-	{
-		$notify_text = 'Calculating DB & random album';
-		$notify->update($notify_header,$notify_text);
-		$notify->set_timeout(4000);
-		$notify->show;
-	}
-	$startup = 0;
-	$autocalculate = 0;
-	CalculateDB;
-	ExportStats;
-	CalculateAlbum;
-}
-sub GenerateMultipleAlbums
-{
-	if ($current_item == -1)
-	{
-		CalculateDB;
-		ExportStats;
-	}
-	
-	my @finallist;
-	my $curID;
-	my $goal = $::Options{OPT.'multi_amount'};
-	my $count=0;
-	my @already;
-	my $isOK = 1;
-	
-	$just_calculate = 1;
-	
-	@forbiddenalbums = ();
-	
-	if ($goal > $albumcount) { $goal = $albumcount; }
-	
-	while ($count<$goal)
-	{
-		CalculateAlbum;
-		$curID = $current_item;
-		
-		push(@forbiddenalbums,$curID);
-		
-		$count++;
-		
-		my $alb=Songs::Get_gid($data_album_first[$curID],'album');
-		my $l=AA::GetIDs('album',$alb);
-
-		push (@finallist,@$l);
-	}
-	
-	#foreach my $a (@forbiddenalbums) { print "a".$a." = ".$data_album_aa[$a]."\n"; }
-
-    @forbiddenalbums = ();
-	$just_calculate = 0;
-
-	if ($::Options{OPT.'save_list'} == 0)
-	{
-		::Select(staticlist => \@finallist ) if scalar@finallist > 0;
-		::SetPosition(0);			
-	}
-	else
-	{
-		if ($::Options{OPT.'albumplaylist'} ne ''){::SaveList($::Options{OPT.'albumplaylist'},\@finallist);}
-		else {::SaveList('albumrandom',\@finallist);}
-	}
-	
-}
-sub Changed
-{
-
-  if ($update_on_change == 1) { $update_on_change = 0; CalculateUpdate; }
-
-  if ($::Options{OPT.'infinite'} == 1)
-  {	
-  	my ($pla,$pld,$plalb) = Songs::Get($::PlayingID,qw/album_artist year album/);
-
-  	my $aa = $pla.$pld.$plalb;
-  	
-  	if (!($aa eq $current_artistalbum))
-  	{
-  		#switched manually from album, let's cut off infinite mode (and => updates)
-  		@needsupdate = ();
-		#$::Options{OPT.'infinite'} = 0;
-  		if (($::Options{OPT.'show_notifications'} == 1) && ($current_last_ID != -1))
-		{
-			$notify_text = 'Infinite Mode cut off (manual change noted)';
-			$notify->update($notify_header,$notify_text);
-			$notify->set_timeout(4000);
-			$notify->show;
-		}
-  		$current_last_ID = -1;
-  	}
-
-    #let's grab all the playing songs if 'infinite mode'
-    push(@needsupdate,$::PlayingID);
-  }
-
-  if ($current_last_ID == $::PlayingID)
-  {
-  	if ($::Options{OPT.'infinite'} == 1)
-  	{
-	  	$autocalculate = 1;
-  		if (scalar@needsupdate > 0) { $update_on_change = 1; $update_item = $current_item;}
-  		
-  		if ($::Options{OPT.'show_notifications'} == 1)
-		{
-  			$notify_text = 'Calculating next album';
-			$notify->update($notify_header,$notify_text);
-			$notify->set_timeout(4000);
-			$notify->show;
-		}
-  		
-  		ExportStats;
-  		CalculateAlbum;
-  	}
-  	elsif ($::Options{OPT.'return_playmode_after_album'} == 1)
-  	{
-		::ToggleSort if !($::RandomMode);
-  		$current_last_ID = -1;
-  	}
-  } 	
-
+	Notify("Stats have been written to ".$Logfile);
 }
 
 1 #the file must return true
