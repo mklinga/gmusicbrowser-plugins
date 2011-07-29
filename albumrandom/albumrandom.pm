@@ -367,18 +367,18 @@ sub CalculateAlbum
 	my @okAlbums = ();
 	
 	my $songlist = $::ListPlay; 
+	my @new_keys = ();
 	
 	#if we want only top albums, we must arrange albumtable so that bigger values are in the top (aka sort descending by propability)
 	if ($::Options{OPT.'topalbumsonly'} == 1)
 	{
 		$albumAmount = $::Options{OPT.'topalbumamount'};
 	
-		my @sorted_indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..scalar@$propabilities;
+		my @sorted_indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..(scalar@$propabilities-1);
 		$#sorted_indices= ($albumAmount-1) if $#sorted_indices > ($albumAmount-1);
-		@$propabilities = map $propabilities->[$_], @sorted_indices;
-		@$albumkeys = map $albumkeys->[$_], @sorted_indices;		
+		@new_keys = map $albumkeys->[$_], @sorted_indices;		
 
-		Log("Calculated top albums (rearranged and truncated tables) - we now have ".scalar@$albumkeys." keys and ".scalar@$propabilities." props.");
+		Log("Calculated top albums (rearranged and truncated tables) - we now have ".scalar@new_keys." keys.");
 		Log("Set albumlimit to ".$albumAmount." top albums");
 	}	
 
@@ -390,6 +390,12 @@ sub CalculateAlbum
 	foreach my $alb (@$albumkeys)
 	{
 		$current++;
+		if (scalar@new_keys != 0)
+		{
+			my $inTop = 0;
+			foreach my $tops (@new_keys) { if ($alb == $tops) {$inTop = 1;} }
+			if ($inTop == 0) {next;}
+		}
 		if ($current != $previous)
 		{
 			if ($songlist == $::Library)
