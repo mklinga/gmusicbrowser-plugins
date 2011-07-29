@@ -40,6 +40,8 @@ Albumrandom calculates average randoms on your albums based on currently selecte
 
 * Show notifications: Shows notifications
 
+* Remember and restore playmode: Takes note of your current playmode when calculating DB (first time, forced or as a timed update) and returns to that after Albumrandom is shut down. This can happen either by setting Infinite Mode OFF or manually selecting track outside Albumrandoms current album.
+
 * Multiple random: You can switch amount of albums and playlist, where they are stored (Please note that there is a bug in gmb which requires you to close and re-open playlist to see its contents! Fixed in gmusicbrowsers GIT 2011-07-13)
 
 ** Important to note

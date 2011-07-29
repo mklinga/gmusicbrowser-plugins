@@ -24,8 +24,6 @@ desc	Albumrandom plays albums according to set weighted random.
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
 
 #TODO
-#handle playmodes (esp. shuffle) better
-
 
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
@@ -38,7 +36,7 @@ use constant
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, writestats => 1, infinite => 1, shownotifications => 0, recalculate_time => 12, recalculate => 1
-, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3);
+, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3, rememberplaymode => 1);
 
 my $ON=0;
 
@@ -46,7 +44,8 @@ my %arb2=
 (	class	=> 'Layout::Button',
 	state	=> sub {$ON==1? 'albumrandom_on' : 'albumrandom_off'},
 	stock	=> {albumrandom_on => 'plugin-albumrandom-on', albumrandom_off => 'plugin-albumrandom' },
-	tip	=> "Albumrandom",	click1	=> \&CalculateButton,
+	tip	=> " Albumrandom v.2 \n LClick - generate new random album \n MClick - Re-update Database \n RClick - Toggle Infinite Mode ON/OFF",	
+	click1	=> \&CalculateButton,
 	click2	=> \&RecalculateButton,
 	click3 => \&ToggleInfinite,
 	autoadd_type	=> 'button main',
@@ -88,7 +87,6 @@ sub Start
 }
 sub Stop
 {
-	Log("*** Shutting down Albumrandom ***");
 	$ON=0;
 	::HasChanged('AlbumrandomOn');
 	$notify=undef;
@@ -105,6 +103,7 @@ sub prefbox
 	my $check2=::NewPrefCheckButton(OPT."infinite",'Infinite mode',horizontal=>1);
 	my $check3=::NewPrefCheckButton(OPT."shownotifications",'Show notifications',horizontal=>1);
 	my $check4=::NewPrefCheckButton(OPT."requireallinfilter",'Require all tracks of album in filter',horizontal=>1);	
+	my $check5=::NewPrefCheckButton(OPT."rememberplaymode",'Remember & restore original playmode after Albumrandom finishes',horizontal=>1);
 	
 	my $button=Gtk2::Button->new();
 	$button->signal_connect(clicked => \&GenerateRandomAlbum);
@@ -128,7 +127,7 @@ sub prefbox
 	my $albumlabel1=Gtk2::Label->new('Multiple random: Generate ');
 	my $albumlabel2=Gtk2::Label->new(' albums to ');
 	
-	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$topcheck,$checkn,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2]);
+	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2]);
 	$fi->add(::LogView($Log));
 	
 	return $fi;
@@ -167,10 +166,7 @@ sub Changed
 		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
 		else { Log("Couldn't update - no suitable albumID left.");}
 		Log("Trying to revert original playmode...");
-		if (($originalMode == 0) and ($::RandomMode)) { Log("Setting playmode straight"); ::ToggleSort;}
-		elsif (($originalMode == 1) and (!($::RandomMode))) { Log("Setting playmode to Random"); ::ToggleSort;}
-		elsif ($originalMode == -1) { Log("Couldn't find original playmode"); }
-		else {Log("Original playmode already set");} 
+		RestorePlaymode();
 		return;
 	}
 	
@@ -185,14 +181,12 @@ sub Changed
 			#no more albums to play
 			$ON = 0; 
 			::HasChanged('AlbumrandomOn');
-			Log("No infinite mode - checking original playmode!");
-			if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
-			elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
+			Log("No infinite mode - just checking about restoring playmode");
+			RestorePlaymode();
 			Log("*** No more albums to play - shutting plugin off ***");
 			return;
 		}
 	}
-
 	
 	WriteStats();
 }
@@ -202,6 +196,7 @@ sub Notify
 
 	return if ($ON == 0);
 	return if ($::Options{OPT.'shownotifications'} == 0); 
+	return if (not defined $notify_text);
 	
 	if (not defined $notify)
 	{
@@ -214,12 +209,11 @@ sub Notify
 		$can_actions=	grep $_ eq 'actions',	@caps;
 	}
 
-	return if (not defined $notify_text);
-
 	my $notify_header = "Albumrandom";
 	$notify->update($notify_header,$notify_text);
 	$notify->set_timeout(4000);
 	$notify->show;
+	return 1;
 }
 
 sub Log
@@ -230,6 +224,22 @@ sub Log
 	if (my $iter=$Log->iter_nth_child(undef,5000)) { $Log->remove($iter); }
 	
 	$logContent .= localtime().' '.$text."\n";
+}
+
+sub RestorePlaymode
+{
+	if ($::Options{OPT.'rememberplaymode'} == 1)
+	{
+		if (($originalMode == 0) and ($::RandomMode)) { Log("Setting playmode straight"); ::ToggleSort;}
+		elsif (($originalMode == 1) and (!($::RandomMode))) { Log("Setting playmode to Random"); ::ToggleSort;}
+		elsif (($originalMode == 2) and ($::RandomMode)) { Log("Setting playmode straight & shuffle"); ::ToggleSort; ::Shuffle;}
+		elsif (($originalMode == 2) and (!($::RandomMode))) { Log("Shufflin' up the playlist"); ::Shuffle;}
+		elsif ($originalMode == -1) { Log("Couldn't find original playmode"); }
+		else {Log("Original playmode is already set");}
+	}
+	else {return 0;}
+	
+	return 1;
 }
 
 sub CalculateButton
@@ -307,11 +317,9 @@ sub CalculateDB
 	
 	if ($::RandomMode)
 	{
-		if ($originalMode == -1)
-		{
-			Log("Found RandomMode - setting originalMode to \'1\'");
-			$originalMode = 1;
-		}
+		Log("Found RandomMode - setting originalMode to \'1\'");
+		$originalMode = 1;
+
 		#calculate random values according to selected mode
 		foreach my $key (@$al)
 		{
@@ -330,15 +338,12 @@ sub CalculateDB
 	}
 	else #straight playmode -> treat every album as equal
 	{
-		if ($originalMode == -1)
-		{
-			Log("No RandomMode selected - setting originalMode to zero");
-			$originalMode = 0;
-		}
+		Log("No RandomMode selected - setting originalMode to \'0\'");
+		if ($::Options{Sort}=~m/shuffle/) {$originalMode = 2;}
+		else {$originalMode = 0;}
 		
 		foreach my $a (@$al) {push @albumPropabilities,1;}
 		$totalPropability = scalar@$al;
-		
 	}
 
 	Log("Total propability seems to be ".sprintf("%.3f (avg ~ %.3f)",$totalPropability,($totalPropability/scalar@$al)));
@@ -444,7 +449,7 @@ sub CalculateAlbum
 			if ($tp > $r)
 			{
 				push @foundAlbums, $okA;
-				Log ("Found ".scalar@foundAlbums.". random album!");
+				Log (scalar@foundAlbums.": Found random album!");
 				last; 
 			}
 		}
@@ -472,7 +477,7 @@ sub CalculateAlbum
 	if ($::RandomMode || $::Options{Sort}=~m/shuffle/)
 	{
 		Log('Changing playmode to \'straight\'');
-		::Select('sort' => 'album_artist album track');
+		::Select('sort' => 'album_artist year album disc track');
 	}
 	::Enqueue($firstSong);
 	
