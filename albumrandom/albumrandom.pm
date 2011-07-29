@@ -167,9 +167,10 @@ sub Changed
 		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
 		else { Log("Couldn't update - no suitable albumID left.");}
 		Log("Trying to revert original playmode...");
-		if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
-		elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
-		else {Log("Couldn't find original playmode :(");} 
+		if (($originalMode == 0) and ($::RandomMode)) { Log("Setting playmode straight"); ::ToggleSort;}
+		elsif (($originalMode == 1) and (!($::RandomMode))) { Log("Setting playmode to Random"); ::ToggleSort;}
+		elsif ($originalMode == -1) { Log("Couldn't find original playmode"); }
+		else {Log("Original playmode already set");} 
 		return;
 	}
 	
@@ -306,10 +307,11 @@ sub CalculateDB
 	
 	if ($::RandomMode)
 	{
-		Log("Found RandomMode - setting originalMode to \'1\'");
-
-		$originalMode = 1;
-		
+		if ($originalMode == -1)
+		{
+			Log("Found RandomMode - setting originalMode to \'1\'");
+			$originalMode = 1;
+		}
 		#calculate random values according to selected mode
 		foreach my $key (@$al)
 		{
@@ -328,9 +330,11 @@ sub CalculateDB
 	}
 	else #straight playmode -> treat every album as equal
 	{
-		Log("No RandomMode selected - setting originalMode to zero");
-		 
-		$originalMode = 0;
+		if ($originalMode == -1)
+		{
+			Log("No RandomMode selected - setting originalMode to zero");
+			$originalMode = 0;
+		}
 		
 		foreach my $a (@$al) {push @albumPropabilities,1;}
 		$totalPropability = scalar@$al;
@@ -367,41 +371,32 @@ sub CalculateAlbum
 	my @okAlbums = ();
 	
 	my $songlist = $::ListPlay; 
-	my @new_keys = ();
 	
-	#if we want only top albums, we must arrange albumtable so that bigger values are in the top (aka sort descending by propability)
+	my @indices = 1..$#$albumkeys;
+	
+	#sort indices decreasing by propability if selected 'topalbums'
 	if ($::Options{OPT.'topalbumsonly'} == 1)
 	{
 		$albumAmount = $::Options{OPT.'topalbumamount'};
-	
-		my @sorted_indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..(scalar@$propabilities-1);
-		$#sorted_indices= ($albumAmount-1) if $#sorted_indices > ($albumAmount-1);
-		@new_keys = map $albumkeys->[$_], @sorted_indices;		
-
-		Log("Calculated top albums (rearranged and truncated tables) - we now have ".scalar@new_keys." keys.");
+		@indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..(scalar@$propabilities-1);
+		Log("Calculated top albums (rearranged index table)");
 		Log("Set albumlimit to ".$albumAmount." top albums");
-	}	
+	}
 
-	#then we find out which albums are 'ok' to choose
+	#we find out which albums are 'ok' to choose (due to filtering/playlist)
 	#don't put previously selected album to okTable, to prevent from playing same album twice in a row
 	my $current = -1;
 	my $totalPropability = 0;
-	
 	foreach my $alb (@$albumkeys)
 	{
 		$current++;
-		if (scalar@new_keys != 0)
-		{
-			my $inTop = 0;
-			foreach my $tops (@new_keys) { if ($alb == $tops) {$inTop = 1;} }
-			if ($inTop == 0) {next;}
-		}
-		if ($current != $previous)
+		
+		if ($indices[$current] != $previous)
 		{
 			if ($songlist == $::Library)
 			{
-					push @okAlbums, $current;
-					$totalPropability += $propabilities->[$current]; 
+					push @okAlbums, $indices[$current];
+					$totalPropability += $propabilities->[$indices[$current]];
 			}
 			else
 			{
@@ -410,20 +405,17 @@ sub CalculateAlbum
 				
 				if ((($::Options{OPT.'requireallinfilter'} == 1) and (scalar@$inFilter == scalar@$aID)) or (($::Options{OPT.'requireallinfilter'} == 0) and (scalar@$inFilter > 0))) 
 				{
-					push @okAlbums, $current;
-					$totalPropability += $propabilities->[$current]; 
+					push @okAlbums, $indices[$current];
+					$totalPropability += $propabilities->[$indices[$current]];
 				}
 			}
 		}
-
-		#$albumAmount defaults to -1, if 'topalbumsonly' isn't selected
-		if (scalar@okAlbums == $albumAmount) { Log("Enough albums found for okAlbums, skipping rest"); last; }
+		if (scalar@okAlbums == $albumAmount) {Log("Found enough album for top list"); last; }
 	}
 	
-
-	if ($totalPropability == 0) { Log("Error! \$totalPropability == 0 in CalculateAlbum"); return 0;}
 	if (scalar@okAlbums == 0)  { Log("Error! No okAlbums in CalculateAlbum"); return 0;}
-
+	if ($totalPropability == 0) { Log("Error! \$totalPropability == 0 in CalculateAlbum"); return 0;}
+	
 	Log("Generating from ".scalar@okAlbums." albums");
 	Log(sprintf("Average propability for an album is ~ %.3f",($totalPropability/scalar@okAlbums)));
 	
