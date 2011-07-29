@@ -24,8 +24,7 @@ desc	Albumrandom plays albums according to set weighted random.
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
 
 #TODO
-#change button icon (if possible?)
-#handle shuffle better?
+#handle playmodes (esp. shuffle) better
 
 
 package GMB::Plugin::ALBUMRANDOM;
@@ -45,13 +44,13 @@ my $ON=0;
 
 my %arb2=
 (	class	=> 'Layout::Button',
-	state	=> sub {$ON==1? 'inf_on' : 'inf_off'},
-	stock	=> {inf_on => 'plugin-albumrandom-on', inf_off => 'plugin-albumrandom' },
+	state	=> sub {$ON==1? 'albumrandom_on' : 'albumrandom_off'},
+	stock	=> {albumrandom_on => 'plugin-albumrandom-on', albumrandom_off => 'plugin-albumrandom' },
 	tip	=> "Albumrandom",	click1	=> \&CalculateButton,
 	click2	=> \&RecalculateButton,
 	click3 => \&ToggleInfinite,
 	autoadd_type	=> 'button main',
-	event	=> 'InfiniteOn',
+	event	=> 'AlbumrandomOn',
 );
 
 use base 'Gtk2::Box';
@@ -66,7 +65,6 @@ my $notify;
 my ($Daemon_name,$can_actions,$can_body);
 
 my $handle;
-my $handle2;
 my $IDs = ();
 my $logContent = '';
 my $lastSong = -1;
@@ -85,26 +83,28 @@ sub Start
 
 	Layout::RegisterWidget(Albumrandom=>\%arb2);
 	
-	$notify=Gtk2::Notify->new('empty','empty');
-	my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
-	$Daemon_name= "$name $version ($vendor)";
-	my @caps = Gtk2::Notify->get_server_caps;
-	$can_body=	grep $_ eq 'body',	@caps;
-	$can_actions=	grep $_ eq 'actions',	@caps;
+	if ($::Options{OPT.'shownotifications'} == 1)
+	{
+		$notify=Gtk2::Notify->new('empty','empty');
+		my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
+		$Daemon_name= "$name $version ($vendor)";
+		my @caps = Gtk2::Notify->get_server_caps;
+		$can_body=	grep $_ eq 'body',	@caps;
+		$can_actions=	grep $_ eq 'actions',	@caps;
+	}
 
 	$handle={};	#the handle to the Watch function must be a hash ref, if it is a Gtk2::Widget, UnWatch will be called when the widget is destroyed
-	::Watch($handle, PlayingSong	=> \&Changed);
-	::Watch($handle2, Save	=> \&WriteStats);
+	::Watch($handle, PlayingSong	=> \&Changed, Save	=> \&WriteStats);
 }
 sub Stop
 {
 	Log("*** Shutting down Albumrandom ***");
 	$ON=0;
-	::HasChanged('InfiniteOn');
+	::HasChanged('AlbumrandomOn');
 	$notify=undef;
 	Layout::RegisterWidget('Albumrandom');
 	::UnWatch($handle,'PlayingSong');
-	::UnWatch($handle2,'Save');
+	::UnWatch($handle,'Save');
 }
 
 sub prefbox
@@ -162,24 +162,29 @@ sub Changed
 	}
 
 	my $al;
-	if ($oldSelected != -1) { $al = AA::GetIDs('album',$IDs->[0]->[$oldSelected]); }
-	else {$al = AA::GetIDs('album',$IDs->[0]->[$selected]);}
+	if ($oldSelected != -1) { $al = AA::GetIDs('album',$IDs->[0][$oldSelected]); }
+	else {$al = AA::GetIDs('album',$IDs->[0][$selected]);}
 	my $isInAlbum=0;
 	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
 
 	if ($isInAlbum == 0) 
 	{ 
 		$ON = 0; 
-		::HasChanged('InfiniteOn'); 
+		::HasChanged('AlbumrandomOn'); 
 		Log("*** Manual change noted ***");
 		Log("Trying to update last good album...");
 		if ($selected != -1){ UpdateAlbumFromID($selected);}
 		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
 		else { Log("Couldn't update - no suitable albumID left.");}
-		
+		Log("Trying to revert original playmode...");
+		if ($originalMode != -1)
+		{
+			if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
+			elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
+		}
+		else {Log("Couldn't find original playmode :(");} 
 		return;
 	}
-
 	
 	if ($::SongID == $lastSong)
 	{
@@ -191,7 +196,7 @@ sub Changed
 		{
 			#no more albums to play
 			$ON = 0; 
-			::HasChanged('InfiniteOn');
+			::HasChanged('AlbumrandomOn');
 			Log("No infinite mode - checking original playmode!");
 			if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
 			elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
@@ -246,7 +251,7 @@ sub ToggleInfinite
 sub GenerateMultipleAlbums
 {
 	$ON = 1;
-	::HasChanged('InfiniteOn');
+	::HasChanged('AlbumrandomOn');
 	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
 	
 	my $res = CalculateAlbum($::Options{OPT.'multipleamount'});
@@ -261,7 +266,7 @@ sub GenerateMultipleAlbums
 sub GenerateRandomAlbum
 {
 	$ON = 1;
-	::HasChanged('InfiniteOn');
+	::HasChanged('AlbumrandomOn');
 	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
 	if (CalculateAlbum() == 0) { Log("CalculateAlbum FAILED"); return;};
 
@@ -331,7 +336,7 @@ sub CalculateDB
 		
 	}
 
-	Log("Total propability seems to be ".sprintf("%.3f",$totalPropability));
+	Log("Total propability seems to be ".sprintf("%.3f (avg ~ %.3f)",$totalPropability,($totalPropability/scalar@$al)));
 	@$IDs = (\@$al,\@albumPropabilities);
 
 	$lastDBUpdate = time;
@@ -344,7 +349,9 @@ sub CalculateAlbum
 {
 	my $wanted = $_[0] if ($_[0]);
 	
-	if (not defined $wanted) { $wanted = 1; Log("Set \$wanted to \'1\'");}
+	if (not defined $wanted) { $wanted = 1; }
+	
+	Log("Calculating for ".$wanted." random album");
 	
 	return if ($ON == 0);
 	return Log("No IDs") unless @$IDs;
@@ -363,22 +370,14 @@ sub CalculateAlbum
 	#if we want only top albums, we must arrange albumtable so that bigger values are in the top (aka sort descending by propability)
 	if ($::Options{OPT.'topalbumsonly'} == 1)
 	{
-		my @c = ();
-		for (my $aa=0;$aa<scalar@$albumkeys;$aa++) { push @c, (join "\t",$propabilities->[$aa],$albumkeys->[$aa]);}
-
-		@$albumkeys = @$propabilities = ();
-		@c = sort { $b cmp $a } @c;
-	
-		foreach my $dd (@c) 
-		{
-			my @e = split /\t/, $dd;
-			push @$propabilities,$e[0];
-			push @$albumkeys,$e[1];
-		}
-		
 		$albumAmount = $::Options{OPT.'topalbumamount'};
-		
-		Log("Calculated top albums (rearranged tables)");
+	
+		my @sorted_indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..scalar@$propabilities;
+		$#sorted_indices= ($albumAmount-1) if $#sorted_indices > ($albumAmount-1);
+		@$propabilities = map $propabilities->[$_], @sorted_indices;
+		@$albumkeys = map $albumkeys->[$_], @sorted_indices;		
+
+		Log("Calculated top albums (rearranged and truncated tables) - we now have ".scalar@$albumkeys." keys and ".scalar@$propabilities." props.");
 		Log("Set albumlimit to ".$albumAmount." top albums");
 	}	
 
@@ -400,11 +399,9 @@ sub CalculateAlbum
 			else
 			{
 				my $aID = AA::GetIDs('album',$alb);
-				my $inFilter = 0;
-				foreach my $trk (@$aID)	{
-					if (::IDIsInList($songlist,$trk)) {	$inFilter++; }
-				}
-				if ((($::Options{OPT.'requireallinfilter'} == 1) and ($inFilter == scalar@$aID)) or (($::Options{OPT.'requireallinfilter'} == 0) and ($inFilter > 0))) 
+				my $inFilter = $songlist->AreIn($aID);
+				
+				if ((($::Options{OPT.'requireallinfilter'} == 1) and (scalar@$inFilter == scalar@$aID)) or (($::Options{OPT.'requireallinfilter'} == 0) and (scalar@$inFilter > 0))) 
 				{
 					push @okAlbums, $current;
 					$totalPropability += $propabilities->[$current]; 
@@ -421,6 +418,7 @@ sub CalculateAlbum
 	if (scalar@okAlbums == 0)  { Log("Error! No okAlbums in CalculateAlbum"); return 0;}
 
 	Log("Generating from ".scalar@okAlbums." albums");
+	Log(sprintf("Average propability for an album is ~ %.3f",($totalPropability/scalar@okAlbums)));
 	
 	if (($wanted > 1) and (scalar@okAlbums <= $wanted)) 
 	{ 
@@ -461,11 +459,11 @@ sub CalculateAlbum
 	#otherwise our only selected album should be in foundAlbums[0]
 	$selected = $foundAlbums[0];
 	
-	my $al = AA::GetIDs('album',$IDs->[0]->[$selected]);
+	my $al = AA::GetIDs('album',$IDs->[0][$selected]);
 	Log("Selected album: ".Songs::Get(@$al->[0],'album'));
-	Log("propability for selected: ".$IDs->[1]->[$selected]);
+	Log("propability for selected: ".$IDs->[1][$selected]);
 	
-	Songs::SortList($al,'track file');
+	Songs::SortList($al,'disc track file');
 	my $firstSong = @$al->[0];
 	$lastSong = @$al->[scalar@$al-1]; 
 	
@@ -487,8 +485,6 @@ sub UpdateAlbumFromID
 {
 	my $albumID = $_[0];
 
-	return if ($ON == 0);
-	
 	Log("Starting Album Update");
 	
 	my $rmtoggled = 0;
@@ -500,8 +496,8 @@ sub UpdateAlbumFromID
 		$rmtoggled = 1;
 	}
 	
-	my $al = AA::GetIDs('album',$IDs->[0]->[$albumID]);
-	Log("Old propability for ".Songs::Get(@$al->[0],'album').": ".$IDs->[1]->[$albumID]);
+	my $al = AA::GetIDs('album',$IDs->[0][$albumID]);
+	Log("Old propability for ".Songs::Get(@$al->[0],'album').": ".$IDs->[1][$albumID]);
 	
 	my $curPropability = 0; 
 	if ($::RandomMode) {
@@ -511,7 +507,7 @@ sub UpdateAlbumFromID
 	}
 	else {$curPropability = 1; Log("Updating with Straight Mode"); }
 	
-	$IDs->[1]->[$albumID] = $curPropability;
+	$IDs->[1][$albumID] = $curPropability;
 		
 	Log("Updated new propability for ".Songs::Get(@$al->[0],'album').": ".sprintf("%.3f",$curPropability));
 	
@@ -528,7 +524,7 @@ sub MultipleAlbums()
 	my @trackIDs = ();
 	foreach my $alr (@$albumlistref)
 	{
-		my $al = AA::GetIDs('album',$IDs->[0]->[$alr]);
+		my $al = AA::GetIDs('album',$IDs->[0][$alr]);
 		foreach my $trc (@$al) { push @trackIDs,$trc;}
 	}
 	
