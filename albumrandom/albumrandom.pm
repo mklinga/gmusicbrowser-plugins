@@ -61,7 +61,7 @@ use utf8;
 my $Logfile = $::HomeDir.'albumrandom.log';
 my $Log=Gtk2::ListStore->new('Glib::String');
 
-my $notify;
+my $notify=undef;
 my ($Daemon_name,$can_actions,$can_body);
 
 my $handle;
@@ -83,16 +83,6 @@ sub Start
 
 	Layout::RegisterWidget(Albumrandom=>\%arb2);
 	
-	if ($::Options{OPT.'shownotifications'} == 1)
-	{
-		$notify=Gtk2::Notify->new('empty','empty');
-		my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
-		$Daemon_name= "$name $version ($vendor)";
-		my @caps = Gtk2::Notify->get_server_caps;
-		$can_body=	grep $_ eq 'body',	@caps;
-		$can_actions=	grep $_ eq 'actions',	@caps;
-	}
-
 	$handle={};	#the handle to the Watch function must be a hash ref, if it is a Gtk2::Widget, UnWatch will be called when the widget is destroyed
 	::Watch($handle, PlayingSong	=> \&Changed, Save	=> \&WriteStats);
 }
@@ -177,11 +167,8 @@ sub Changed
 		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
 		else { Log("Couldn't update - no suitable albumID left.");}
 		Log("Trying to revert original playmode...");
-		if ($originalMode != -1)
-		{
-			if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
-			elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
-		}
+		if (($originalMode == 0) and ($::RandomMode)) { ::ToggleSort;}
+		elsif (($originalMode == 1) and (!($::RandomMode))) { ::ToggleSort;}
 		else {Log("Couldn't find original playmode :(");} 
 		return;
 	}
@@ -210,10 +197,24 @@ sub Changed
 }
 sub Notify
 {
+	my $notify_text = $_[0] if $_[0];
+
 	return if ($ON == 0);
 	return if ($::Options{OPT.'shownotifications'} == 0); 
 	
-	my $notify_text = $_[0];
+	if (not defined $notify)
+	{
+		Log("Initializing notify");
+		$notify=Gtk2::Notify->new('empty','empty');
+		my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
+		$Daemon_name= "$name $version ($vendor)";
+		my @caps = Gtk2::Notify->get_server_caps;
+		$can_body=	grep $_ eq 'body',	@caps;
+		$can_actions=	grep $_ eq 'actions',	@caps;
+	}
+
+	return if (not defined $notify_text);
+
 	my $notify_header = "Albumrandom";
 	$notify->update($notify_header,$notify_text);
 	$notify->set_timeout(4000);
