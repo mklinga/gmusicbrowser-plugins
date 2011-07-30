@@ -24,6 +24,7 @@ desc	Albumrandom plays albums according to set weighted random.
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
 
 #TODO
+#don't write stats if nothing has changed?
 
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
@@ -136,6 +137,8 @@ sub prefbox
 sub Changed
 {
 	return Log("Tried to change with same ID twice!") if ($oldID == $::SongID);
+	
+	$oldID = $::SongID;
 	
 	#this has to be here, because it might get called even after plugin has shut down (e.g. when infinite mode is OFF, and album is played through)
 	if ($oldSelected != -1)
