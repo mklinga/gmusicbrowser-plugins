@@ -395,6 +395,8 @@ sub CalculateAlbum
 		
 		if ($indices[$current] != $previous)
 		{
+			my $aID = AA::GetIDs('album', $albumkeys->[$indices[$current]]);
+
 			if ($songlist == $::Library)
 			{
 					push @okAlbums, $indices[$current];
@@ -402,7 +404,6 @@ sub CalculateAlbum
 			}
 			else
 			{
-				my $aID = AA::GetIDs('album',$alb);
 				my $inFilter = $songlist->AreIn($aID);
 				
 				if ((($::Options{OPT.'requireallinfilter'} == 1) and (scalar@$inFilter == scalar@$aID)) or (($::Options{OPT.'requireallinfilter'} == 0) and (scalar@$inFilter > 0))) 
@@ -411,6 +412,13 @@ sub CalculateAlbum
 					$totalPropability += $propabilities->[$indices[$current]];
 				}
 			}
+
+			if (($::Options{OPT.'topalbumsonly'} == 1) and ($current<10))
+			{
+				if ($current == 0) { Log("Top albums");}
+				Log(sprintf("%d. %s (%.3f)",($current+1),Songs::Get($aID->[0],'album'),$propabilities->[$indices[$current]]));
+			} 	
+
 		}
 		if (scalar@okAlbums == $albumAmount) {Log("Found enough album for top list"); last; }
 	}
@@ -420,6 +428,7 @@ sub CalculateAlbum
 	
 	Log("Generating from ".scalar@okAlbums." albums");
 	Log(sprintf("Average propability for an album is ~ %.3f",($totalPropability/scalar@okAlbums)));
+	
 	
 	if (($wanted > 1) and (scalar@okAlbums <= $wanted)) 
 	{ 
@@ -544,7 +553,7 @@ sub WriteStats()
 	
 	print $logContent;
 	
-	Notify("Stats have been written to ".$Logfile);
+	Log("*** Stats have been written to ".$Logfile." ***");
 }
 
 1 #the file must return true
