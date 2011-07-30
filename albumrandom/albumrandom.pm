@@ -24,7 +24,6 @@ desc	Albumrandom plays albums according to set weighted random.
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
 
 #TODO
-#don't write stats if nothing has changed?
 
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
@@ -69,6 +68,7 @@ my $IDs = ();
 my $logContent = '';
 my $lastSong = -1;
 my $originalMode=-1;
+my $logHasChanged = 0;
 
 my $selected=-1;
 my $oldSelected = -1;
@@ -148,13 +148,14 @@ sub Changed
 		Log("Reset old selection");
 	}
 
-	return if ($selected == -1);#no business here, if haven't selected an album	
+	return if ($selected == -1);#no other business here, if haven't selected an album	
 
 	my $al = AA::GetIDs('album',$IDs->[0][$selected]);
 	my $isInAlbum=0;
 	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
 
-	if ($isInAlbum == 0) 
+	#our album might still be in the queue, so rule that option out before declaring manual mode...
+	if (($isInAlbum == 0) and (scalar@$::Queue == 0))
 	{ 
 		$ON = 0; 
 		::HasChanged('AlbumrandomOn'); 
@@ -224,6 +225,7 @@ sub Log
 	if (my $iter=$Log->iter_nth_child(undef,5000)) { $Log->remove($iter); }
 	
 	$logContent .= localtime().' '.$text."\n";
+	$logHasChanged = 1;
 }
 
 sub RestorePlaymode
@@ -549,14 +551,18 @@ sub WriteStats()
 {
 	return 'no logfile' unless defined $Logfile;
 	return 'statwriting not enabled' if ($::Options{OPT.'writestats'} == 0);
+	return if ($logHasChanged == 0);
+
+	Log("*** Stats have been written to ".$Logfile." ***");
 
 	open my $fh,'>',$Logfile or warn "Error opening '$Logfile' for writing : $!\n";
 	print $fh $logContent   or warn "Error writing to '$Logfile' : $!\n";
 	close $fh;
 	
 	print $logContent;
+
+	$logHasChanged = 0;
 	
-	Log("*** Stats have been written to ".$Logfile." ***");
 }
 
 1 #the file must return true
