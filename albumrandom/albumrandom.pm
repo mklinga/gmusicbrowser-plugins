@@ -136,23 +136,18 @@ sub prefbox
 sub Changed
 {
 	return Log("Tried to change with same ID twice!") if ($oldID == $::SongID);
-	return if ($selected == -1);#no business here, if haven't selected an album	
 	
-	Log("Playing song changed from ".$oldID." to ".$::SongID);
-	$oldID = $::SongID;
-	
-	
-	#this has to be before checking if song is last from album, so we don't update until the last song has finished playing
+	#this has to be here, because it might get called even after plugin has shut down (e.g. when infinite mode is OFF, and album is played through)
 	if ($oldSelected != -1)
 	{
 		UpdateAlbumFromID($oldSelected);
 		$oldSelected = -1;
-		Log("Reset \$oldselected to -1");
+		Log("Reset old selection");
 	}
 
-	my $al;
-	if ($oldSelected != -1) { $al = AA::GetIDs('album',$IDs->[0][$oldSelected]); }
-	else {$al = AA::GetIDs('album',$IDs->[0][$selected]);}
+	return if ($selected == -1);#no business here, if haven't selected an album	
+
+	my $al = AA::GetIDs('album',$IDs->[0][$selected]);
 	my $isInAlbum=0;
 	foreach my $track (@$al) { if ($::SongID == $track) {$isInAlbum = 1;}}
 
@@ -165,6 +160,7 @@ sub Changed
 		if ($selected != -1){ UpdateAlbumFromID($selected);}
 		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
 		else { Log("Couldn't update - no suitable albumID left.");}
+		$selected = -1; #set selected to -1, since we're not playing anything anymore
 		Log("Trying to revert original playmode...");
 		RestorePlaymode();
 		return;
@@ -179,8 +175,9 @@ sub Changed
 		else
 		{
 			#no more albums to play
-			$ON = 0; 
+			$ON = 0;
 			::HasChanged('AlbumrandomOn');
+			$selected = -1;
 			Log("No infinite mode - just checking about restoring playmode");
 			RestorePlaymode();
 			Log("*** No more albums to play - shutting plugin off ***");
