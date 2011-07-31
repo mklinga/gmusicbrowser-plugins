@@ -559,7 +559,7 @@ sub WriteStats()
 	print $fh $logContent   or warn "Error writing to '$Logfile' : $!\n";
 	close $fh;
 	
-	print $logContent;
+	#print $logContent;
 
 	$logHasChanged = 0;
 	
