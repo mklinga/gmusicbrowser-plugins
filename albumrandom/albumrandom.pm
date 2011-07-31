@@ -392,20 +392,19 @@ sub CalculateAlbum
 
 	#we find out which albums are 'ok' to choose (due to filtering/playlist)
 	#don't put previously selected album to okTable, to prevent from playing same album twice in a row
-	my $current = -1;
 	my $totalPropability = 0;
-	foreach my $alb (@$albumkeys)
+	my $oldtop=0;
+	foreach my $indx (@indices)
 	{
-		$current++;
 		
-		if ($indices[$current] != $previous)
+		if ($indx != $previous)
 		{
-			my $aID = AA::GetIDs('album', $albumkeys->[$indices[$current]]);
+			my $aID = AA::GetIDs('album', $albumkeys->[$indx]);
 
 			if ($songlist == $::Library)
 			{
-					push @okAlbums, $indices[$current];
-					$totalPropability += $propabilities->[$indices[$current]];
+					push @okAlbums, $indx;
+					$totalPropability += $propabilities->[$indx];
 			}
 			else
 			{
@@ -413,17 +412,18 @@ sub CalculateAlbum
 				
 				if ((($::Options{OPT.'requireallinfilter'} == 1) and (scalar@$inFilter == scalar@$aID)) or (($::Options{OPT.'requireallinfilter'} == 0) and (scalar@$inFilter > 0))) 
 				{
-					push @okAlbums, $indices[$current];
-					$totalPropability += $propabilities->[$indices[$current]];
+					push @okAlbums, $indx;
+					$totalPropability += $propabilities->[$indx];
 				}
 			}
-
-			if (($::Options{OPT.'topalbumsonly'} == 1) and ($current<10))
+			
+			if (($::Options{OPT.'topalbumsonly'} == 1) and (scalar@okAlbums<=10) and ($oldtop != scalar@okAlbums))
 			{
-				if ($current == 0) { Log("Top albums");}
-				Log(sprintf("%d. %s (%.3f)",($current+1),Songs::Get($aID->[0],'album'),$propabilities->[$indices[$current]]));
+				if (scalar@okAlbums == 1) { Log("Top albums");}
+				Log(sprintf("%d. %s (%.3f)",(scalar@okAlbums),Songs::Get($aID->[0],'album'),$propabilities->[$indx]));
+				$oldtop = scalar@okAlbums;
 			} 	
-
+			
 		}
 		if (scalar@okAlbums == $albumAmount) {Log("Found enough album for top list"); last; }
 	}
@@ -559,8 +559,6 @@ sub WriteStats()
 	print $fh $logContent   or warn "Error writing to '$Logfile' : $!\n";
 	close $fh;
 	
-	#print $logContent;
-
 	$logHasChanged = 0;
 	
 }
