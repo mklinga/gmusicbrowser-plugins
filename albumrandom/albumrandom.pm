@@ -58,6 +58,7 @@ use utf8;
 
 
 my $Logfile = $::HomeDir.'albumrandom.log';
+my $Cachefile = $::HomeDir.'albumrandom.cache';
 my $Log=Gtk2::ListStore->new('Glib::String');
 
 my $notify=undef;
@@ -73,7 +74,7 @@ my $logHasChanged = 0;
 my $selected=-1;
 my $oldSelected = -1;
 my $oldID = -1;
-my $lastDBUpdate;
+my $lastDBUpdate = 0;
 
 sub Start
 {
@@ -252,7 +253,6 @@ sub CalculateButton
 sub RecalculateButton
 {
 	if (CalculateDB(1) != 0) {Notify("Forced DB-update successfull");}
-	WriteStats();
 }
 
 sub ToggleInfinite
@@ -294,7 +294,6 @@ sub CalculateDB
 {
 	my $force = $_[0] if ($_[0]);
 	
-	return if ($ON == 0);
 	if ((not defined $force) and (defined $IDs->[0]))
 	{
 		#don't calculate again, unless it's about time
@@ -305,6 +304,12 @@ sub CalculateDB
 			else {Log("DB already calculated - will update after ".int(0.5+(($updatetime-time)/60))." minutes (timed update)");return 3;}
 		}
 		else {Log("DB already calculated - returning");return 2;}
+	}
+	elsif ((not defined $force) and (not defined $IDs->[0]) and ($::Options{OPT.'recalculate'} == 1))
+	{
+		#load cache if there is any - LoadDBData also checks for $lastDBUpdate and returns 0 if it's time to reupdate properly!
+		if (LoadDBData() == 1) { Log('Loaded cache successfully'); return 1;}
+		else { Log('Cache couldn\'t be loaded or it was too old - calculating the whole DB'); }
 	}
 
 	if (defined $force) {Log("Starting Database calculation (FORCED)");}
@@ -333,7 +338,7 @@ sub CalculateDB
 			$curPropability /= scalar@$list;
 			push @albumPropabilities,$curPropability;
 			
-			Log("Set propability ".sprintf("%.3f",$curPropability)." for ".Songs::Get(@$list->[0],'album'));
+			#Log("Set propability ".sprintf("%.3f",$curPropability)." for ".Songs::Get(@$list->[0],'album'));
 			
 			$totalPropability += $curPropability;
 		}
@@ -353,6 +358,8 @@ sub CalculateDB
 
 	$lastDBUpdate = time;
 	Log("DB succesfully updated");
+	
+	SaveDBData();
 	
 	return 1;
 }
@@ -545,6 +552,99 @@ sub MultipleAlbums()
 	
 	if ($::Options{OPT.'multiplelist'} ne ''){::SaveList($::Options{OPT.'multiplelist'},\@trackIDs);}
 	else {::SaveList('albumrandom',\@trackIDs);}
+}
+
+sub LoadDBData()
+{
+	return 0 unless defined $Cachefile;
+	return 0 if ($::Options{OPT.'recalculate'} == 0);
+	
+	open my $fh,'<',$Cachefile or return 0;
+	my @lines = <$fh>;
+	close($fh);
+
+	my $lastupdatetime = 0;
+	
+	if (!($lines[0] =~ m/^albumrandomv2\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t find formatID)!"); return 0;}
+
+	if (!($lines[1] =~ m/^(\d+)\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t find updatetime)!"); return 0;}
+	else 
+	{
+		$lastupdatetime = $1;
+		my $hour = int(((time-$lastupdatetime)/3600)+0.5); 
+		my $min = int((((time-$lastupdatetime)%3600)/60)+0.5);
+		Log("Found last update time: ".$lastupdatetime." (That\'s ".$hour."h ".$min." min (".(time-$lastupdatetime).")ago)");
+	} 
+	if (!($lines[2] =~ m/^(.+)\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t parse originalmode)!"); return 0;}
+	else 
+	{
+		my $oldmode = $1;
+		if ($oldmode eq ::ExplainSort($::Options{Sort}))
+		{
+			if ($oldmode =~ m/random/) {$originalMode = 1; }
+			elsif ($oldmode =~ m/shuffle/) {$originalMode = 2; }
+			else { $originalMode = 0;}
+			
+		}
+		else { Log("Current playmode doesn\'t match with cache"); return 0;}
+	}
+
+	my $updatetime = $lastupdatetime + ($::Options{OPT.'recalculate_time'}*3600);
+	if (time > $updatetime) { Log("Cache is too old"); return 0; }
+	else {	$lastDBUpdate = $lastupdatetime;}
+
+	my @prop = ();
+	my @al = ();
+
+	foreach my $line (@lines)
+	{
+		if ($line =~ m/(.+)\t(.+)\t(.+)\n/)
+		{
+			my $list=AA::GetIDs('album',$2);
+			Songs::SortList($list,'disc track file');
+			
+			#filename ($3) works as a confirmating agent here, since IDs may (?) change - If found mismatch return 0;			
+			if ($3 eq Songs::Get($list->[0],'fullfilename'))
+			{
+				push @prop, $1;
+				push @al, $2;
+			}
+			else {Log('filename doesn\'t match!'); return 0;}
+		}
+	}
+	@$IDs = (\@al,\@prop);
+
+	return 1;
+}
+
+sub SaveDBData()
+{
+	return 'no cachefile' unless defined $Cachefile;
+	return 'statwriting not enabled' if ($::Options{OPT.'writestats'} == 0);
+	return 'no data to save' if (not defined $IDs->[0]);
+
+	my $cacheContent = "albumrandomv2\n";
+	$cacheContent .= $lastDBUpdate."\n";
+	$cacheContent .= ::ExplainSort($::Options{Sort})."\n";
+	
+	my $albumkeys = @$IDs->[0];
+	my $propabilities = @$IDs->[1];
+	my $current = -1;
+	foreach my $key (@$albumkeys) 
+	{ 
+		$current++;
+		my $list=AA::GetIDs('album',$key);
+		Songs::SortList($list,'disc track file');
+		$cacheContent .= join "\t",$propabilities->[$current],$key,Songs::Get($list->[0],'fullfilename'); 
+		$cacheContent .= "\n";
+	}
+
+	open my $fh,'>',$Cachefile or warn "Error opening '$Cachefile' for writing : $!\n";
+	print $fh $cacheContent or warn "Error writing to '$Cachefile' : $!\n";
+	close $fh;
+	
+	Log("*** DB has been saved to ".$Cachefile." ***");
+	
 }
 
 sub WriteStats()

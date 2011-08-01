@@ -36,7 +36,7 @@ Albumrandom calculates average randoms on your albums based on currently selecte
 
 * Select only from top Y albums: My personal favourite! No need to listen all those horrible records, just the stuff you like - with weighted random. Top albums are obviously measured by their propability according to your random settings.
 
-* Re-calculate DB after X hours': If checked, plugin will refresh DB every X hours (only when albumrandom is 'on', aka either generating album or Infinite Mode playing)
+* Re-calculate DB after X hours': If checked, plugin will refresh DB every X hours (only when albumrandom is 'on', aka either generating album or Infinite Mode playing). If this is selected, Albumrandom will keep your DB cached between sessions and doesn't update it in the start of gmb session if not enough time has passed since the last update.
 
 * Show notifications: Shows notifications
 
@@ -49,11 +49,14 @@ Albumrandom calculates average randoms on your albums based on currently selecte
 - Albumrandom relies on you having your tags in order! Artist, Album and Tracknumber are needed in order to use plugin as intended.
 - First calculation of DB might take a long time (it takes ~7 seconds for my 37000 tracks), so please be patient before giving up.
 - Unlike in the old version, there is no 'select source' option (or any context menu, for that matter). Albumrandom now automatically uses your current playlist/filter from gmb.
-- Be mindful of your current playmode (weighted random/straight mode)  when updating DB - it's very possible to calculate DB with wrong setting since there is no confirmation. Remember that you can always re-calculate DB by middle-clicking layout button!
+- Be mindful of your current playmode (weighted random/straight mode)  when updating DB - it's very possible to calculate DB with wrong setting since there is no confirmation. Remember that you can always re-calculate DB by middle-clicking layout button after setting wanted playmode.
+- If you want to know what plugin has done, see log in the preferences. It's quite verbose.
 
 ** Caching
 
 Older version of albumrandom had many options for caching, but I found them very ugly and unpractical, so I simplified the whole process. You now have to calculate the whole library when starting to use Albumrandom, and it can automatically refresh this at even intervals  using "re-calculate DB after X hours" - option. Note, that played albums get updated instantly.
+
+Addition: When 'interval re-calculating' is ON, DB is kept cached even between sessions and only updated when enough time has passed.
 
 ** Unknown behaviour
 
