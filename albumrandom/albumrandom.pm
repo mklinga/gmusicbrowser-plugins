@@ -573,17 +573,15 @@ sub LoadDBData()
 		$lastupdatetime = $1;
 		my $hour = int(((time-$lastupdatetime)/3600)+0.5); 
 		my $min = int((((time-$lastupdatetime)%3600)/60)+0.5);
-		Log("Found last update time: ".$lastupdatetime." (That\'s ".$hour."h ".$min." min (".(time-$lastupdatetime).")ago)");
+		Log("Found last update time: ".$lastupdatetime." (That\'s ".$hour."h ".$min." min ago)");
 	} 
-	if (!($lines[2] =~ m/^(.+)\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t parse originalmode)!"); return 0;}
+	if (!($lines[2] =~ m/^(\d+)\t(.+)\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t parse originalmode)!"); return 0;}
 	else 
 	{
-		my $oldmode = $1;
+		my $oldmode = $2;
 		if ($oldmode eq ::ExplainSort($::Options{Sort}))
 		{
-			if ($oldmode =~ m/random/) {$originalMode = 1; }
-			elsif ($oldmode =~ m/shuffle/) {$originalMode = 2; }
-			else { $originalMode = 0;}
+			$originalMode = $1;
 			
 		}
 		else { Log("Current playmode doesn\'t match with cache"); return 0;}
@@ -625,7 +623,7 @@ sub SaveDBData()
 
 	my $cacheContent = "albumrandomv2\n";
 	$cacheContent .= $lastDBUpdate."\n";
-	$cacheContent .= ::ExplainSort($::Options{Sort})."\n";
+	$cacheContent .= $originalMode."\t".::ExplainSort($::Options{Sort})."\n";
 	
 	my $albumkeys = @$IDs->[0];
 	my $propabilities = @$IDs->[1];
