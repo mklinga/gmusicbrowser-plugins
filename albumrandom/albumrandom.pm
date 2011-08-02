@@ -24,6 +24,7 @@ desc	Albumrandom plays albums according to set weighted random.
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
 
 #TODO
+#ask what to do when playmode != old when generating album (option to never ask)
 
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
@@ -36,7 +37,7 @@ use constant
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, writestats => 1, infinite => 1, shownotifications => 0, recalculate_time => 12, recalculate => 1
-, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3, rememberplaymode => 1);
+, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3, rememberplaymode => 1, neveraskwhenplaymodechanged => 0);
 
 my $ON=0;
 
@@ -69,6 +70,7 @@ my $IDs = ();
 my $logContent = '';
 my $lastSong = -1;
 my $originalMode=-1;
+my $originalModeText = '';
 my $logHasChanged = 0;
 
 my $selected=-1;
@@ -121,15 +123,18 @@ sub prefbox
 	
 	my $top_nb=::NewPrefSpinButton(OPT."topalbumamount", 2,5000, step=>1,text1=>_" ", text2=>_" albums");
 	my $topcheck=::NewPrefCheckButton(OPT."topalbumsonly",'Select only from top ', , widget=>$top_nb, horizontal=>1);
-	
+
 	my @list2 = ::GetListOfSavedLists();
 	my $listcombo= ::NewPrefCombo( OPT.'multiplelist', \@list2);
 	
 	my $album_spin=::NewPrefSpinButton(OPT."multipleamount", 1,1000, step=>1, page=>4, wrap=>0);
 	my $albumlabel1=Gtk2::Label->new('Multiple random: Generate ');
 	my $albumlabel2=Gtk2::Label->new(' albums to ');
+
+	my $listcombo2= ::NewPrefCombo( OPT.'playmodechangedanswer', { recalculate => 'Re-calculate DB', useold => 'Use the old DB',});
+	my $nevercheck=::NewPrefCheckButton(OPT."neveraskwhenplaymodechanged",'Don\'t ask me what to do when playmode is different than calculated, just ',widget => $listcombo2,horizontal=>1);
 	
-	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2]);
+	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,$nevercheck,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2]);
 	$fi->add(::LogView($Log));
 	
 	return $fi;
@@ -264,35 +269,63 @@ sub ToggleInfinite
 
 sub GenerateMultipleAlbums
 {
+	my $forceDB = 0;
 	$ON = 1;
-	::HasChanged('AlbumrandomOn');
-	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
+
+	if (HasPlaymodeChanged() == 1) { $forceDB = DBDialog(); }
+	else { $forceDB = 0;}
+
+	if (CalculateDB($forceDB) == 0) { Log("CalculateDB FAILED"); return;};
 	
 	my $res = CalculateAlbum($::Options{OPT.'multipleamount'});
 	if ($res == 0) { Log("CalculateAlbum FAILED"); return;}
 	elsif ($res != 4) { Log("CalculateAlbum returned ".$res." for multiple generation. I wonder why."); return;}
+
+	::HasChanged('AlbumrandomOn');
 
 	Log("Successfully generated multiple albums");
 	
 	WriteStats();
 	return 1;
 }
-sub GenerateRandomAlbum
+sub HasPlaymodeChanged
 {
+	my $success = 0;
+	
+	if ((!($originalModeText eq ::ExplainSort($::Options{Sort}))) and ($originalModeText ne ''))
+	{ 
+		Log('Current playmode ('.::ExplainSort($::Options{Sort}).') is different than DB calculation ('.$originalModeText.')');		
+		return 1; 
+		
+	}
+	else {return 0;}
+	
+}
+sub GenerateRandomAlbum()
+{
+	my $forceDB = 0;
 	$ON = 1;
+
+	if (HasPlaymodeChanged() == 1) { $forceDB = DBDialog(); }
+	else { $forceDB = 0;}
+
+	if (CalculateDB($forceDB) == 0) { Log("CalculateDB FAILED"); $ON=0; return;}
+	if (CalculateAlbum() == 0) { Log("CalculateAlbum FAILED"); $ON=0; return;};
+
 	::HasChanged('AlbumrandomOn');
-	if (CalculateDB() == 0) { Log("CalculateDB FAILED"); return;};
-	if (CalculateAlbum() == 0) { Log("CalculateAlbum FAILED"); return;};
+
 
 	Log("Successfully generated new album");
-	
+
 	WriteStats();
-	return 1;	
+	return 1;
 }
 
 sub CalculateDB
 {
-	my $force = $_[0] if ($_[0]);
+	my $force;
+	
+	if (($_[0]) and ($_[0] == 1))  { $force = 1; }
 	
 	if ((not defined $force) and (defined $IDs->[0]))
 	{
@@ -326,6 +359,7 @@ sub CalculateDB
 	{
 		Log("Found RandomMode - setting originalMode to \'1\'");
 		$originalMode = 1;
+		$originalModeText = ::ExplainSort($::Options{Sort});
 
 		#calculate random values according to selected mode
 		foreach my $key (@$al)
@@ -348,7 +382,8 @@ sub CalculateDB
 		Log("No RandomMode selected - setting originalMode to \'0\'");
 		if ($::Options{Sort}=~m/shuffle/) {$originalMode = 2;}
 		else {$originalMode = 0;}
-		
+		$originalModeText = ::ExplainSort($::Options{Sort});
+				
 		foreach my $a (@$al) {push @albumPropabilities,1;}
 		$totalPropability = scalar@$al;
 	}
@@ -571,9 +606,10 @@ sub LoadDBData()
 	else 
 	{
 		$lastupdatetime = $1;
-		my $hour = int(((time-$lastupdatetime)/3600)+0.5); 
-		my $min = int((((time-$lastupdatetime)%3600)/60)+0.5);
-		Log("Found last update time: ".$lastupdatetime." (That\'s ".$hour."h ".$min." min ago)");
+		my $day = int((time-$lastupdatetime)/86400); 
+		my $hour = int(((time-$lastupdatetime)%86400)/3600);
+		my $min = int(((time-$lastupdatetime)%3600)/60);
+		Log("Found last update time: ".$lastupdatetime." (That\'s ".$day.'d '.$hour."h ".$min."min ago)");
 	} 
 	if (!($lines[2] =~ m/^(\d+)\t(.+)\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t parse originalmode)!"); return 0;}
 	else 
@@ -582,14 +618,14 @@ sub LoadDBData()
 		if ($oldmode eq ::ExplainSort($::Options{Sort}))
 		{
 			$originalMode = $1;
-			
+			$originalModeText = $oldmode;
 		}
 		else { Log("Current playmode doesn\'t match with cache"); return 0;}
 	}
 
 	my $updatetime = $lastupdatetime + ($::Options{OPT.'recalculate_time'}*3600);
 	if (time > $updatetime) { Log("Cache is too old"); return 0; }
-	else {	$lastDBUpdate = $lastupdatetime;}
+	else { Log('Cache is OK - updating in '.($updatetime-time).' seconds'); $lastDBUpdate = $lastupdatetime;}
 
 	my @prop = ();
 	my @al = ();
@@ -643,6 +679,38 @@ sub SaveDBData()
 	
 	Log("*** DB has been saved to ".$Cachefile." ***");
 	
+}
+
+sub DBDialog
+{
+	if ($::Options{OPT.'neveraskwhenplaymodechanged'} == 1)
+	{
+		if ($::Options{OPT.'playmodechangedanswer'} eq 'recalculate') { Log('Re-calculating DB without asking!'); return 1; }
+		else { Log('Using the old DB without asking!'); return 0;}
+	}
+
+	my $text1 = 'Your current playmode is different than original DB calculation.';
+	my $text2 = 'Do you wish to re-calculate DB?';
+	
+	my $dialog = Gtk2::Dialog->new ('DB recalculation confirmation', undef,[qw/modal destroy-with-parent/],'gtk-yes'	=> 'yes', 'gtk-no'	=> 'no');
+	$dialog->set_position('center-always');
+	$dialog->set_border_width(4);
+
+    my $label = Gtk2::Label->new();
+    my $label2 = Gtk2::Label->new();
+   	$label->set_label($text1);
+   	$label2->set_label($text2);
+
+    $dialog->get_content_area ()->add ($label);
+    $dialog->get_content_area ()->add ($label2);
+    $dialog->show_all;
+    
+	my $response = $dialog->run;
+
+  	$dialog->destroy;
+
+  	if ($response eq 'yes') { Log('Re-calculating DB (confirm dialog)'); return 1;}
+  	else {Log('Using the old DB (confirm dialog)'); return 0;}
 }
 
 sub WriteStats()
