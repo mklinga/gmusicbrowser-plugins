@@ -44,6 +44,8 @@ Albumrandom calculates average randoms on your albums based on currently selecte
 
 * Multiple random: You can switch amount of albums and playlist, where they are stored (Please note that there is a bug in gmb which requires you to close and re-open playlist to see its contents! Fixed in gmusicbrowsers GIT 2011-07-13)
 
+* Dont ask me what to do when DB calculated with different playmode: By default, Albumrandom asks if you wish to calculate DB again or use old calculations. You can remove that dialog by setting default value here.
+
 ** Important to note
 
 - Albumrandom relies on you having your tags in order! Artist, Album and Tracknumber are needed in order to use plugin as intended.
