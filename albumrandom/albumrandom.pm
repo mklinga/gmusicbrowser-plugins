@@ -24,7 +24,6 @@ desc	Albumrandom plays albums according to set weighted random.
 # prefbox : returns a Gtk2::Widget used to describe the plugin and set its options
 
 #TODO
-#ask what to do when playmode != old when generating album (option to never ask)
 
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
@@ -37,7 +36,8 @@ use constant
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, writestats => 1, infinite => 1, shownotifications => 0, recalculate_time => 12, recalculate => 1
-, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3, rememberplaymode => 1, neveraskwhenplaymodechanged => 0);
+, requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3, rememberplaymode => 1, neveraskwhenplaymodechanged => 0
+, playmodechangedanswer => 'recalculate');
 
 my $ON=0;
 
@@ -46,7 +46,7 @@ my %arb2=
 	state	=> sub {$ON==1? 'albumrandom_on' : 'albumrandom_off'},
 	stock	=> {albumrandom_on => 'plugin-albumrandom-on', albumrandom_off => 'plugin-albumrandom' },
 	tip	=> " Albumrandom v.2 \n LClick - generate new random album \n MClick - Re-update Database \n RClick - Toggle Infinite Mode ON/OFF",	
-	click1	=> \&CalculateButton,
+	click1	=> \&GenerateRandomAlbum,
 	click2	=> \&RecalculateButton,
 	click3 => \&ToggleInfinite,
 	autoadd_type	=> 'button main',
@@ -114,7 +114,7 @@ sub prefbox
 	$button->set_label("Generate (and enqueue) random album now");
 
 	my $button2=Gtk2::Button->new();
-	$button2->signal_connect(clicked => \&GenerateMultipleAlbums);
+	$button2->signal_connect(clicked => sub { GenerateRandomAlbum($::Options{OPT.'multipleamount'})});
 	$button2->set_label("Generate multiple albums now");
 	
 	my $time_spin=::NewPrefSpinButton(OPT."recalculate_time", 1,168, step=>1, page=>4, wrap=>0);
@@ -250,11 +250,6 @@ sub RestorePlaymode
 	return 1;
 }
 
-sub CalculateButton
-{
-	GenerateRandomAlbum();
-}
-
 sub RecalculateButton
 {
 	if (CalculateDB(1) != 0) {Notify("Forced DB-update successfull");}
@@ -267,27 +262,6 @@ sub ToggleInfinite
 	
 }
 
-sub GenerateMultipleAlbums
-{
-	my $forceDB = 0;
-	$ON = 1;
-
-	if (HasPlaymodeChanged() == 1) { $forceDB = DBDialog(); }
-	else { $forceDB = 0;}
-
-	if (CalculateDB($forceDB) == 0) { Log("CalculateDB FAILED"); return;};
-	
-	my $res = CalculateAlbum($::Options{OPT.'multipleamount'});
-	if ($res == 0) { Log("CalculateAlbum FAILED"); return;}
-	elsif ($res != 4) { Log("CalculateAlbum returned ".$res." for multiple generation. I wonder why."); return;}
-
-	::HasChanged('AlbumrandomOn');
-
-	Log("Successfully generated multiple albums");
-	
-	WriteStats();
-	return 1;
-}
 sub HasPlaymodeChanged
 {
 	my $success = 0;
@@ -303,6 +277,11 @@ sub HasPlaymodeChanged
 }
 sub GenerateRandomAlbum()
 {
+	my $amount;
+	
+	if ($_[0]) { $amount = $_[0]; }
+	else {$amount = 1;}
+	
 	my $forceDB = 0;
 	$ON = 1;
 
@@ -310,12 +289,12 @@ sub GenerateRandomAlbum()
 	else { $forceDB = 0;}
 
 	if (CalculateDB($forceDB) == 0) { Log("CalculateDB FAILED"); $ON=0; return;}
-	if (CalculateAlbum() == 0) { Log("CalculateAlbum FAILED"); $ON=0; return;};
+	if (CalculateAlbum($amount) == 0) { Log("CalculateAlbum FAILED"); $ON=0; return;};
 
 	::HasChanged('AlbumrandomOn');
 
-
-	Log("Successfully generated new album");
+	if ($amount == 1) {Log("Successfully generated new album");}
+	else {Log("Successfully generated multiple albums");}
 
 	WriteStats();
 	return 1;
