@@ -46,7 +46,7 @@ my %arb2=
 	state	=> sub {$ON==1? 'albumrandom_on' : 'albumrandom_off'},
 	stock	=> {albumrandom_on => 'plugin-albumrandom-on', albumrandom_off => 'plugin-albumrandom' },
 	tip	=> " Albumrandom v.2 \n LClick - generate new random album \n MClick - Re-update Database \n RClick - Toggle Infinite Mode ON/OFF",	
-	click1	=> \&GenerateRandomAlbum,
+	click1	=> sub {GenerateRandomAlbum(1);},
 	click2	=> \&RecalculateButton,
 	click3 => \&ToggleInfinite,
 	autoadd_type	=> 'button main',
