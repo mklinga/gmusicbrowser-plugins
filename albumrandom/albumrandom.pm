@@ -77,6 +77,7 @@ my $selected=-1;
 my $oldSelected = -1;
 my $oldID = -1;
 my $lastDBUpdate = 0;
+my $nollalevy=0;
 
 sub Start
 {
@@ -110,7 +111,7 @@ sub prefbox
 	my $check5=::NewPrefCheckButton(OPT."rememberplaymode",'Remember & restore original playmode after Albumrandom finishes',horizontal=>1);
 	
 	my $button=Gtk2::Button->new();
-	$button->signal_connect(clicked => \&GenerateRandomAlbum);
+	$button->signal_connect(clicked => sub {GenerateRandomAlbum(1);});
 	$button->set_label("Generate (and enqueue) random album now");
 
 	my $button2=Gtk2::Button->new();
@@ -346,15 +347,19 @@ sub CalculateDB
 			my $list=AA::GetIDs('album',$key);
 			my $curPropability=0;
 			
-			foreach my $track (@$list) { $curPropability += $::RandomMode->CalcScore($track); }
+			foreach my $track (@$list)	{ 
+				$curPropability += $::RandomMode->CalcScore($track);
+			}
 			
 			$curPropability /= scalar@$list;
 			push @albumPropabilities,$curPropability;
-			
+			if ($curPropability < 0.01) {$nollalevy++;}
+		
 			#Log("Set propability ".sprintf("%.3f",$curPropability)." for ".Songs::Get(@$list->[0],'album'));
 			
 			$totalPropability += $curPropability;
 		}
+		Log($nollalevy." albums that have propability < 0.01!");
 	}
 	else #straight playmode -> treat every album as equal
 	{
@@ -390,8 +395,8 @@ sub CalculateAlbum
 	return Log("No IDs") unless @$IDs;
 	
 	Log("Calculating Album");
-	
 	my $previous = $selected;
+	
 	$selected=-1;
 	my $albumAmount = -1;
 	my $albumkeys = @$IDs->[0];
@@ -400,14 +405,14 @@ sub CalculateAlbum
 	
 	my $songlist = $::ListPlay; 
 	
-	my @indices = 1..$#$albumkeys;
+	my @indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..(scalar@$propabilities-1);
+	Log("Sorted albums' indices");
+
 	
 	#sort indices decreasing by propability if selected 'topalbums'
 	if ($::Options{OPT.'topalbumsonly'} == 1)
 	{
 		$albumAmount = $::Options{OPT.'topalbumamount'};
-		@indices = sort { $propabilities->[$b] <=> $propabilities->[$a] } 0..(scalar@$propabilities-1);
-		Log("Calculated top albums (rearranged index table)");
 		Log("Set albumlimit to ".$albumAmount." top albums");
 	}
 
@@ -417,7 +422,6 @@ sub CalculateAlbum
 	my $oldtop=0;
 	foreach my $indx (@indices)
 	{
-		
 		if ($indx != $previous)
 		{
 			my $aID = AA::GetIDs('album', $albumkeys->[$indx]);
@@ -438,7 +442,7 @@ sub CalculateAlbum
 				}
 			}
 			
-			if (($::Options{OPT.'topalbumsonly'} == 1) and (scalar@okAlbums<=10) and ($oldtop != scalar@okAlbums))
+			if ((scalar@okAlbums<=10) and ($oldtop != scalar@okAlbums))
 			{
 				if (scalar@okAlbums == 1) { Log("Top albums");}
 				Log(sprintf("%d. %s (%.3f)",(scalar@okAlbums),Songs::Get($aID->[0],'album'),$propabilities->[$indx]));
@@ -481,7 +485,7 @@ sub CalculateAlbum
 			if ($tp > $r)
 			{
 				push @foundAlbums, $okA;
-				Log (scalar@foundAlbums.": Found random album!");
+				Log ("Found ".scalar@foundAlbums.". random album (".($current+1)."/".scalar@okAlbums.")");
 				last; 
 			}
 		}
