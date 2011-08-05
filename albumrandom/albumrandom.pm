@@ -77,7 +77,7 @@ my $selected=-1;
 my $oldSelected = -1;
 my $oldID = -1;
 my $lastDBUpdate = 0;
-my $nollalevy=0;
+
 
 sub Start
 {
@@ -135,7 +135,15 @@ sub prefbox
 	my $listcombo2= ::NewPrefCombo( OPT.'playmodechangedanswer', { recalculate => 'Re-calculate DB', useold => 'Use the old DB',});
 	my $nevercheck=::NewPrefCheckButton(OPT."neveraskwhenplaymodechanged",'Don\'t ask me what to do when playmode is different than calculated, just ',widget => $listcombo2,horizontal=>1);
 	
-	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,$nevercheck,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2]);
+	my $tweakcheck=::NewPrefCheckButton(OPT."tweakmode",'Tweak albumrandom',horizontal=>1);
+	my $powerlabel=Gtk2::Label->new('Power: ');
+	my $power=::NewPrefSpinButton(OPT."tweak_power", 1,5, step=>1, wrap=>0);
+	my $multiplelabel=Gtk2::Label->new('Multiple (*100): ');
+	my $multiple=::NewPrefSpinButton(OPT."tweak_multiple", 1,1000, step=>10, wrap=>0);
+	
+	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,$nevercheck,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],
+	[$button,$button2],[$tweakcheck,$powerlabel,$power,$multiplelabel,$multiple]);
+
 	$fi->add(::LogView($Log));
 	
 	return $fi;
@@ -335,7 +343,7 @@ sub CalculateDB
 	my $totalPropability=0;
 	my @albumPropabilities = ();
 	
-	if ($::RandomMode)
+	if (($::RandomMode) or ($originalMode == 1))
 	{
 		Log("Found RandomMode - setting originalMode to \'1\'");
 		$originalMode = 1;
@@ -352,14 +360,18 @@ sub CalculateDB
 			}
 			
 			$curPropability /= scalar@$list;
+			if ($::Options{OPT.'tweakmode'} == 1)
+			{
+				$curPropability = (($curPropability**$::Options{OPT.'tweak_power'})*($::Options{OPT.'tweak_multiple'}/100)); 
+				if ($curPropability > 1) { $curPropability = 1; }
+			}
+			
 			push @albumPropabilities,$curPropability;
-			if ($curPropability < 0.01) {$nollalevy++;}
 		
 			#Log("Set propability ".sprintf("%.3f",$curPropability)." for ".Songs::Get(@$list->[0],'album'));
 			
 			$totalPropability += $curPropability;
 		}
-		Log($nollalevy." albums that have propability < 0.01!");
 	}
 	else #straight playmode -> treat every album as equal
 	{
