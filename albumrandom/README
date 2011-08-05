@@ -46,6 +46,8 @@ Albumrandom calculates average randoms on your albums based on currently selecte
 
 * Dont ask me what to do when DB calculated with different playmode: By default, Albumrandom asks if you wish to calculate DB again or use old calculations. You can remove that dialog by setting default value here.
 
+* Tweakmode: [ADVANCED SETTING] This tweaks albums' random value by formula (original_value^Tweak_power)*(Tweak_multiply/100) = tweaked_value. If you are not too mindful of your random modes distribution/deviation you shouldn't need to enable this.
+
 ** Important to note
 
 - Albumrandom relies on you having your tags in order! Artist, Album and Tracknumber are needed in order to use plugin as intended.
