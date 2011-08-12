@@ -1,9 +1,11 @@
-# Copyright (C) 2005-2009 Quentin Sculo <squentin@free.fr>
+# Gmusicbrowser: Copyright (C) 2005-2011 Quentin Sculo <squentin@free.fr>
+# laiteplay: Copyright (C) 2011- Markus Klinga <laite@gmx.com>
 #
-# This file is part of Gmusicbrowser.
-# Gmusicbrowser is free software; you can redistribute it and/or modify
+# This file is part of laiteplay, an individual fork of Gmusicbrowser.
+# laiteplay is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 3, as
-# published by the Free Software Foundation
+# published by the Free Software Foundation.
+
 
 # the plugin file must have the following block before the first non-comment line,
 # it must be of the format :
@@ -347,6 +349,8 @@ sub CalculateDB
 	{
 		Log("Found RandomMode - setting originalMode to \'1\'");
 		$originalMode = 1;
+		my $toggled = 0;
+		if (!$::RandomMode) { ::ToggleSort; $toggled = 1; }
 		$originalModeText = ::ExplainSort($::Options{Sort});
 
 		#calculate random values according to selected mode
@@ -372,6 +376,8 @@ sub CalculateDB
 			
 			$totalPropability += $curPropability;
 		}
+		if ($toggled == 1) { ::ToggleSort; }
+		
 	}
 	else #straight playmode -> treat every album as equal
 	{
@@ -411,8 +417,8 @@ sub CalculateAlbum
 	
 	$selected=-1;
 	my $albumAmount = -1;
-	my $albumkeys = @$IDs->[0];
-	my $propabilities = @$IDs->[1];
+	my $albumkeys = $IDs->[0];
+	my $propabilities = $IDs->[1];
 	my @okAlbums = ();
 	
 	my $songlist = $::ListPlay; 
@@ -512,12 +518,12 @@ sub CalculateAlbum
 	$selected = $foundAlbums[0];
 	
 	my $al = AA::GetIDs('album',$IDs->[0][$selected]);
-	Log("Selected album: ".Songs::Get(@$al->[0],'album'));
+	Log("Selected album: ".Songs::Get($al->[0],'album'));
 	Log("propability for selected: ".$IDs->[1][$selected]);
 	
 	Songs::SortList($al,'disc track file');
-	my $firstSong = @$al->[0];
-	$lastSong = @$al->[scalar@$al-1]; 
+	my $firstSong = $al->[0];
+	$lastSong = $al->[scalar@$al-1]; 
 	
 	Log("Found first song of the album: ".Songs::Get($firstSong,'title'));
 	Log("Found last song of the album: ".Songs::Get($lastSong,'title'));
@@ -549,7 +555,7 @@ sub UpdateAlbumFromID
 	}
 	
 	my $al = AA::GetIDs('album',$IDs->[0][$albumID]);
-	Log("Old propability for ".Songs::Get(@$al->[0],'album').": ".$IDs->[1][$albumID]);
+	Log("Old propability for ".Songs::Get($al->[0],'album').": ".$IDs->[1][$albumID]);
 	
 	my $curPropability = 0; 
 	if ($::RandomMode) {
@@ -561,7 +567,7 @@ sub UpdateAlbumFromID
 	
 	$IDs->[1][$albumID] = $curPropability;
 		
-	Log("Updated new propability for ".Songs::Get(@$al->[0],'album').": ".sprintf("%.3f",$curPropability));
+	Log("Updated new propability for ".Songs::Get($al->[0],'album').": ".sprintf("%.3f",$curPropability));
 	
 	if ($rmtoggled == 1) {Log("Reverting play mode after update"); ::ToggleSort;}
 	
@@ -656,8 +662,8 @@ sub SaveDBData()
 	$cacheContent .= $lastDBUpdate."\n";
 	$cacheContent .= $originalMode."\t".::ExplainSort($::Options{Sort})."\n";
 	
-	my $albumkeys = @$IDs->[0];
-	my $propabilities = @$IDs->[1];
+	my $albumkeys = $IDs->[0];
+	my $propabilities = $IDs->[1];
 	my $current = -1;
 	foreach my $key (@$albumkeys) 
 	{ 
