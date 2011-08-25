@@ -130,6 +130,18 @@ sub prefbox
 	my @list2 = ::GetListOfSavedLists();
 	my $listcombo= ::NewPrefCombo( OPT.'multiplelist', \@list2);
 	
+	my @p;
+	for my $mode (sort keys %{$::Options{SavedWRandoms}}) { push @p, $mode;}
+	push @p, 'shuffle';
+	my $pmcombo= ::NewPrefCombo( OPT.'randommode', \@p);
+	my $pmlabel=Gtk2::Label->new('For weighting use playmode: ');
+	
+	@p = ();
+	for my $mode (sort keys %{$::Options{SavedSorts}}) { push @p, $mode;}
+	my $pmcombo2= ::NewPrefCombo( OPT.'straightmode', \@p);
+	my $pmlabel2=Gtk2::Label->new('For playing albums use playmode: ');
+
+	
 	my $album_spin=::NewPrefSpinButton(OPT."multipleamount", 1,1000, step=>1, page=>4, wrap=>0);
 	my $albumlabel1=Gtk2::Label->new('Multiple random: Generate ');
 	my $albumlabel2=Gtk2::Label->new(' albums to ');
@@ -143,8 +155,8 @@ sub prefbox
 	my $multiplelabel=Gtk2::Label->new('Multiple (*100): ');
 	my $multiple=::NewPrefSpinButton(OPT."tweak_multiple", 1,1000, step=>10, wrap=>0);
 	
-	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,$nevercheck,[$albumlabel1,$album_spin,$albumlabel2,$listcombo],
-	[$button,$button2],[$tweakcheck,$powerlabel,$power,$multiplelabel,$multiple]);
+	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,$nevercheck,
+	[$pmlabel,$pmcombo],[$pmlabel2,$pmcombo2],[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2],[$tweakcheck,$powerlabel,$power,$multiplelabel,$multiple]);
 
 	$fi->add(::LogView($Log));
 	
@@ -230,7 +242,9 @@ sub Notify
 	my $notify_header = "Albumrandom";
 	$notify->update($notify_header,$notify_text);
 	$notify->set_timeout(4000);
-	$notify->show;
+	eval{$notify->show;};
+	if ($@){warn "Albumrandom ERROR: \$notify didn't evaluate properly!"; Log("\$notify didn't evaluate properly (did you notice something strange? contact laite @ #gmusicbrowser)");};
+	
 	return 1;
 }
 
@@ -243,22 +257,6 @@ sub Log
 	
 	$logContent .= localtime().' '.$text."\n";
 	$logHasChanged = 1;
-}
-
-sub RestorePlaymode
-{
-	if ($::Options{OPT.'rememberplaymode'} == 1)
-	{
-		if (($originalMode == 0) and ($::RandomMode)) { Log("Setting playmode straight"); ::ToggleSort;}
-		elsif (($originalMode == 1) and (!($::RandomMode))) { Log("Setting playmode to Random"); ::ToggleSort;}
-		elsif (($originalMode == 2) and ($::RandomMode)) { Log("Setting playmode straight & shuffle"); ::ToggleSort; ::Shuffle;}
-		elsif (($originalMode == 2) and (!($::RandomMode))) { Log("Shufflin' up the playlist"); ::Shuffle;}
-		elsif ($originalMode == -1) { Log("Couldn't find original playmode"); }
-		else {Log("Original playmode is already set");}
-	}
-	else {return 0;}
-	
-	return 1;
 }
 
 sub RecalculateButton
@@ -277,9 +275,9 @@ sub HasPlaymodeChanged
 {
 	my $success = 0;
 	
-	if ((!($originalModeText eq ::ExplainSort($::Options{Sort}))) and ($originalModeText ne ''))
+	if ((!($originalModeText eq $::Options{OPT.'randommode'})) and ($originalModeText ne ''))
 	{ 
-		Log('Current playmode ('.::ExplainSort($::Options{Sort}).') is different than DB calculation ('.$originalModeText.')');		
+		Log('Current playmode ('.$::Options{OPT.'randommode'}.') is different than DB calculation ('.$originalModeText.')');		
 		return 1; 
 		
 	}
@@ -338,20 +336,20 @@ sub CalculateDB
 	if (defined $force) {Log("Starting Database calculation (FORCED)");}
 	else {Log("Starting Database calculation");}
 	Notify('Calculating DB');
-
 	my $al=AA::GetAAList('album');
 	Log("Found ".scalar@$al." albums");
 
 	my $totalPropability=0;
 	my @albumPropabilities = ();
+	my $randommode = $::Options{SavedWRandoms}{$::Options{OPT.'randommode'}};
+	my $straightmode = $::Options{SavedSorts}{$::Options{OPT.'straightmode'}};
 	
-	if (($::RandomMode) or ($originalMode == 1))
+	if ($::Options{OPT.'randommode'} ne 'shuffle')
 	{
 		Log("Found RandomMode - setting originalMode to \'1\'");
 		$originalMode = 1;
-		my $toggled = 0;
-		if (!$::RandomMode) { ::ToggleSort; $toggled = 1; }
-		$originalModeText = ::ExplainSort($::Options{Sort});
+		::Select(sort => $randommode);
+		$originalModeText = $::Options{OPT.'playmode'};
 
 		#calculate random values according to selected mode
 		foreach my $key (@$al)
@@ -376,19 +374,20 @@ sub CalculateDB
 			
 			$totalPropability += $curPropability;
 		}
-		if ($toggled == 1) { ::ToggleSort; }
+
 		
 	}
-	else #straight playmode -> treat every album as equal
+	else #shuffle -> treat every album as equal
 	{
-		Log("No RandomMode selected - setting originalMode to \'0\'");
-		if ($::Options{Sort}=~m/shuffle/) {$originalMode = 2;}
-		else {$originalMode = 0;}
-		$originalModeText = ::ExplainSort($::Options{Sort});
+		Log("Shuffle selected - setting originalMode to \'0\'");
+		$originalMode = 0;
+		$originalModeText = 'shuffle';
 				
 		foreach my $a (@$al) {push @albumPropabilities,1;}
 		$totalPropability = scalar@$al;
 	}
+
+	::Select(sort => $straightmode);
 
 	Log("Total propability seems to be ".sprintf("%.3f (avg ~ %.3f)",$totalPropability,($totalPropability/scalar@$al)));
 	@$IDs = (\@$al,\@albumPropabilities);
@@ -547,10 +546,10 @@ sub UpdateAlbumFromID
 	
 	my $rmtoggled = 0;
 
-	if (($originalMode == 1) and (!($::RandomMode)))
+	if ($originalMode == 1)
 	{
 		Log("Switching to RandomMode for calculation");
-		::ToggleSort;
+		::Select(sort => $::Options{SavedWRandoms}{$::Options{OPT.'randommode'}});
 		$rmtoggled = 1;
 	}
 	
@@ -569,7 +568,7 @@ sub UpdateAlbumFromID
 		
 	Log("Updated new propability for ".Songs::Get($al->[0],'album').": ".sprintf("%.3f",$curPropability));
 	
-	if ($rmtoggled == 1) {Log("Reverting play mode after update"); ::ToggleSort;}
+	::Select(sort => $::Options{SavedSorts}{$::Options{OPT.'straightmode'}});
 	
 	return 1;
 }
@@ -616,7 +615,7 @@ sub LoadDBData()
 	else 
 	{
 		my $oldmode = $2;
-		if ($oldmode eq ::ExplainSort($::Options{Sort}))
+		if ($oldmode eq $::Options{OPT.'randommode'})
 		{
 			$originalMode = $1;
 			$originalModeText = $oldmode;
@@ -660,7 +659,7 @@ sub SaveDBData()
 
 	my $cacheContent = "albumrandomv2\n";
 	$cacheContent .= $lastDBUpdate."\n";
-	$cacheContent .= $originalMode."\t".::ExplainSort($::Options{Sort})."\n";
+	$cacheContent .= $originalMode."\t".$::Options{OPT.'randommode'}."\n";
 	
 	my $albumkeys = $IDs->[0];
 	my $propabilities = $IDs->[1];
