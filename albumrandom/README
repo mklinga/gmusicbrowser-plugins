@@ -24,7 +24,7 @@ Albumrandom mainly operates through its layout button:
 
 ** How it works?
 
-Albumrandom calculates average randoms on your albums based on currently selected 'weighted random' mode. If you have selected 'shuffle' or some 'straight play' mode instead of weighted random it handles all albums' propabilities as equal and calculates accordingly.
+Albumrandom calculates average randoms on your albums based on selected 'weighted random' mode. If you have selected 'shuffle' instead of weighted random it handles all albums' propabilities as equal and calculates accordingly.
 
 ** Options
 
@@ -53,7 +53,6 @@ Albumrandom calculates average randoms on your albums based on currently selecte
 - Albumrandom relies on you having your tags in order! Artist, Album and Tracknumber are needed in order to use plugin as intended.
 - First calculation of DB might take a long time (it takes ~7 seconds for my 37000 tracks), so please be patient before giving up.
 - Unlike in the old version, there is no 'select source' option (or any context menu, for that matter). Albumrandom now automatically uses your current playlist/filter from gmb.
-- Be mindful of your current playmode (weighted random/straight mode)  when updating DB - it's very possible to calculate DB with wrong setting since there is no confirmation. Remember that you can always re-calculate DB by middle-clicking layout button after setting wanted playmode.
 - If you want to know what plugin has done, see log in the preferences. It's quite verbose.
 
 ** Caching
