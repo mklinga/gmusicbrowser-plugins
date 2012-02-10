@@ -39,9 +39,9 @@ use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, writestats => 1, infinite => 1, shownotifications => 0, recalculate_time => 12, recalculate => 1
 , requireallinfilter => 0, topalbumsonly => 1, topalbumamount => 50, multipleamount => 3, rememberplaymode => 1, neveraskwhenplaymodechanged => 0
-, playmodechangedanswer => 'recalculate');
+, playmodechangedanswer => 'recalculate', tweakmode => 0, randommode => 'shuffle', straightmode => 'Artist,Album,Disc,Track');
 
-my $ON=0;
+our $ON=0;
 
 my %arb2=
 (	class	=> 'Layout::Button',
@@ -79,6 +79,24 @@ my $selected=-1;
 my $oldSelected = -1;
 my $oldID = -1;
 my $lastDBUpdate = 0;
+
+
+#returns a function, that function takes a listref of IDs as argument, and returns a hashref of groupid=>score
+#returns nothing on error
+sub Random::MakeGroupScoreFunction
+{	my ($self,$field)=@_;
+	my ($keycode,$multi)= Songs::LookupCode($field, 'hash','hashm', [ID => '$_']);
+	unless ($keycode || $multi) { warn "MakeGroupScoreFunction error : can't find code for field $field\n"; return } #return dummy sub ?
+	($keycode,my $keyafter)= split / +---- +/,$keycode||$multi,2;
+	if ($keyafter) { warn "MakeGroupScoreFunction with field $field is not supported yet\n"; return } #return dummy sub ?
+	my ($before,$score)=$self->make;
+	my $calcIDscore= $multi ? 'my $IDscore='.$score.'; for my $key ('.$keycode.') {$score{$key}+=$IDscore}' : "\$score\{$keycode}+=$score;";
+	my $code= $before.'; sub { my %score; for (@{$_[0]}) { '.$calcIDscore.' } return \%score; }';
+	my $sub=eval $code;
+	if ($@) { warn "Error in eval '$code' :\n$@"; return }
+	return $sub;
+}
+
 
 
 sub Start
@@ -140,7 +158,6 @@ sub prefbox
 	for my $mode (sort keys %{$::Options{SavedSorts}}) { push @p, $mode;}
 	my $pmcombo2= ::NewPrefCombo( OPT.'straightmode', \@p);
 	my $pmlabel2=Gtk2::Label->new('For playing albums use playmode: ');
-
 	
 	my $album_spin=::NewPrefSpinButton(OPT."multipleamount", 1,1000, step=>1, page=>4, wrap=>0);
 	my $albumlabel1=Gtk2::Label->new('Multiple random: Generate ');
@@ -151,9 +168,9 @@ sub prefbox
 	
 	my $tweakcheck=::NewPrefCheckButton(OPT."tweakmode",'Tweak albumrandom',horizontal=>1);
 	my $powerlabel=Gtk2::Label->new('Power: ');
-	my $power=::NewPrefSpinButton(OPT."tweak_power", 1,5, step=>1, wrap=>0);
-	my $multiplelabel=Gtk2::Label->new('Multiple (*100): ');
-	my $multiple=::NewPrefSpinButton(OPT."tweak_multiple", 1,1000, step=>10, wrap=>0);
+	my $power=::NewPrefSpinButton(OPT."tweak_power", 1,5, step=>0.5, wrap=>0,digits=>1);
+	my $multiplelabel=Gtk2::Label->new('Multiple: ');
+	my $multiple=::NewPrefSpinButton(OPT."tweak_multiple", 1,10, step=>1, wrap=>0,digits=>1);
 	
 	my $fi = ::Vpack([$check,$check2],[$check3,$check4],$check5,$topcheck,$checkn,$nevercheck,
 	[$pmlabel,$pmcombo],[$pmlabel2,$pmcombo2],[$albumlabel1,$album_spin,$albumlabel2,$listcombo],[$button,$button2],[$tweakcheck,$powerlabel,$power,$multiplelabel,$multiple]);
@@ -163,6 +180,7 @@ sub prefbox
 	return $fi;
 
 }
+
 sub Changed
 {
 	return Log("Tried to change with same ID twice!") if ($oldID == $::SongID);
@@ -194,8 +212,6 @@ sub Changed
 		elsif ($oldSelected != -1){ UpdateAlbumFromID($oldSelected);}
 		else { Log("Couldn't update - no suitable albumID left.");}
 		$selected = -1; #set selected to -1, since we're not playing anything anymore
-		Log("Trying to revert original playmode...");
-		RestorePlaymode();
 		return;
 	}
 	
@@ -211,8 +227,6 @@ sub Changed
 			$ON = 0;
 			::HasChanged('AlbumrandomOn');
 			$selected = -1;
-			Log("No infinite mode - just checking about restoring playmode");
-			RestorePlaymode();
 			Log("*** No more albums to play - shutting plugin off ***");
 			return;
 		}
@@ -222,7 +236,7 @@ sub Changed
 }
 sub Notify
 {
-	my $notify_text = $_[0] if $_[0];
+	my $notify_text = shift;
 
 	return if ($ON == 0);
 	return if ($::Options{OPT.'shownotifications'} == 0); 
@@ -284,13 +298,13 @@ sub HasPlaymodeChanged
 	else {return 0;}
 	
 }
+sub IsAlbumrandomOn
+{
+	return $ON;
+}
 sub GenerateRandomAlbum()
 {
-	my $amount;
-	
-	if ($_[0]) { $amount = $_[0]; }
-	else {$amount = 1;}
-	
+	my $amount = shift || 1;
 	my $forceDB = 0;
 	$ON = 1;
 
@@ -343,7 +357,7 @@ sub CalculateDB
 	my @albumPropabilities = ();
 	my $randommode = $::Options{SavedWRandoms}{$::Options{OPT.'randommode'}};
 	my $straightmode = $::Options{SavedSorts}{$::Options{OPT.'straightmode'}};
-	
+
 	if ($::Options{OPT.'randommode'} ne 'shuffle')
 	{
 		Log("Found RandomMode - setting originalMode to \'1\'");
@@ -351,20 +365,22 @@ sub CalculateDB
 		::Select(sort => $randommode);
 		$originalModeText = $::Options{OPT.'playmode'};
 
+		#create randomscore-function before loop
+		my $sub = $::RandomMode->MakeGroupScoreFunction('album');
+		my $h=$sub->($::Library);
+
 		#calculate random values according to selected mode
 		foreach my $key (@$al)
 		{
 			my $list=AA::GetIDs('album',$key);
-			my $curPropability=0;
-			
-			foreach my $track (@$list)	{ 
-				$curPropability += $::RandomMode->CalcScore($track);
-			}
+			#my $curPropability = $::RandomMode->CalcMultiScore($list);
+
+			my $curPropability = $h->{$key}; 
 			
 			$curPropability /= scalar@$list;
 			if ($::Options{OPT.'tweakmode'} == 1)
 			{
-				$curPropability = (($curPropability**$::Options{OPT.'tweak_power'})*($::Options{OPT.'tweak_multiple'}/100)); 
+				$curPropability = (($curPropability**$::Options{OPT.'tweak_power'})*($::Options{OPT.'tweak_multiple'})); 
 				if ($curPropability > 1) { $curPropability = 1; }
 			}
 			
@@ -402,9 +418,7 @@ sub CalculateDB
 
 sub CalculateAlbum
 {
-	my $wanted = $_[0] if ($_[0]);
-	
-	if (not defined $wanted) { $wanted = 1; }
+	my $wanted = shift || 1;
 	
 	Log("Calculating for ".$wanted." random album");
 	
@@ -436,7 +450,7 @@ sub CalculateAlbum
 	#we find out which albums are 'ok' to choose (due to filtering/playlist)
 	#don't put previously selected album to okTable, to prevent from playing same album twice in a row
 	my $totalPropability = 0;
-	my $oldtop=0;
+	my $oldtop=0; my $highestProb=0;
 	foreach my $indx (@indices)
 	{
 		if ($indx != $previous)
@@ -461,8 +475,9 @@ sub CalculateAlbum
 			
 			if ((scalar@okAlbums<=10) and ($oldtop != scalar@okAlbums))
 			{
-				if (scalar@okAlbums == 1) { Log("Top albums");}
-				Log(sprintf("%d. %s (%.3f)",(scalar@okAlbums),Songs::Get($aID->[0],'album'),$propabilities->[$indx]));
+				if (scalar@okAlbums == 1) { Log("Top albums"); }
+				Log(sprintf("%d. %s - %s (%.3f)",(scalar@okAlbums),Songs::Get($aID->[0],'album_artist'),Songs::Get($aID->[0],'album'),$propabilities->[$indx]));
+				$highestProb += $propabilities->[$indx];
 				$oldtop = scalar@okAlbums;
 			} 	
 			
@@ -474,7 +489,11 @@ sub CalculateAlbum
 	if ($totalPropability == 0) { Log("Error! \$totalPropability == 0 in CalculateAlbum"); return 0;}
 	
 	Log("Generating from ".scalar@okAlbums." albums");
-	Log(sprintf("Average propability for an album is ~ %.3f",($totalPropability/scalar@okAlbums)));
+	Log(sprintf("Average propability for an album is %.3f",($totalPropability/scalar@okAlbums)));
+	
+	my $numoftops = (scalar@okAlbums > 10)? 10 : scalar@okAlbums;
+	$highestProb /= $numoftops;
+	Log(sprintf("Real propability for average Top%d album is %.4f (1:%d)",$numoftops,(($highestProb)/$totalPropability),int((1/($highestProb/$totalPropability))-0.5)));
 	
 	
 	if (($wanted > 1) and (scalar@okAlbums <= $wanted)) 
@@ -517,8 +536,9 @@ sub CalculateAlbum
 	$selected = $foundAlbums[0];
 	
 	my $al = AA::GetIDs('album',$IDs->[0][$selected]);
-	Log("Selected album: ".Songs::Get($al->[0],'album'));
-	Log("propability for selected: ".$IDs->[1][$selected]);
+	Log("Selected album: ".Songs::Get($al->[0],'album_artist')." - ".Songs::Get($al->[0],'album'));
+	Log("Subjective propability for selected: ".$IDs->[1][$selected]);
+	Log("Real propability for selected: ".($IDs->[1][$selected]/$totalPropability)." (1:".int((1/($IDs->[1][$selected]/$totalPropability))-0.5).")");
 	
 	Songs::SortList($al,'disc track file');
 	my $firstSong = $al->[0];
@@ -540,35 +560,35 @@ sub CalculateAlbum
 
 sub UpdateAlbumFromID
 {
-	my $albumID = $_[0];
+	my $albumID = shift;
+	my $rmtoggled = 0;
+	my $playmode = $::Options{Sort};
 
 	Log("Starting Album Update");
-	
-	my $rmtoggled = 0;
 
-	if ($originalMode == 1)
-	{
-		Log("Switching to RandomMode for calculation");
-		::Select(sort => $::Options{SavedWRandoms}{$::Options{OPT.'randommode'}});
-		$rmtoggled = 1;
-	}
+	Log('Switching to correct playmode');	
+	my $calcmode = ($originalMode == 1)? $::Options{SavedWRandoms}{$::Options{OPT.'randommode'}} : $::Options{SavedSorts}{$::Options{OPT.'straightmode'}};
+	::Select('sort' => $calcmode);
 	
 	my $al = AA::GetIDs('album',$IDs->[0][$albumID]);
-	Log("Old propability for ".Songs::Get($al->[0],'album').": ".$IDs->[1][$albumID]);
+	Log("Old propability for ".Songs::Get($al->[0],'album').": ".sprintf("%.3f",$IDs->[1][$albumID]));
 	
 	my $curPropability = 0; 
 	if ($::RandomMode) {
-		foreach my $track (@$al) { $curPropability += $::RandomMode->CalcScore($track);}
+		
+		my $sub = $::RandomMode->MakeGroupScoreFunction('album');
+		my $h=$sub->($al);
+		
+		$curPropability = $h->{$IDs->[0][$albumID]};
 		$curPropability /= scalar@$al;
-		Log("Updating with Random Mode");
+		Log("Updating with '".$::Options{OPT.'randommode'}."'");
 	}
 	else {$curPropability = 1; Log("Updating with Straight Mode"); }
 	
 	$IDs->[1][$albumID] = $curPropability;
-		
 	Log("Updated new propability for ".Songs::Get($al->[0],'album').": ".sprintf("%.3f",$curPropability));
 	
-	::Select(sort => $::Options{SavedSorts}{$::Options{OPT.'straightmode'}});
+	::Select('sort' => $playmode);
 	
 	return 1;
 }
@@ -634,17 +654,22 @@ sub LoadDBData()
 	{
 		if ($line =~ m/(.+)\t(.+)\t(.+)\n/)
 		{
-			my $list=AA::GetIDs('album',$2);
+			my $pp = $1;
+			#Log($pp);
+			my $aa = $2;
+			my $fn = $3;
+			my $list=AA::GetIDs('album',$aa);
 			Songs::SortList($list,'disc track file');
 			
 			#filename ($3) works as a confirmating agent here, since IDs may (?) change - If found mismatch return 0;			
-			if ($3 eq Songs::Get($list->[0],'fullfilename'))
+			if ($fn eq Songs::Get($list->[0],'fullfilename'))
 			{
-				push @prop, $1;
-				push @al, $2;
+				push @prop, $pp;
+				push @al, $aa;
 			}
 			else {Log('filename doesn\'t match!'); return 0;}
 		}
+		else { Log('Something\'s not right in cache! Line: '.$line); }
 	}
 	@$IDs = (\@al,\@prop);
 
@@ -669,7 +694,9 @@ sub SaveDBData()
 		$current++;
 		my $list=AA::GetIDs('album',$key);
 		Songs::SortList($list,'disc track file');
-		$cacheContent .= join "\t",$propabilities->[$current],$key,Songs::Get($list->[0],'fullfilename'); 
+		my $pp = sprintf("%.4f",$propabilities->[$current]);
+		$pp =~ s/\,/\./;
+		$cacheContent .= join "\t",$pp,$key,Songs::Get($list->[0],'fullfilename'); 
 		$cacheContent .= "\n";
 	}
 

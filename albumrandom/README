@@ -1,14 +1,11 @@
 'Albumrandom' is a plugin for gmusicbrowser. I have only tested it with gmb 1.1.7, so feel free to report any problems.
 
-You need Gtk2::Notify for this plugin, since it's used by popup notifications.
-
-
 ** How to install:
 
-1) Copy 'albumrandom.pm' to /usr/share/gmusicbrowser/plugins
-2) Copy 'plugin-albumrandom.png' and 'plugin-albumrandom-on.png' to /usr/share/gmusicbrowser/pix
+1) Copy 'albumrandom.pm' to ~/.config/gmusicbrowser/plugins (OR /usr/share/gmusicbrowser/plugins)
+2) Copy 'plugin-albumrandom.png' and 'plugin-albumrandom-on.png' to ~/.config/gmusicbrowser/pix (OR /usr/share/gmusicbrowser/pix)
 
-If layout button doesn't appear automatically (you need to have Extrabuttons in your layout):
+If layout button doesn't appear automatically (you need to have item called Extrabuttons in your layout for this):
 *) Add item called Albumrandom to your layout
 
 3) Restart gmb
@@ -46,13 +43,12 @@ Albumrandom calculates average randoms on your albums based on selected 'weighte
 
 * Dont ask me what to do when DB calculated with different playmode: By default, Albumrandom asks if you wish to calculate DB again or use old calculations. You can remove that dialog by setting default value here.
 
-* Tweakmode: [ADVANCED SETTING] This tweaks albums' random value by formula (original_value^Tweak_power)*(Tweak_multiply/100) = tweaked_value. If you are not too mindful of your random modes distribution/deviation you shouldn't need to enable this.
+* Tweakmode: [ADVANCED SETTING] This tweaks albums' random value by formula (original_value^Tweak_power)*(Tweak_multiply) = tweaked_value. If you are not too mindful of your random modes distribution/deviation you shouldn't need to enable this.
 
 ** Important to note
 
 - Albumrandom relies on you having your tags in order! Artist, Album and Tracknumber are needed in order to use plugin as intended.
-- First calculation of DB might take a long time (it takes ~7 seconds for my 37000 tracks), so please be patient before giving up.
-- Unlike in the old version, there is no 'select source' option (or any context menu, for that matter). Albumrandom now automatically uses your current playlist/filter from gmb.
+- Albumrandom automatically uses your currently set playlist/filter.
 - If you want to know what plugin has done, see log in the preferences. It's quite verbose.
 
 ** Caching
@@ -63,7 +59,7 @@ Addition: When 'interval re-calculating' is ON, DB is kept cached even between s
 
 ** Unknown behaviour
 
-Please report any problems and/or suggestions for features.
+Please report any problems and/or suggestions for features either by mail (laite@gmx.com) or find me in IRC (freenode) #gmusicbrowser.
 
 ** 
 Thanks,
