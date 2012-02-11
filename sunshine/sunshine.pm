@@ -1,10 +1,11 @@
-# Copyright (C) 2011 laite
-# Sunshine v. 0.21
+# Gmusicbrowser: Copyright (C) 2005-2011 Quentin Sculo <squentin@free.fr>
+# Sunshine: Copyright (C) Markus Klinga (laite) <laite@gmx.com>
 #
-# This file is part of Gmusicbrowser.
-# Gmusicbrowser is free software; you can redistribute it and/or modify
+# This file is a plugin to Gmusicbrowser.
+# It is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 3, as
-# published by the Free Software Foundation
+# published by the Free Software Foundation.
+
 
 =gmbplugin SUNSHINE
 name	Sunshine
@@ -21,8 +22,6 @@ use constant
 
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 	use Data::Dumper;
-my $notify;
-my ($Daemon_name,$can_actions,$can_body);
 
 my %button_definition=
 (	class	=> 'Layout::Button',
@@ -57,27 +56,11 @@ my %Sleepmode_type= #id => [name,cmd]
 
 
 
-::SetDefaultOptions(OPT, timespan => 45);
-::SetDefaultOptions(OPT, songcount => 12);
-::SetDefaultOptions(OPT, sleepmode_type => 1);
-::SetDefaultOptions(OPT, fading => 1);
-::SetDefaultOptions(OPT, volume_goal => 25);
-::SetDefaultOptions(OPT, wait_for_finish => 1);
-::SetDefaultOptions(OPT, wakeup_mode => 1);
-::SetDefaultOptions(OPT, relative_h => 8);
-::SetDefaultOptions(OPT, relative_m => 0);
-::SetDefaultOptions(OPT, fixed_h => 10);
-::SetDefaultOptions(OPT, fixed_m => 0);
-::SetDefaultOptions(OPT, listcheck => 0);
-::SetDefaultOptions(OPT, repeat_alarm => 0);
-::SetDefaultOptions(OPT, alarm_fade_min => 10);
-::SetDefaultOptions(OPT, alarm_fade_from => 0);
-::SetDefaultOptions(OPT, alarm_fade_to => 100);
-::SetDefaultOptions(OPT, list_combo => 'list000');
-::SetDefaultOptions(OPT, start_from_zero => 1);
-::SetDefaultOptions(OPT, show_sleep_button => 1);
-::SetDefaultOptions(OPT, show_sleepalarm_button => 1);
-::SetDefaultOptions(OPT, show_alarm_button => 1);
+::SetDefaultOptions(OPT, timespan => 45,songcount => 12, sleepmode_type => 1, fading => 1, volume_goal => 25,
+	wait_for_finish => 1, wakeup_mode => 1, relative_h => 8, relative_m => 0, fixed_h => 10, fixed_m => 0,
+	listcheck => 0, repeat_alarm => 0, alarm_fade_min => 10, alarm_fade_from => 0, alarm_fade_to => 100,
+	list_combo => 'list000', start_from_zero => 1, show_sleep_button => 1, show_sleepalarm_button => 1,
+	show_alarm_button => 1, show_notifications => 1);
 
 my $handle; my $alarm;
 my $StartingVolume;
@@ -98,6 +81,9 @@ my $alarm_started=0;
 my $m=0;my $s=0; my $h=0;
 my @dayname= (_"Sun", _"Mon", _"Tue", _"Wed", _"Thu", _"Fri", _"Sat");
 
+my $notify;
+my ($Daemon_name,$can_actions,$can_body);
+
 sub Start
 {
 	if ($::Options{OPT.'show_sleep_button'} == 1){Layout::RegisterWidget(SunshineSleep=>\%button_definition);}
@@ -105,14 +91,8 @@ sub Start
 	if ($::Options{OPT.'show_alarm_button'} == 1){Layout::RegisterWidget(SunshineAlarm=>\%button_definition3);}
 	
 	::Watch($handle, PlayingSong	=> \&Changed);
-	$notify=Gtk2::Notify->new('empty','empty');
-	my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
-	$Daemon_name= "$name $version ($vendor)";
-	my @caps = Gtk2::Notify->get_server_caps;
-	$can_body=	grep $_ eq 'body',	@caps;
-	$can_actions=	grep $_ eq 'actions',	@caps;
 	$StartingVolume=::GetVol();
-	$::Command{SleepMode}=[\&start_sleepmode,_"Go to sleep",_"Timespan of the pre-sleep in minutes"];
+	$::Command{SleepMode}=[\&launch_both,_"Go to sleep",_"Timespan of the pre-sleep in minutes"];
 	if ($::Options{OPT.'repeat_alarm'} == 1) { update_alarm(); }
 
 }
@@ -122,6 +102,7 @@ sub Stop
 	if ($::Options{OPT.'show_sleepalarm_button'} == 1){Layout::RegisterWidget('SunshineSleepAlarm');}
 	if ($::Options{OPT.'show_alarm_button'} == 1){Layout::RegisterWidget('SunshineAlarm');}
 
+	$notify = undef;
 	::UnWatch($handle,'PlayingSong');
 	Glib::Source->remove($handle) if $handle;	$handle=undef;
 	Glib::Source->remove($alarm) if $alarm;		$alarm=undef;
@@ -145,6 +126,7 @@ sub prefbox
 	my $volume_goal=::NewPrefSpinButton(OPT."volume_goal", 0,::GetVol(), step=>1,text1=>_" ", text2=>_"%");
 	my $check=::NewPrefCheckButton(OPT."fading",'Fade volume during countdown to', , widget=>$volume_goal, horizontal=>1, sizegroup=>$sg1);
 	my $check2=::NewPrefCheckButton(OPT."wait_for_finish",'Wait for last song to finish before stopping', horizontal=>1, sizegroup=>$sg1);
+	my $notifycheck=::NewPrefCheckButton(OPT."show_notifications",'Show popup-notifications', horizontal=>1, sizegroup=>$sg1);
 	
 	my $entry=::NewPrefEntry(OPT.'CMD',_"Command to run when sleepmode activates :",	expand=>1,sizeg1=>$sg1);
 	
@@ -212,7 +194,7 @@ sub prefbox
 	my $frame3=Gtk2::Frame->new(_"Info");
 	my $frame4=Gtk2::Frame->new(_"Buttons");
 
-	$vbox1=::Vpack( [$spin,$spin2],$check,$check2,$combo,$entry );
+	$vbox1=::Vpack( [$spin,$spin2],$check,$check2,$notifycheck,$combo,$entry );
 	$vbox2=::Vpack( [$radio1a,$timeentry_relative],[$radio1b,$timeentry_fixed],$radio1c,[@hours1],[@hours2],[$repeatcheck,$listcheck,$start_zero],[$alarmfadecheck,$alarmfademin,$alarmfadefrom,$alarmfadeto] );
 	$vbox3=::Vpack( $preview,$preview2 );
 	$vbox4=::Vpack( [$buttons_check1,$buttons_check2,$buttons_check3] );
@@ -226,6 +208,31 @@ sub prefbox
 	
 }
 
+sub Notify
+{
+	my ($notify_header, $notify_text) = @_;
+
+	return 0 if ($::Options{OPT.'show_notifications'} == 0); 
+	return 0 if ((not defined $notify_header) or (not defined $notify_text));
+	
+	if (not defined $notify)
+	{
+		$notify=Gtk2::Notify->new('empty','empty');
+		my ($name, $vendor, $version, $spec_version)= Gtk2::Notify->get_server_info;
+		$Daemon_name= "$name $version ($vendor)";
+		my @caps = Gtk2::Notify->get_server_caps;
+		$can_body=	grep $_ eq 'body',	@caps;
+		$can_actions=	grep $_ eq 'actions',	@caps;
+	}
+
+	$notify->update($notify_header,$notify_text);
+	$notify->set_timeout(4000);
+	eval{$notify->show;};
+	if ($@){warn "Sunshine ERROR: \$notify didn't evaluate properly!";};
+	
+	return 1;
+}
+
 sub stop_everything
 {
 	$countdown_started=0;
@@ -234,9 +241,7 @@ sub stop_everything
 	$handle=undef;
 	Glib::Source->remove($alarm) if $alarm; 
 	$alarm=undef;	
-	$notify->update('Sunshine','Sleep-mode and alarm have been disabled.');
-	$notify->set_timeout(4000);
-	$notify->show;
+	Notify('Sunshine','Sleep-mode and alarm have been disabled.');
 	
 	
 }
@@ -328,9 +333,7 @@ sub start_notification
 		$notify_text = 'This notification is quite a mystery...';
 	}
 	
-	$notify->update($notify_header,$notify_text);
-	$notify->set_timeout(4000);
-	$notify->show;
+	Notify($notify_header, $notify_text);
 	
 }
 
@@ -424,25 +427,29 @@ sub fade_alarm
 }
 sub alarm 
 { 
-	if ($::Options{OPT.'alarm_fade_check'}==1)
+	#don't start alarm if music is already playing (e.g. manual input)
+	if (not ((defined $::TogPlay) and ($::TogPlay == 1)))
 	{
-		my $a_from = $::Options{OPT.'alarm_fade_from'};
-		my $a_to = $::Options{OPT.'alarm_fade_to'};
-		my $a_timespan = $::Options{OPT.'alarm_fade_min'}*60;
-
-		if ($a_from > $a_to) { return; }#don't handle fading down
-		else
+		if ($::Options{OPT.'alarm_fade_check'}==1)
 		{
-			Glib::Source->remove($handle) if $handle;	
-			$handle=undef;
-			
-			::UpdateVol($a_from);
-			my $timething = int(($a_timespan)/($a_to-$a_from)*1000);
-			$handle=Glib::Timeout->add($timething,\&fade_alarm,1);
-		}
+			my $a_from = $::Options{OPT.'alarm_fade_from'};
+			my $a_to = $::Options{OPT.'alarm_fade_to'};
+			my $a_timespan = $::Options{OPT.'alarm_fade_min'}*60;
 
+			if ($a_from > $a_to) { return; }#don't handle fading down
+			else
+			{
+				Glib::Source->remove($handle) if $handle;	
+				$handle=undef;
+			
+				::UpdateVol($a_from);
+				my $timething = int(($a_timespan)/($a_to-$a_from)*1000);
+				$handle=Glib::Timeout->add($timething,\&fade_alarm,1);
+			}
+		}
+		start_wakemode();
 	}
-	start_wakemode(); 
+	 
 	$alarm_started=0;
 
 	if ($::Options{OPT.'repeat_alarm'} == 1) {
