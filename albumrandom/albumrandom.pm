@@ -1,8 +1,8 @@
 # Gmusicbrowser: Copyright (C) 2005-2011 Quentin Sculo <squentin@free.fr>
-# laiteplay: Copyright (C) 2011- Markus Klinga <laite@gmx.com>
+# Albumrandom: Copyright (C) Markus Klinga (laite) <laite@gmx.com>
 #
-# This file is part of laiteplay, an individual fork of Gmusicbrowser.
-# laiteplay is free software; you can redistribute it and/or modify
+# This file is a plugin to Gmusicbrowser.
+# It is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 3, as
 # published by the Free Software Foundation.
 
@@ -30,6 +30,8 @@ desc	Albumrandom plays albums according to set weighted random.
 package GMB::Plugin::ALBUMRANDOM;
 use strict;
 use warnings;
+my $AR_VNUM = '2.1';
+
 
 use constant
 {	OPT	=> 'PLUGIN_ALBUMRANDOM_',
@@ -620,7 +622,11 @@ sub LoadDBData()
 
 	my $lastupdatetime = 0;
 	
-	if (!($lines[0] =~ m/^albumrandomv2\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t find formatID)!"); return 0;}
+	if ($lines[0] =~ m/^albumrandomv(\d\.?\d*)\n/)
+	{
+		if ($1 ne $AR_VNUM) {Log("ERROR: Cachefile is from different version!"); return 0;}
+	} 
+	else {Log("ERROR: Cachefile not written properly (couldn\'t find formatID)!"); return 0;}
 
 	if (!($lines[1] =~ m/^(\d+)\n/)) {Log("ERROR: Cachefile not written properly (couldn\'t find updatetime)!"); return 0;}
 	else 
@@ -667,9 +673,16 @@ sub LoadDBData()
 				push @prop, $pp;
 				push @al, $aa;
 			}
-			else {Log('filename doesn\'t match!'); return 0;}
+			else {Log('filename doesn\'t match! (was expecting \''.$fn.'\')'); return 0;}
 		}
-		else { Log('Something\'s not right in cache! Line: '.$line); }
+		else 
+		{ 
+			if ($line !~ /|albumrandomv$AR_VNUM\n|(\d+)\t(.+)\n|(\d+)\n/)
+			{
+				Log('Something\'s not right in cache! Line: '.$line);
+				if ($line =~ /^albumrandomv/) { Log('Cache is propably from older version.');}
+			} 
+		}
 	}
 	@$IDs = (\@al,\@prop);
 
@@ -682,7 +695,7 @@ sub SaveDBData()
 	return 'statwriting not enabled' if ($::Options{OPT.'writestats'} == 0);
 	return 'no data to save' if (not defined $IDs->[0]);
 
-	my $cacheContent = "albumrandomv2\n";
+	my $cacheContent = "albumrandomv".$AR_VNUM."\n";
 	$cacheContent .= $lastDBUpdate."\n";
 	$cacheContent .= $originalMode."\t".$::Options{OPT.'randommode'}."\n";
 	
