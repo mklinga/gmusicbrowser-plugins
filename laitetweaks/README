@@ -1,0 +1,5 @@
+'laitetweaks' is a collection of little things that I've made for gmusicbrowser. They're mostly just ugly hacks, some are based on English language (at the moment), so propably not for a common user. If you find this, you are free to try them of course :)
+
+Tweaks shouldn't break anything, as they are only loaded when plugin is enabled. If something unwanted happens, please disable plugin from preferences and restart gmb.
+
+-laite (#gmusicbrowser @ freenode, <laite@gmx.com>
