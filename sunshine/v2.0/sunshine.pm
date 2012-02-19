@@ -1005,7 +1005,8 @@ sub SongChanged
 			
 			if (($finished) and (not defined $Alarm{isfinished}))	{
 				if (($Alarm{sleepmode} eq 'queue') and ($Alarm{ignorelastinqueue})) { push @SleepNow, \%Alarm; }
-				if (($Alarm{sleepmode} eq 'simplecount') and ($::Options{OPT.'Advanced_IgnoreLastInCount'})) { push @SleepNow, \%Alarm; }
+				elsif ($Alarm{sleepmode} eq 'albumchange') { push @SleepNow, \%Alarm; }
+				elsif (($Alarm{sleepmode} eq 'simplecount') and ($::Options{OPT.'Advanced_IgnoreLastInCount'})) { push @SleepNow, \%Alarm; }
 				else {$Alarm{isfinished} = 1;}
 			}
 			elsif ($finished) { push @SleepNow, \%Alarm; }
@@ -1045,7 +1046,11 @@ sub GoSleep
 
 	eval($::Options{OPT.'Advanced_SleepCommand'});
 	if ($Alarm{scommandcheck}) { RunCommand($Alarm{scommandentry});}
-	if ($Alarm{shutdowngmb}) { ::Quit; }
+	if ($Alarm{shutdowngmb}) 
+	{ 
+		if ($Alarm{shutdowncomputer}) { ::TurnOff;}
+		else {::Quit;} 
+	}
 	
 	return 1;
 }
@@ -1147,9 +1152,10 @@ sub WakeUp
 	{ 
 		#if we can't launch albumrandom, just go with regular wake
 		eval(GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum());
-    	if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?',1); eval($::Options{OPT.'Advanced_WakeCommand'}); };
+    	if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?',1);eval($::Options{OPT.'Advanced_WakeCommand'});};
+    	else { ::Next(); ::Play();}
 	}
-	else { eval($::Options{OPT.'Advanced_WakeCommand'}); }
+	else {eval($::Options{OPT.'Advanced_WakeCommand'});}
 
 	if ($Alarm{wakerepeatcheck}) { LaunchSunshine(force => 'Wake',Alarm_ref => \%Alarm); }
 
@@ -1231,6 +1237,7 @@ sub LaunchSunshine
 			else {	$Alarm{interval} = 1000*($length+1); }
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
+	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime(time+$length)) unless ($silent);
 		
 			AddAlarm(\%Alarm,$silent);
 		}
