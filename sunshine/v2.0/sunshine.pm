@@ -1152,8 +1152,8 @@ sub WakeUp
 	{ 
 		#if we can't launch albumrandom, just go with regular wake
 		eval(GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum());
-    	if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?',1);eval($::Options{OPT.'Advanced_WakeCommand'});};
-    	else { ::Next(); ::Play();}
+    	if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
+    	else {::Next(); ::Play();}
 	}
 	else {eval($::Options{OPT.'Advanced_WakeCommand'});}
 
