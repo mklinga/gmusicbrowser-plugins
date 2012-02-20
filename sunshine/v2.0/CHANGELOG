@@ -4,6 +4,7 @@ Changelog for Sunshine (* = major, - = minor change)
 * added notify-buffer
 * prevent launching same alarm twice
 * fixed bug calculating sleep-intervals
+- added estimated time and refresh-button to status
 - fixed bug with 'shut down'-options
 - fixed error when launching with MoreNotifications
 - fixed warning when launching with 'launch sunshine'-button

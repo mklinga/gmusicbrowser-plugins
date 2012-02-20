@@ -413,7 +413,7 @@ sub UpdateWidgetsFromScheme
 	return unless $type;
 	if (not defined $scheme){
 		$scheme = GetRealScheme($type,$::Options{OPT.'LastActive'.$type.'Scheme'});
-		$scheme = ($type eq 'Sleep')? SleepSchemes{$scheme} : $WakeSchemes{$scheme};
+		$scheme = ($type eq 'Sleep')? $SleepSchemes{$scheme} : $WakeSchemes{$scheme};
 	}
 
 	for my $curKey (sort keys %prefWidgets)	{
@@ -605,7 +605,6 @@ sub CreateWidgets
 
 			if ($curW->{type} eq 'CheckButton') {
 				$curW->{widget} = Gtk2::CheckButton->new($curW->{text});
-				$curW->{widget}->set_active($CurScheme{$realScheme}->{$curKey} || 0);		
 				$curW->{widget}->signal_connect(clicked => 
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text);
@@ -631,7 +630,6 @@ sub CreateWidgets
 				$curW->{widget} = Gtk2::SpinButton->new($adj,1,0);
 
 				$curW->{widget}->set_wrap(1) if ($curW->{wrap});
-				$curW->{widget}->set_value((defined $CurScheme{$realScheme}->{$curKey})? $CurScheme{$realScheme}->{$curKey} : ($curW->{defaultvalue} || 0));
 				$curW->{widget}->signal_connect(value_changed => 
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
@@ -645,7 +643,6 @@ sub CreateWidgets
 			}
 			elsif ($curW->{type} eq 'Entry') {
 				$curW->{widget} = Gtk2::Entry->new();
-				$curW->{widget}->set_text($CurScheme{$realScheme}->{$curKey} || '');
 				$curW->{widget}->signal_connect(changed => 
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
@@ -685,14 +682,7 @@ sub CreateWidgets
 
 					for (0..$#Items){
 						$curW->{widget}->append_text($Items[$_]);
-						$curW->{widget}->set_active($_) if ($Items[$_] eq ($CurScheme{$realScheme}->{$curKey} || ''));
 					}
-					
-					if ($curW->{widget}->get_active == -1){
-						if ((defined $curW->{defaultvalue}) and ($curW->{defaultvalue} <= $#Items)) {$curW->{widget}->set_active($curW->{defaultvalue});}
-						else {$curW->{widget}->set_active(0);}
-					}
-					
 					$curW->{widget}->signal_connect(changed => 
 					sub {
 						$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text);
@@ -773,6 +763,7 @@ sub prefbox
 	CreateWidgets();
 	CreateTopButtons();
 	CreateSignals();
+	UpdateWidgetsFromScheme($_) for ('Sleep','Wake');
 	DisableWidgets();
 	UpdateStatusTexts();
 
@@ -788,6 +779,7 @@ sub prefbox
 	my $mCheck2=::NewPrefCheckButton(OPT."ShowButton",'Show layout-button', horizontal=>1);
 	my $CustomTimes = ::NewIconButton('gtk-properties','Custom', sub { SetCustomTimes(); UpdateWidgetsFromScheme('Wake');});
 	my $mAdvanced = ::NewIconButton('gtk-preferences','Advanced Settings', sub {ShowAdvancedSettings(); SaveSchemes();});
+	my $mStatusRefresh=::NewIconButton('gtk-refresh','', sub { UpdateStatusTexts();}, tip => 'Refresh status-texts');
 	
 	@vbox = (
 	::Vpack( [$sCheck1,'-',$sAddAlarm],
@@ -814,7 +806,7 @@ sub prefbox
 			['_',$prefWidgets{wakeplaymodecheck}->{widget},$prefWidgets{wakeplaymodebutton}->{widget}],
 			[$prefWidgets{wakestartfromcheck}->{widget},'_',$prefWidgets{wakestartfromcombo}->{widget}]),
 	::Vpack( [$mCheck1,$mCheck2,'-',$LaunchButton,'-',$StopButton,'-',$mAdvanced]),
-	::Vpack( $prefWidgets{sleepstatuslabel}->{widget},$prefWidgets{wakestatuslabel}->{widget} ));
+	::Vpack( $prefWidgets{sleepstatuslabel}->{widget},[$prefWidgets{wakestatuslabel}->{widget},'-',$mStatusRefresh] ));
 
 	$frame[$_]->add($vbox[$_]) for (0..$#frame);
 	return ::Vpack($frame[2],'_',['_',$frame[0],'_',$frame[1]],$frame[3]);
@@ -1149,24 +1141,24 @@ sub LaunchSunshine
 			$Alarm{passedtracks} = $Alarm{passedtime} = 0;
 
 			#try to calc length for sleepmode
-			my $length = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
-			if ($@) {warn 'SUNSHINE: örrör in the room \'LaunchSunshine\''; $length = 0;}
+			$Alarm{modelength} = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
+			if ($@) {warn 'SUNSHINE: örrör in the room \'LaunchSunshine\''; $Alarm{modelength} = 0;}
 
-			if (!$length) { GoSleep(\%Alarm); return 1;}
-		
+			if (!$Alarm{modelength}) { GoSleep(\%Alarm); return 1;}
+
 			if ($Alarm{svolumefadecheck})
 			{
 				## (-1) in 'from' means we use whatever the volume currently is
 				my $fromvol = ($Alarm{svolumefadefrom} == -1)? ::GetVol() : $Alarm{svolumefadefrom};
 				if ($::Options{OPT.'Advanced_ManualFadeTime'}) { $Alarm{interval} = $::Options{OPT.'Advanced_ManualTimeSpin'};}
-				else {$Alarm{interval} = int(0.5+(1000*$length/(abs($Alarm{svolumefadeto}-$fromvol)+1)));}
+				else {$Alarm{interval} = int(0.5+(1000*$Alarm{modelength}/(abs($Alarm{svolumefadeto}-$fromvol)+1)));}
 				 
 				if ($Alarm{svolumefadefrom} > 0) { ::UpdateVol($Alarm{svolumefadefrom});} #update volume unless we are using (-1)
 			}
-			else {	$Alarm{interval} = 1000*($length+1); }#this may go wrong if user wants specific number of random songs, but should be an ok guess?
+			else {	$Alarm{interval} = 1000*($Alarm{modelength}+1); }#this may go wrong if user wants specific number of random songs, but should be an ok guess?
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
-	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime(time+$length)) unless ($silent);
+	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime(time+$Alarm{modelength})) unless ($silent);
 		
 			AddAlarm(\%Alarm,$silent);
 		}
@@ -1191,12 +1183,12 @@ sub LaunchSunshine
 			}
 		}
 
-		my $launchtime = ($Alarm{wakecustomtimes})? GetShortestTimeTo(@{$Alarm{wakecustomtimestrings}}) :  GetShortestTimeTo($Alarm{wakelaunchhour}.':'.$Alarm{wakelaunchmin});
-		return unless ($launchtime > 0);
+		$Alarm{modelength} = ($Alarm{wakecustomtimes})? GetShortestTimeTo(@{$Alarm{wakecustomtimestrings}}) :  GetShortestTimeTo($Alarm{wakelaunchhour}.':'.$Alarm{wakelaunchmin});
+		return unless ($Alarm{modelength} > 0);
 		
-		$Alarm{alarmhandle}=Glib::Timeout->add($launchtime*1000,sub {WakeUp(\%Alarm);});
+		$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{modelength}*1000,sub {WakeUp(\%Alarm);});
  		
- 		Notify("Launched '".$Alarm{label}."'.\nWaking at ".localtime(time+$launchtime)) unless ($silent);
+ 		Notify("Launched '".$Alarm{label}."'.\nWaking at ".localtime(time+$Alarm{modelength})) unless ($silent);
  		
  		AddAlarm(\%Alarm,$silent);
 	}
@@ -1210,9 +1202,16 @@ sub UpdateStatusTexts
 	for (0..$#ActiveAlarms)
 	{
 		my %Al = %{$ActiveAlarms[$_]};
+		my $left = $Al{modelength};
 		my $tsindex = ($Al{type} eq 'Sleep')? 0 : 1;
+
 		if ($ts[$tsindex] =~ /^(.+)\t$/) { $ts[$tsindex] .= $Al{label};}
 		else {$ts[$tsindex] .= ', '.$Al{label};}
+		
+		my $timeleft = ($left > 86400)? '(about '.int($left/86400).'d '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)' 
+			: '(about '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)';
+		  
+		$ts[$tsindex] .= $timeleft;
 	}
 	
 	for (0..1) { if ($ts[$_] =~ /^(.+)\t$/) {$ts[$_] .= 'Not active'; }}
