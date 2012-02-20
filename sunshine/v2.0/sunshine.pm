@@ -30,7 +30,6 @@ use constant
 };
 
 use Gtk2::Notify -init, ::PROGRAM_NAME;
-use Gtk2::SimpleList;
 
 ::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SaveOnChange => 1);
 
@@ -106,7 +105,7 @@ my %prefWidgets=
 	launchautomaticallyhour => { type => 'SpinButton', mode => 'Sleep', adjust => 'Gtk2::Adjustment->new(0,0,23,1,10,0);', defaultvalue => 22},
 	launchautomaticallymin => { type => 'SpinButton', mode => 'Sleep', adjust => 'Gtk2::Adjustment->new(0,0,59,1,10,0);', defaultvalue => 0},
 	shutdowngmb => {type => 'CheckButton', mode => 'Sleep', text => 'Shut down gmusicbrowser when finished', friendwidgets => ['shutdowncomputer']},
-	shutdowncomputer => {type => 'CheckButton', mode => 'Sleep', text => 'Turn Off Computer'},
+	shutdowncomputer => {type => 'CheckButton', mode => 'Sleep', text => 'Turn Off Computer', friendcondition => 'return (not defined $::Options{Shutdown_cmd})'},
 	sleeplabel1 => { type => 'Label', mode => 'Sleep', text => ' Sleepmode: '},
 	sleeplabel2 => { type => 'Label', mode => 'Sleep', text => ' Minutes in timed-mode: '},
 	simpletime => { type => 'SpinButton', mode => 'Sleep', adjust => 'Gtk2::Adjustment->new(5,1,720,1,10,0);', defaultvalue => 30},
@@ -155,7 +154,6 @@ my %AdvancedDefaults=
 );
 
 my @StartFromItems = ('First Track', 'Random track');
-
 my @ActiveAlarms=();
 
 #notify-items
@@ -166,118 +164,15 @@ my $handle; my $volumehandle;
 my $EditingScheme=0;
 my $oldID=-1;#prevent double-call to SongChanged
 
-
-
-sub SortMenu
-{	my $nopopup= 0;
-	my $menu = Gtk2::Menu->new;
-	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
-
-	my $check=$WakeSchemes{$realScheme}->{wselectedsort};
-	my $found;
-	my $callback=sub { $WakeSchemes{$realScheme}->{wselectedsort} = $_[1]; SaveSchemes(); };
-	my $append=sub
-	 {	my ($menu,$name,$sort,$true,$cb)=@_;
-		$cb||=$callback;
-		$true=($sort eq $check) unless defined $true;
-		my $item = Gtk2::CheckMenuItem->new_with_label($name);
-		$item->set_draw_as_radio(1);
-		$item->set_active($found=1) if $true;
-		$item->signal_connect (activate => $cb, $sort );
-		$menu->append($item);
-	 };
-
-	my $submenu= Gtk2::Menu->new;
-	my $sitem = Gtk2::MenuItem->new(_"Weighted Random");
-	for my $name (sort keys %{$::Options{SavedWRandoms}})
-	{	$append->($submenu,$name, $::Options{SavedWRandoms}{$name} );
-	}
-	$sitem->set_submenu($submenu);
-	$menu->prepend($sitem);
-	$append->($menu,_"Shuffle",'shuffle');
-
-	{ my $item=Gtk2::CheckMenuItem->new(_"Repeat");
-	  $item->set_active($WakeSchemes{$realScheme}->{wselectedsortrepeat} || 0);
-	  $item->set_sensitive(0) if ($check =~ m/^random:/);
-	  $item->signal_connect(activate => sub { $WakeSchemes{$realScheme}->{wselectedsortrepeat} = $_[0]->get_active; SaveSchemes();} );
-	  $menu->append($item);
-	}
-
-	$menu->append(Gtk2::SeparatorMenuItem->new); #separator between random and non-random modes
-
-	$append->($menu,_"List order", '' ) if defined $::ListMode;
-	for my $name (sort keys %{$::Options{SavedSorts}})
-	{	$append->($menu,$name, $::Options{SavedSorts}{$name} );
-	}
-	$menu->show_all;
-	return $menu if $nopopup;
-	my $event=Gtk2->get_current_event;
-	my ($button,$pos)= $event->isa('Gtk2::Gdk::Event::Button') ? ($event->button,\&::menupos) : (0,undef);
-	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
-}
-
-sub FilterMenu
-{	my $nopopup= 0;
-	my $menu = Gtk2::Menu->new;
-	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
-	my ($check,$found);
-
-	$check=$WakeSchemes{$realScheme}->{wselectedfilter};
-	my $item_callback=sub { $WakeSchemes{$realScheme}->{wselectedfilter} = $_[1]; $WakeSchemes{$realScheme}->{wselectedfiltertype} = 'filter'; SaveSchemes();};
-
-	my $item0= Gtk2::CheckMenuItem->new(_"All songs");
-	$item0->set_active($found=1) if !$check && !defined $::ListMode;
-	$item0->set_draw_as_radio(1);
-	$item0->signal_connect ( activate =>  $item_callback ,'' );
-	$menu->append($item0);
-
-	for my $list (sort keys %{$::Options{SavedFilters}})
-	{	my $filt=$::Options{SavedFilters}{$list}->{string};
-		my $item = Gtk2::CheckMenuItem->new_with_label($list);
-		$item->set_draw_as_radio(1);
-		$item->set_active($found=1) if defined $check && $filt eq $check;
-		$item->signal_connect ( activate =>  $item_callback ,$filt );
-		$menu->append($item);
-	}
-	my $item=Gtk2::CheckMenuItem->new(_"Custom...");
-	$item->set_active(1) if defined $check && !$found;
-	$item->set_draw_as_radio(1);
-	$item->signal_connect ( activate => sub
-		{ ::EditFilter(undef,$WakeSchemes{$realScheme}->{wselectedfilter},undef, sub { $WakeSchemes{$realScheme}->{wselectedfilter} = $_[1]; $WakeSchemes{$realScheme}->{wselectedfiltertype} = 'filter';  SaveSchemes();});
-		});
-	$menu->append($item);
-	if (my @SavedLists=::GetListOfSavedLists())
-	{	my $submenu=Gtk2::Menu->new;
-		my $list_cb=sub { $WakeSchemes{$realScheme}->{wselectedfilter} = $_[1]; $WakeSchemes{$realScheme}->{wselectedfiltertype} = 'staticlist';  SaveSchemes();};
-		for my $list (@SavedLists)
-		{	my $item = Gtk2::CheckMenuItem->new_with_label($list);
-			$item->set_draw_as_radio(1);
-			$item->set_active(1) if defined $::ListMode && $list eq $::ListMode;
-			$item->signal_connect( activate =>  $list_cb, $list );
-			$submenu->append($item);
-		}
-		my $sitem=Gtk2::MenuItem->new(_"Saved Lists");
-		$sitem->set_submenu($submenu);
-		$menu->prepend($sitem);
-	}
-	$menu->show_all;
-	return $menu if $nopopup;
-	my $event=Gtk2->get_current_event;
-	my ($button,$pos)= $event->isa('Gtk2::Gdk::Event::Button') ? ($event->button,\&::menupos) : (0,undef);
-	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
-}
-
-
 sub Start
 {
 	if ($::Options{OPT.'ShowButton'} == 1){Layout::RegisterWidget(Sunshine=>\%sunshine_button);}
-	
 	::Watch($handle, PlayingSong => \&SongChanged);
 	
 	if (!$::Options{OPT.'firstrun'})
 	{
 		for (keys %WakeSchemes) { $WakeSchemes{$_} = SetDefaultFilterSort($WakeSchemes{$_}); }
-		for (keys %AdvancedDefaults) { $::Options{OPT.'Advanced_'.$_} = $AdvancedDefaults{$_}; }		
+		for (keys %AdvancedDefaults) { $::Options{OPT.'Advanced_'.$_} = $AdvancedDefaults{$_}; }
 		
 		%{$::Options{OPT.'SleepSchemes'}} = %SleepSchemes;
 		%{$::Options{OPT.'WakeSchemes'}} = %WakeSchemes;
@@ -310,9 +205,6 @@ sub Start
 			}
 		}
 	}
-	
-	#if ($::Options{OPT.'RepeatAlarm'} == 1) { update_alarm(); }
-
 }
 sub Stop
 {
@@ -321,6 +213,7 @@ sub Stop
 	$notify = undef;
 	::UnWatch($handle,'PlayingSong');
 	Glib::Source->remove($handle) if $handle; $handle=undef;	
+	Glib::Source->remove($notifyhandle) if $notifyhandle; $notifyhandle=undef;	
 	Glib::Source->remove(${$_}{alarmhandle}) for (@ActiveAlarms);
 		
 }
@@ -335,8 +228,8 @@ sub SaveSchemes
 
 sub DisableWidgets
 {
+	#disable 2 or 3 of these widgets depending on sleepmode	
 	my $cur = $prefWidgets{sleepmodecombo}->{widget}->get_active_text;
-
 	$prefWidgets{ignorelastinqueue}->{widget}->set_sensitive(($cur eq $SleepModes{queue}->{label})); 
 	$prefWidgets{simpletime}->{widget}->set_sensitive(($cur eq $SleepModes{simpletime}->{label})); 
 	$prefWidgets{simplecount}->{widget}->set_sensitive(($cur eq $SleepModes{simplecount}->{label}));
@@ -348,21 +241,26 @@ sub DisableWidgets
 		$prefWidgets{$type.'button_remove'}->{widget}->set_sensitive(($model->iter_n_children != 1));
 	}
 	
+	#check that friendwidgets are properly set
 	for my $curKey (sort keys %prefWidgets)	{
 		next if (ref($prefWidgets{$curKey}) eq 'ARRAY');
 		next unless ($prefWidgets{$curKey}->{type} =~ /CheckButton/);
-		for (@{$prefWidgets{$curKey}->{friendwidgets}}){$prefWidgets{$_}->{widget}->set_sensitive($prefWidgets{$curKey}->{widget}->get_active);}	
+		for (@{$prefWidgets{$curKey}->{friendwidgets}}){
+			#disable friendwidget if there's a condition that returns TRUE
+			if (($prefWidgets{$_}->{friendcondition}) and (eval($prefWidgets{$_}->{friendcondition}))) {$prefWidgets{$_}->{widget}->set_sensitive(0);}
+			else {$prefWidgets{$_}->{widget}->set_sensitive($prefWidgets{$curKey}->{widget}->get_active);}
+		}
 	}
 	
+	#set wakelaunchtimes
 	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
-	if ($WakeSchemes{$realScheme}->{wakecustomtimes}) 
-	{ 
-		$prefWidgets{wakelabel1}->{widget}->set_text(' Wake up at:  [CUSTOM]');
-		$prefWidgets{wakelaunchhour}->{widget}->set_sensitive(0); $prefWidgets{wakelaunchmin}->{widget}->set_sensitive(0);
-	}
+	my $sen = ($WakeSchemes{$realScheme}->{wakecustomtimes})? 0 : 1;
+	my $lText = ($sen)? ' Wake up at: ' : ' Wake up at:  [CUSTOM]';
 
-	$prefWidgets{shutdowncomputer}->{widget}->set_sensitive(0) unless ($::Options{Shutdown_cmd});
-	
+	$prefWidgets{wakelaunchhour}->{widget}->set_sensitive($sen); 
+	$prefWidgets{wakelaunchmin}->{widget}->set_sensitive($sen);
+	$prefWidgets{wakelabel1}->{widget}->set_text($lText) if ($lText ne $prefWidgets{wakelabel1}->{widget}->get_text);
+
 	return 1;
 }
 
@@ -524,7 +422,6 @@ sub UpdateWidgetsFromScheme
 
 		if ($curW->{type} eq 'CheckButton') {
 			$curW->{widget}->set_active($scheme->{$curKey} || 0);
-			for (@{$curW->{friendwidgets}}){$prefWidgets{$_}->{widget}->set_sensitive($curW->{widget}->get_active);}	
 		}
 		elsif ($curW->{type} eq 'SpinButton') {
 			if ((defined $scheme->{$curKey}) and ($scheme->{$curKey} =~ /^\'(\d+)\'$/)) {$scheme->{$curKey} = $1;}
@@ -557,23 +454,15 @@ sub UpdateWidgetsFromScheme
 	
 	if ($type =~ /Sleep/)
 	{
+		#set sleepmodecombo
 		my @scItems;
 		push @scItems, $SleepModes{$_}->{label} for (keys %SleepModes);
 		@scItems = sort @scItems;
 		my ($num) = grep {$SleepModes{$scheme->{sleepmode}}->{label} eq $scItems[$_]} (0..$#scItems);
 		$prefWidgets{sleepmodecombo}->{widget}->set_active($num) if (defined $num);
-		
-		$prefWidgets{shutdowncomputer}->{widget}->set_sensitive(0) unless ($::Options{Shutdown_cmd});
 	}
-	else
-	{
-		my $sen = ($scheme->{wakecustomtimes})? 0 : 1;
-		my $lText = ($sen)? ' Wake up at: ' : ' Wake up at:  [CUSTOM]';
 
-		$prefWidgets{wakelaunchhour}->{widget}->set_sensitive($sen); 
-		$prefWidgets{wakelaunchmin}->{widget}->set_sensitive($sen);
-		$prefWidgets{wakelabel1}->{widget}->set_text($lText) if ($lText ne $prefWidgets{wakelabel1}->{widget}->get_text);
-	}
+	DisableWidgets();
 
 	return 1;
 }
@@ -582,39 +471,10 @@ sub HandleNewRenameScheme
 {
 	my ($type,$oldSch,$newtext) = @_;
 	
-	if (not defined $oldSch)
-	{
-		#find first free 'userNUM'
-		for my $num (1..1000) { 
-			my ($found) = grep { 'user'.$num eq $_} ($type =~ /Sleep/)? (sort keys %SleepSchemes) : (sort keys %WakeSchemes); 
-			if (not defined $found) { $oldSch = 'user'.$num; last;}
-		}
-
-		return undef unless ($oldSch);
+	#  Having $oldSch tells us whether we are renaming or creating new scheme
+	if (not defined $oldSch){ $oldSch = CreateNewScheme($type);}
 	
-		my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
-		$CurScheme{$oldSch}->{type} = $type;
-		$CurScheme{$oldSch}{sleepmode} = 'immediate' if ($type eq 'Sleep');
-			
-		#set necessary values for new schemes
-		for my $curKey (keys %prefWidgets)
-		{
-			my $curW = $prefWidgets{$curKey};
-			next if ((ref($curW) eq 'ARRAY') or ($curW->{mode} ne $type) or ($curW->{noupdate}));
-			
-			if (defined $curW->{defaultvalue}){$CurScheme{$oldSch}{$curKey} = $curW->{defaultvalue};}
-			if ($curW->{type} eq 'ComboBox') {$CurScheme{$oldSch}{$curKey} = $curW->{widget}->get_active_text;}
-		}
-		
-		if ($type eq 'Sleep') { $SleepSchemes{$oldSch} = $CurScheme{$oldSch}; }
-		else 
-		{
-			#init defaults for filter & sort
-			$CurScheme{$oldSch} = SetDefaultFilterSort($CurScheme{$oldSch});
-			
-			$WakeSchemes{$oldSch} = $CurScheme{$oldSch};#copy to original
-		}
-	}
+	if (not defined $oldSch){ warn "SUNSHINE: Something gone wrong when trying to handle schemes!"; return undef;}
 	
 	if ($type =~ /Sleep/) {$SleepSchemes{$oldSch}->{label} = $newtext if ($newtext);}
 	else {$WakeSchemes{$oldSch}->{label} = $newtext if ($newtext);}
@@ -622,6 +482,89 @@ sub HandleNewRenameScheme
 	return $oldSch;	
 }
 
+sub CreateNewScheme
+{
+	my $type = shift;
+	my $realScheme;
+	
+	#find first free 'userNUM'
+	for my $num (1..1000) { 
+		my ($found) = grep { 'user'.$num eq $_} ($type =~ /Sleep/)? (sort keys %SleepSchemes) : (sort keys %WakeSchemes); 
+		if (not defined $found) { $realScheme = 'user'.$num; last;}
+	}
+	return undef unless $realScheme;
+
+	#set necessary initialvalues
+	my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
+	$CurScheme{$realScheme}->{type} = $type;
+	$CurScheme{$realScheme}{sleepmode} = 'immediate' if ($type eq 'Sleep');
+	$CurScheme{$realScheme} = SetDefaultFilterSort($CurScheme{$realScheme}) if ($type eq 'Wake');
+
+	for my $curKey (keys %prefWidgets)
+	{
+		my $curW = $prefWidgets{$curKey};
+		next if ((ref($curW) eq 'ARRAY') or ($curW->{mode} ne $type) or ($curW->{noupdate}));
+			
+		if (defined $curW->{defaultvalue}){$CurScheme{$realScheme}{$curKey} = $curW->{defaultvalue};}
+		if ($curW->{type} eq 'ComboBox') {$CurScheme{$realScheme}{$curKey} = $curW->{widget}->get_active_text;}
+	}
+		
+	#finally send to real table
+	if ($type eq 'Sleep') { $SleepSchemes{$realScheme} = $CurScheme{$realScheme}; }
+	else{$WakeSchemes{$realScheme} = $CurScheme{$realScheme};}
+	
+	return $realScheme;
+	
+}
+
+sub HandleTopButtonResponse
+{
+	my ($type,$key,$realScheme,$newtext) = @_;
+	
+	$EditingScheme = 1;
+	
+	my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
+	$realScheme = GetRealScheme($type,$prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text);
+
+	if ($prefWidgets{$key}->{action} eq 'Remove'){ 
+		if ($type =~ /Sleep/) {delete $SleepSchemes{$realScheme};}
+		else {delete $WakeSchemes{$realScheme};}
+		$realScheme = undef;
+	}
+	else
+	{
+		my $oldScheme = ($prefWidgets{$key}->{action} eq 'New')? undef : $realScheme; 
+		$realScheme = HandleNewRenameScheme($type,$oldScheme,$newtext);
+	}
+
+	#we have to 'reload' curscheme because of changes
+	for (keys %CurScheme) { $prefWidgets{lc($type).'schemecombo'}->{widget}->remove_text(0);}
+	%CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
+	my @Items=();
+	push @Items, $CurScheme{$_}->{label} for (keys %CurScheme);
+	@Items = sort @Items;
+
+	#re-populate schemecombo
+	for (0..$#Items)
+	{
+		$prefWidgets{lc($type).'schemecombo'}->{widget}->append_text($Items[$_]);
+		$prefWidgets{lc($type).'schemecombo'}->{widget}->set_active($_) if ((not defined $realScheme) or ($Items[$_] eq $CurScheme{$realScheme}->{label}));
+	}
+
+	$realScheme = GetRealScheme($type,$prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text);
+
+	#disable remove-button if there is only one scheme left
+	my $model = $prefWidgets{lc($type).'schemecombo'}->{widget}->get_model;
+	$prefWidgets{$key}->{widget}->set_sensitive(($model->iter_n_children != 1));
+						
+	UpdateWidgetsFromScheme($type,$CurScheme{$realScheme});
+	$::Options{OPT.'LastActive'.$type.'Scheme'} = $prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text;
+	
+	$EditingScheme = 0;
+	SaveSchemes;
+	
+	return 1;
+}
 sub CreateTopButtons
 {
 	for my $type ('Sleep','Wake')
@@ -638,48 +581,7 @@ sub CreateTopButtons
 			$prefWidgets{$key}->{widget}->signal_connect(clicked => sub 
 				{
 					my ($resp,$newtext) = NameDialog($prefWidgets{$key}->{action}.' scheme',$prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text);
-					if ($resp eq 'ok')
-					{ 
-						$EditingScheme = 1;
-						my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
-						$realScheme = GetRealScheme($type,$prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text);
-
-						if ($prefWidgets{$key}->{action} eq 'Remove'){ 
-							if ($type =~ /Sleep/) {delete $SleepSchemes{$realScheme};}
-							else {delete $WakeSchemes{$realScheme};}
-							$realScheme = undef;
-						}
-						else
-						{
-							my $oldScheme = ($prefWidgets{$key}->{action} eq 'New')? undef : $realScheme; 
-							$realScheme = HandleNewRenameScheme($type,$oldScheme,$newtext);
-						}
-
-						#we have to 'reload' curscheme because of changes
-						for (keys %CurScheme) { $prefWidgets{lc($type).'schemecombo'}->{widget}->remove_text(0);}
-						%CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
-						my @Items=();
-						push @Items, $CurScheme{$_}->{label} for (keys %CurScheme);
-						@Items = sort @Items;
-
-						#re-populate schemecombo
-						for (0..$#Items)
-						{
-							$prefWidgets{lc($type).'schemecombo'}->{widget}->append_text($Items[$_]);
-							$prefWidgets{lc($type).'schemecombo'}->{widget}->set_active($_) if ((not defined $realScheme) or ($Items[$_] eq $CurScheme{$realScheme}->{label}));
-						}
-
-						$realScheme = GetRealScheme($type,$prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text);
-						#disable remove-button if only 1 scheme left
-						my $model = $prefWidgets{lc($type).'schemecombo'}->{widget}->get_model;
-						$prefWidgets{$key}->{widget}->set_sensitive(($model->iter_n_children != 1));
-						
-						UpdateWidgetsFromScheme($type,$CurScheme{$realScheme});
-						$::Options{OPT.'LastActive'.$type.'Scheme'} = $prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text;
-						SaveSchemes;
-						$EditingScheme = 0;
-
-					}
+					if ($resp eq 'ok'){ if (HandleTopButtonResponse($type,$key,$realScheme,$newtext) != 1) {warn "SUNSHINE: HandleTopButtonResponse was not right."}}
 				});
 		}
 	}
@@ -694,7 +596,8 @@ sub CreateWidgets
 		my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
 		my $realScheme = GetRealScheme($type,$::Options{OPT.'LastActive'.$type.'Scheme'});
 
-		for my $curKey (sort keys %prefWidgets)	{
+		for my $curKey (sort keys %prefWidgets)	
+		{
 			my $curW = $prefWidgets{$curKey};
 			
 			next if (ref($curW) eq 'ARRAY');
@@ -707,7 +610,10 @@ sub CreateWidgets
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text);
 					$CurScheme{$realScheme}->{$curKey} = $curW->{widget}->get_active;
-					for (@{$curW->{friendwidgets}}){$prefWidgets{$_}->{widget}->set_sensitive($CurScheme{$realScheme}->{$curKey});}
+					for (@{$curW->{friendwidgets}}){
+							#if we have a 'friendcondition' which returns TRUE, we don't set friendwidgets' status on change
+							$prefWidgets{$_}->{widget}->set_sensitive($CurScheme{$realScheme}->{$curKey}) unless (($prefWidgets{$_}->{friendcondition}) and (eval($prefWidgets{$_}->{friendcondition})));
+					}
 					SaveSchemes;
 				});
 			}
@@ -769,11 +675,8 @@ sub CreateWidgets
 					push @Items, $SleepModes{$_}->{label} for (keys %SleepModes);
 					@Items = sort @Items;
 					$curW->{widget}->append_text($_) for (@Items);
-					if ($::Options{OPT.'LastActiveSleepScheme'}){
-						my ($nsID) = grep { $Items[$_] eq $SleepModes{$CurScheme{$realScheme}->{sleepmode}}->{label} } 0..$#Items;
-						$curW->{widget}->set_active($nsID);
-					}
-					else { $curW->{widget}->set_active(0);}
+					my ($nsID) = grep { $Items[$_] eq $SleepModes{$CurScheme{$realScheme}->{sleepmode}}->{label} } 0..$#Items;
+					$curW->{widget}->set_active($nsID || 0);
 				}
 				else
 				{
@@ -799,7 +702,7 @@ sub CreateWidgets
 				}
 				
 			}
-			$prefWidgets{$curKey} = $curW;
+			$prefWidgets{$curKey} = $curW; #set back to real table
 		}
 	}
 	
@@ -827,7 +730,7 @@ sub CreateSignals
 	sub	{
 			return if ($EditingScheme);
 			$realScheme = GetRealScheme('Sleep',$prefWidgets{sleepschemecombo}->{widget}->get_active_text);
-			DisableWidgets();	
+			DisableWidgets();
 			for (keys %SleepModes)	{
 				$SleepSchemes{$realScheme}->{sleepmode} = $_ if ($SleepModes{$_}->{label} eq $prefWidgets{sleepmodecombo}->{widget}->get_active_text); 	
 			}
@@ -857,15 +760,11 @@ sub GetRealScheme
 	my ($type,$scheme) = @_;
 
 	my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
-
-	for (sort keys %CurScheme) {
-		if ($CurScheme{$_}->{label} eq $scheme) {
-			return ($_); 
-		}
-	}
+	for (sort keys %CurScheme) {return ($_) if ($CurScheme{$_}->{label} eq $scheme);}
 	
 	return undef;
 }
+
 sub prefbox
 {	
 	my @frame=(Gtk2::Frame->new(" Going to sleep "),Gtk2::Frame->new(" Waking up "),Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" Status "));
@@ -926,10 +825,9 @@ sub Notify
 	my $notify_text = shift;
 
 	return 0 unless ($::Options{OPT.'ShowNotifications'}); 
-	#return 0 unless (defined $notify_text);
 	
 	my $notify_header = 'Sunshine';
-	my $notifyshowtime = 4;
+	my $notifyshowtime = 5;
 	
 	push @notifybuffer, $notify_text if (defined $notify_text);
 	
@@ -984,7 +882,7 @@ sub RunCommand
 {
 	my $command = shift;
 	
-	my @cmd= ::split_with_quotes($command);
+	my @cmd = ::split_with_quotes($command);
 	return unless @cmd;
 	::forksystem(@cmd);
 	
@@ -1007,11 +905,7 @@ sub SleepInterval
 	my $finished = eval($SleepModes{$Alarm{sleepmode}}{IsCompleted});
 	if ($@) {$finished = 0;}
 
-	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})) 
-	{
-		#even if time is up, we'll normally wait until the song is finished.
-		$Alarm{isfinished} = 1;
-	}
+	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})){$Alarm{isfinished} = 1;}
 	elsif ($finished) {GoSleep(\%Alarm);}
 	
 	return (!$finished);#returning false ends timeout
@@ -1022,7 +916,6 @@ sub SongChanged
 	$oldID = $::SongID;
 	
 	return unless (scalar@ActiveAlarms);
-	
 	my @SleepNow;
 	
 	foreach (@ActiveAlarms)
@@ -1073,9 +966,8 @@ sub GoSleep
 
 	UpdateStatusTexts();	
 	
-	warn "Going to sleep NOW!";
-
 	eval($::Options{OPT.'Advanced_SleepCommand'});
+	
 	if ($Alarm{scommandcheck}) { RunCommand($Alarm{scommandentry});}
 	if ($Alarm{shutdowngmb}) 
 	{ 
@@ -1095,7 +987,7 @@ sub AddAlarm
 	@{$::Options{OPT.'ActiveAlarms'}} = @ActiveAlarms;
 	
 	%{$_[0]} = %Alarm;
-	UpdateStatusTexts() unless ($silent);
+	UpdateStatusTexts() unless ($silent);#updating statustexts when adding alarms on launch causes error, since widgets are not yet created
 
 	return 1;	
 }
@@ -1123,6 +1015,7 @@ sub GetShortestTimeTo
 	
 	# times can be formatted either XXX:??:?? or just ??:??, 
 	# where XXX = weekday abbr, and ??:?? hour and minutes, divided by ':'
+	# hour & minute might be 1 or 2 digits long
 	my $Next=0;
 	
 	for my $timestring (@Times)
@@ -1340,5 +1233,104 @@ sub StopSunshine
 	return 1;		
 }
 
+
+sub SortMenu
+{	my $nopopup= 0;
+	my $menu = Gtk2::Menu->new;
+	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
+
+	my $check=$WakeSchemes{$realScheme}->{wselectedsort};
+	my $found;
+	my $callback=sub { $WakeSchemes{$realScheme}->{wselectedsort} = $_[1]; SaveSchemes(); };
+	my $append=sub
+	 {	my ($menu,$name,$sort,$true,$cb)=@_;
+		$cb||=$callback;
+		$true=($sort eq $check) unless defined $true;
+		my $item = Gtk2::CheckMenuItem->new_with_label($name);
+		$item->set_draw_as_radio(1);
+		$item->set_active($found=1) if $true;
+		$item->signal_connect (activate => $cb, $sort );
+		$menu->append($item);
+	 };
+
+	my $submenu= Gtk2::Menu->new;
+	my $sitem = Gtk2::MenuItem->new(_"Weighted Random");
+	for my $name (sort keys %{$::Options{SavedWRandoms}})
+	{	$append->($submenu,$name, $::Options{SavedWRandoms}{$name} );
+	}
+	$sitem->set_submenu($submenu);
+	$menu->prepend($sitem);
+	$append->($menu,_"Shuffle",'shuffle');
+
+	{ my $item=Gtk2::CheckMenuItem->new(_"Repeat");
+	  $item->set_active($WakeSchemes{$realScheme}->{wselectedsortrepeat} || 0);
+	  $item->set_sensitive(0) if ($check =~ m/^random:/);
+	  $item->signal_connect(activate => sub { $WakeSchemes{$realScheme}->{wselectedsortrepeat} = $_[0]->get_active; SaveSchemes();} );
+	  $menu->append($item);
+	}
+
+	$menu->append(Gtk2::SeparatorMenuItem->new); #separator between random and non-random modes
+
+	$append->($menu,_"List order", '' ) if defined $::ListMode;
+	for my $name (sort keys %{$::Options{SavedSorts}})
+	{	$append->($menu,$name, $::Options{SavedSorts}{$name} );
+	}
+	$menu->show_all;
+	return $menu if $nopopup;
+	my $event=Gtk2->get_current_event;
+	my ($button,$pos)= $event->isa('Gtk2::Gdk::Event::Button') ? ($event->button,\&::menupos) : (0,undef);
+	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
+}
+
+sub FilterMenu
+{	my $nopopup= 0;
+	my $menu = Gtk2::Menu->new;
+	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
+	my ($check,$found);
+
+	$check=$WakeSchemes{$realScheme}->{wselectedfilter};
+	my $item_callback=sub { $WakeSchemes{$realScheme}->{wselectedfilter} = $_[1]; $WakeSchemes{$realScheme}->{wselectedfiltertype} = 'filter'; SaveSchemes();};
+
+	my $item0= Gtk2::CheckMenuItem->new(_"All songs");
+	$item0->set_active($found=1) if !$check && !defined $::ListMode;
+	$item0->set_draw_as_radio(1);
+	$item0->signal_connect ( activate =>  $item_callback ,'' );
+	$menu->append($item0);
+
+	for my $list (sort keys %{$::Options{SavedFilters}})
+	{	my $filt=$::Options{SavedFilters}{$list}->{string};
+		my $item = Gtk2::CheckMenuItem->new_with_label($list);
+		$item->set_draw_as_radio(1);
+		$item->set_active($found=1) if defined $check && $filt eq $check;
+		$item->signal_connect ( activate =>  $item_callback ,$filt );
+		$menu->append($item);
+	}
+	my $item=Gtk2::CheckMenuItem->new(_"Custom...");
+	$item->set_active(1) if defined $check && !$found;
+	$item->set_draw_as_radio(1);
+	$item->signal_connect ( activate => sub
+		{ ::EditFilter(undef,$WakeSchemes{$realScheme}->{wselectedfilter},undef, sub { $WakeSchemes{$realScheme}->{wselectedfilter} = $_[1]; $WakeSchemes{$realScheme}->{wselectedfiltertype} = 'filter';  SaveSchemes();});
+		});
+	$menu->append($item);
+	if (my @SavedLists=::GetListOfSavedLists())
+	{	my $submenu=Gtk2::Menu->new;
+		my $list_cb=sub { $WakeSchemes{$realScheme}->{wselectedfilter} = $_[1]; $WakeSchemes{$realScheme}->{wselectedfiltertype} = 'staticlist';  SaveSchemes();};
+		for my $list (@SavedLists)
+		{	my $item = Gtk2::CheckMenuItem->new_with_label($list);
+			$item->set_draw_as_radio(1);
+			$item->set_active(1) if defined $::ListMode && $list eq $::ListMode;
+			$item->signal_connect( activate =>  $list_cb, $list );
+			$submenu->append($item);
+		}
+		my $sitem=Gtk2::MenuItem->new(_"Saved Lists");
+		$sitem->set_submenu($submenu);
+		$menu->prepend($sitem);
+	}
+	$menu->show_all;
+	return $menu if $nopopup;
+	my $event=Gtk2->get_current_event;
+	my ($button,$pos)= $event->isa('Gtk2::Gdk::Event::Button') ? ($event->button,\&::menupos) : (0,undef);
+	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
+}
 
 1
