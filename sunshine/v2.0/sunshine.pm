@@ -8,6 +8,8 @@
 # published by the Free Software Foundation.
 
 # TODO:
+#  - more advanced settings
+#  - more reasonable names for presets? =P
 #
 # BUGS:
 #
@@ -36,7 +38,7 @@ my %sunshine_button=
 (	class	=> 'Layout::Button',
 	stock	=> 'plugin-sunshine',
 	tip	=> "Launch Sunshine",
-	activate=> \&LaunchSunshine,
+	activate=> sub {LaunchSunshine();},
 	autoadd_type	=> 'button main',
 );
 
@@ -195,22 +197,27 @@ sub Start
 		
 		if (($::Options{OPT.'ActiveAlarms'}) and ($::Options{OPT.'Advanced_KeepAlarms'}))
 		{
-			for (@{$::Options{OPT.'ActiveAlarms'}}) 
+			my @tempAlarms = @{$::Options{OPT.'ActiveAlarms'}};
+			for (@tempAlarms) 
 			{
 				my %aAlarm = %{$_};
 				#clean old ids and handles from alarms
 				delete $aAlarm{activealarmid} if ($aAlarm{activealarmid}); 
 				delete $aAlarm{alarmhandle} if ($aAlarm{alarmhandle});
 				delete $aAlarm{waitingforlaunchtime} if ($aAlarm{waitingforlaunchtime});
-				
-				#only launch 'em if repeat is set, (and automatic_launch for sleepmodes)
-				next unless ($aAlarm{lc($aAlarm{type}).'repeatcheck'});
+				#only launch 'em if repeat is set for Wake, automatic_launch for Sleepmodes
+				#also remove automatically launched sleepalarm, if repeat is not set and it's alarmtime has passed
+				next if (($aAlarm{type} eq 'Wake') and (!$aAlarm{lc($aAlarm{type}).'repeatcheck'}));
 				next if (($aAlarm{type} eq 'Sleep') and (!$aAlarm{launchautomaticallycheck}));
-			
+				next if (($aAlarm{type} eq 'Sleep') and (defined $aAlarm{finishingtime}) and ($aAlarm{finishingtime} < time) and (!$aAlarm{sleeprepeatcheck}) and ($aAlarm{launchautomaticallycheck}));
 				LaunchSunshine(force => $aAlarm{type}, Alarm_ref => \%aAlarm, silent => 1);
 			}
 		}
 	}
+	
+	CreateWidgets();
+	CreateTopButtons();
+	CreateSignals();
 }
 sub Stop
 {
@@ -304,7 +311,8 @@ sub NameDialog
 sub ShowAdvancedSettings
 {
 	# Todo: 	
-	#   volumefademode (linear/exponential/custom power[0.1;2.0]), custom layout button functions, alarm/sleep command, killing individual alarms 
+	# volumefademode (linear/exponential/custom power[0.1;2.0]), custom layout button functions, killing individual alarms
+	# 
 
 	my $Dialog = Gtk2::Dialog->new('Advanced Settings', undef, 'modal');
 	my %LastSetup; my @commandlist;
@@ -784,9 +792,6 @@ sub prefbox
 	my @frame=(Gtk2::Frame->new(" Going to sleep "),Gtk2::Frame->new(" Waking up "),Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" Status "));
 	my @vbox;
 
-	CreateWidgets();
-	CreateTopButtons();
-	CreateSignals();
 	UpdateWidgetsFromScheme($_) for ('Sleep','Wake');
 	DisableWidgets();
 	UpdateStatusTexts();
@@ -1146,12 +1151,13 @@ sub LaunchSunshine
 				Notify("Removed previous sleep-mode '".${$_}{label}."'") if (($::Options{OPT.'Advanced_MoreNotifications'}) and (!$silent));
 			}
 		}
-
 		if (($Alarm{launchautomaticallycheck}) and (not defined $Alarm{waitingforlaunchtime})) 
 		{
 			Notify("Activated sleepmode: ".$Alarm{label}."\nStarting automatically at ".sprintf("%.2d\:%.2d",$Alarm{launchautomaticallyhour},$Alarm{launchautomaticallymin})) unless ($silent);
 			$Alarm{waitingforlaunchtime} = 1; 
-			$Alarm{alarmhandle}=Glib::Timeout->add(1000*GetShortestTimeTo($Alarm{launchautomaticallyhour}.':'.$Alarm{launchautomaticallymin}),
+			$Alarm{modelength} = GetShortestTimeTo($Alarm{launchautomaticallyhour}.':'.$Alarm{launchautomaticallymin});
+			$Alarm{finishingtime} = time+$Alarm{modelength};
+			$Alarm{alarmhandle}=Glib::Timeout->add(1000*$Alarm{modelength},
 				sub { $Alarm{waitingforlaunchtime} = 2; LaunchSunshine(force => 'Sleep',type => \%Alarm); return 0;});
 			AddAlarm(\%Alarm,$silent);
 		}
@@ -1170,6 +1176,7 @@ sub LaunchSunshine
 
 			if (!$Alarm{modelength}) { GoSleep(\%Alarm); return 1;}
 
+			$Alarm{finishingtime} = time+$Alarm{modelength};
 			if ($Alarm{svolumefadecheck})
 			{
 				## (-1) in 'from' means we use whatever the volume currently is
@@ -1182,7 +1189,7 @@ sub LaunchSunshine
 			else {	$Alarm{interval} = 1000*($Alarm{modelength}+1); }#this may go wrong if user wants specific number of random songs, but should be an ok guess?
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
-	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime(time+$Alarm{modelength})) unless ($silent);
+	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".$Alarm{finishingtime}) unless ($silent);
 		
 			AddAlarm(\%Alarm,$silent);
 		}
@@ -1209,6 +1216,7 @@ sub LaunchSunshine
 
 		$Alarm{modelength} = ($Alarm{wakecustomtimes})? GetShortestTimeTo(@{$Alarm{wakecustomtimestrings}}) :  GetShortestTimeTo($Alarm{wakelaunchhour}.':'.$Alarm{wakelaunchmin});
 		return unless ($Alarm{modelength} > 0);
+		$Alarm{finishingtime} = time+$Alarm{modelength};
 		
 		$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{modelength}*1000,sub {WakeUp(\%Alarm);});
  		
@@ -1226,15 +1234,20 @@ sub UpdateStatusTexts
 	for (0..$#ActiveAlarms)
 	{
 		my %Al = %{$ActiveAlarms[$_]};
-		my $left = $Al{modelength};
+		my $left = $Al{finishingtime}-time;
 		my $tsindex = ($Al{type} eq 'Sleep')? 0 : 1;
 
 		if ($ts[$tsindex] =~ /^(.+)\t$/) { $ts[$tsindex] .= $Al{label};}
 		else {$ts[$tsindex] .= ', '.$Al{label};}
 		
-		my $timeleft = ($left > 86400)? ' (about '.int($left/86400).'d '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)' 
-			: ' (about '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)';
-		  
+		my $timeleft = ' (unable to calculate time)';
+
+		if ($left > 60)	{
+			$timeleft = ($left > 86400)? ' (about '.int($left/86400).'d '.int(($left%86400)/3600).'h '.int(($left%3600)/60).'min left)' 
+				: ' (about '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)';
+		}
+		elsif ($left > 0) { $timeleft = ' (under one minute left)';}
+		
 		$ts[$tsindex] .= $timeleft;
 	}
 	
