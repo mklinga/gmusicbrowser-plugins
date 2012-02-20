@@ -1,0 +1,8 @@
+Changelog for Sunshine (* = major, - = minor change)
+20.2.2012
+* added notify-buffer
+* prevent launching same alarm twice
+* fixed bug calculating sleep-intervals
+- fixed error when launching with MoreNotifications
+- fixed warning when launching with 'launch sunshine'-button
+- fixed typos in statustext
