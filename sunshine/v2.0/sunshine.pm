@@ -1,6 +1,6 @@
 # Gmusicbrowser: Copyright (C) 2005-2011 Quentin Sculo <squentin@free.fr>
 # Sunshine: Copyright (C) Markus Klinga (laite) <laite@gmx.com>
-# Sunshine icon is made by VisualPharm (http://www.visualpharm.com/)
+# Sunshine icons are made by Daily Overview (http://www.dailyoverview.com/)
 #
 # This file is a plugin to Gmusicbrowser.
 # It is free software; you can redistribute it and/or modify
@@ -8,10 +8,6 @@
 # published by the Free Software Foundation.
 
 # TODO:
-#
-# Sunshine v2.01
-#  - more info on screen (status) - how long to go, etc
-#  - don't do same thing twice, create functions instead
 #
 # BUGS:
 #
@@ -31,7 +27,7 @@ use constant
 
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
-::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SaveOnChange => 1);
+::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SleepEnabled => 1, WakeEnabled => 1, A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause');
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
@@ -139,13 +135,23 @@ my %prefWidgets=
 	wakefilterbutton => {type => 'IconButton', mode => 'Wake', text => 'Select', pic => 'gmb-filter', func => \&FilterMenu},
 );
 
+my %SleepWakeCommands=
+(
+	play => {label => 'Play', command => '::Play'},
+	playpause => {label => 'Play/Pause', command => '::PlayPause'},
+	pause => {label => 'Pause', command => '::Pause'},
+	stop => {label => 'Stop', command => '::Stop'},
+	prevsong => {label => 'Prev', command => '::PrevSong'},
+	nextsong => {label => 'Next', command => '::NextSong'},
+);
+
 my %AdvancedDefaults=
 (
 	SleepCommand => '::PlayPause',
 	WakeCommand => '::PlayPause',
 	KeepAlarms => 1,
 	MoreNotifications => 0,
-	MultipleAlarms => 1,
+	MultipleAlarms => 0,
 	Albumrandom => 0,
 	IgnoreLastInCount => 0,
 	DontFinishLastInTimed => 0,
@@ -301,12 +307,24 @@ sub ShowAdvancedSettings
 	#   volumefademode (linear/exponential/custom power[0.1;2.0]), custom layout button functions, alarm/sleep command, killing individual alarms 
 
 	my $Dialog = Gtk2::Dialog->new('Advanced Settings', undef, 'modal');
-	my %LastSetup;
+	my %LastSetup; my @commandlist;
 	
 	for (keys %AdvancedDefaults) { $LastSetup{$_} = $::Options{OPT.'Advanced_'.$_}; }
 	
 	$Dialog->add_buttons('gtk-ok' => 'ok', 'gtk-cancel','cancel');
 	$Dialog->set_position('center-always');
+
+	for (sort keys %SleepWakeCommands) { push @commandlist, $SleepWakeCommands{$_}->{label};}
+	my $sleepcommand = ::NewPrefCombo(OPT.'A_SleepCommandBox',\@commandlist,text => 'Sleepcommand', cb => 
+		sub {
+			for (keys %SleepWakeCommands) { if ($SleepWakeCommands{$_}->{label} eq $::Options{OPT.'A_SleepCommandBox'}) 
+				{$::Options{OPT.'Advanced_SleepCommand'} = $SleepWakeCommands{$_}->{command}; last;}}
+		});
+	my $wakecommand = ::NewPrefCombo(OPT.'A_WakeCommandBox',\@commandlist,text => 'Wakecommand', cb =>
+		sub {
+			for (keys %SleepWakeCommands) { if ($SleepWakeCommands{$_}->{label} eq $::Options{OPT.'A_WakeCommandBox'}) 
+				{$::Options{OPT.'Advanced_WakeCommand'} = $SleepWakeCommands{$_}->{command}; last;}}
+		});
 	
 	my $multiplealarms = ::NewPrefCheckButton(OPT.'Advanced_MultipleAlarms','Allow multiple alarms', tip => 'If unchecked, Sunshine will allow only one sleep- and one wake-alarm at time. Old alarms will be disabled when new is started.');
 	my $keepalarms = ::NewPrefCheckButton(OPT.'Advanced_KeepAlarms','Keep alarms between sessions', tip => 'If unchecked, Sunshine will disable all active alarms when gmusicbrowser is shut down.');
@@ -318,8 +336,14 @@ sub ShowAdvancedSettings
 	my $manualsleeptime = ::NewPrefCheckButton(OPT.'Advanced_ManualFadeTime',"Don't calculate sleep-modes' fadetime, but use ", 
 		tip => 'Calculating might go horribly wrong if you\'re playing random tracks, since they are generated only when necessary', widget => $manusleepspin);
 	my $label1 = Gtk2::Label->new("Please note that some of these settings might have non-obvious effects!\nCheck the README before changing unless you know what you're doing.");
+
+	#disable albumrandom-option if can't find plugin
+	eval('GMB::Plugin::ALBUMRANDOM::IsAlbumrandomOn()');
+	my $s = ($@)? 0 : 1;
+	$ar->set_sensitive($s); $ar->set_active($s);
+	$::Options{OPT.'Advanced_Albumrandom'} = $s;
 	
-	my $vbox = ::Vpack($label1,[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],[$manualsleeptime]);
+	my $vbox = ::Vpack($label1,[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],[$manualsleeptime],[$sleepcommand,$wakecommand]);
 
 	$Dialog->get_content_area()->add($vbox);
 	$Dialog->set_default_response ('cancel');	
@@ -1067,7 +1091,7 @@ sub WakeUp
 	if ($::Options{OPT.'Advanced_Albumrandom'}) 
 	{ 
 		#if we can't launch albumrandom, just go with regular wake
-		eval(GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum());
+		eval('GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum()');
     	if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
     	else {::NextSong(); ::Play();}
 	}
@@ -1208,8 +1232,8 @@ sub UpdateStatusTexts
 		if ($ts[$tsindex] =~ /^(.+)\t$/) { $ts[$tsindex] .= $Al{label};}
 		else {$ts[$tsindex] .= ', '.$Al{label};}
 		
-		my $timeleft = ($left > 86400)? '(about '.int($left/86400).'d '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)' 
-			: '(about '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)';
+		my $timeleft = ($left > 86400)? ' (about '.int($left/86400).'d '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)' 
+			: ' (about '.int(($left%86400)/3600).'h '.int(($left%3600)/60).' min left)';
 		  
 		$ts[$tsindex] .= $timeleft;
 	}

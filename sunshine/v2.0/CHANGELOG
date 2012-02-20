@@ -1,9 +1,12 @@
 Changelog for Sunshine (* = major, - = minor change)
 20.2.2012
+* introduced a new icon and an alternative for it!
+* advanced option to select sleep/wake-command
 * cleaned a lot of code, removed some duplicate handling of things
 * added notify-buffer
 * prevent launching same alarm twice
 * fixed bug calculating sleep-intervals
+- disable albumrandom-option unless plugin is found (and enabled)
 - added estimated time and refresh-button to status
 - fixed bug with 'shut down'-options
 - fixed error when launching with MoreNotifications
