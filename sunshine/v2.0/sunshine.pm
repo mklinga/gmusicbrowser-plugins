@@ -159,6 +159,7 @@ my %AdvancedDefaults=
 	DontFinishLastInTimed => 0,
 	ManualTimeSpin => 30,
 	ManualFadeTime => 0,
+	SkipAlarmIfPlaying => 1,
 );
 
 my @StartFromItems = ('First Track', 'Random track');
@@ -218,6 +219,7 @@ sub Start
 	CreateWidgets();
 	CreateTopButtons();
 	CreateSignals();
+	
 }
 sub Stop
 {
@@ -338,6 +340,7 @@ sub ShowAdvancedSettings
 	my $keepalarms = ::NewPrefCheckButton(OPT.'Advanced_KeepAlarms','Keep alarms between sessions', tip => 'If unchecked, Sunshine will disable all active alarms when gmusicbrowser is shut down.');
 	my $morenots = ::NewPrefCheckButton(OPT.'Advanced_MoreNotifications','More notifications!', tip => 'Nice pop-up every now and then, now who wouldn\'t like that?');
 	my $ar = ::NewPrefCheckButton(OPT.'Advanced_Albumrandom','Launch Albumrandom when waking', tip => 'This obviously doesn\'t work unless Albumrandom-plugin is installed and enabled');
+	my $skipalarmifplaying = ::NewPrefCheckButton(OPT.'Advanced_SkipAlarmIfPlaying','Don\'t launch alarmcommand if music is already playing', tip => 'This just in case you happen to wake up before alarm and start music manually');
 	my $ignorelastcount = ::NewPrefCheckButton(OPT.'Advanced_IgnoreLastInCount','Count current song in count-mode', tip => 'By default, songcount begins only from first whole song to be played, you can change this here.');
 	my $dontfinishlast = ::NewPrefCheckButton(OPT.'Advanced_DontFinishLastInTimed',"Don't finish last song in timed mode", tip => 'Did you know that he fourth wise monkey is called Shizaru?');
 	my $manusleepspin = ::NewPrefSpinButton(OPT.'Advanced_ManualTimeSpin',1,720, text2=> ' minutes instead');
@@ -351,7 +354,7 @@ sub ShowAdvancedSettings
 	$ar->set_sensitive($s); $ar->set_active($s);
 	$::Options{OPT.'Advanced_Albumrandom'} = $s;
 	
-	my $vbox = ::Vpack($label1,[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],[$manualsleeptime],[$sleepcommand,$wakecommand]);
+	my $vbox = ::Vpack($label1,[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],[$skipalarmifplaying],$manualsleeptime,[$sleepcommand,$wakecommand]);
 
 	$Dialog->get_content_area()->add($vbox);
 	$Dialog->set_default_response ('cancel');	
@@ -792,6 +795,9 @@ sub prefbox
 	my @frame=(Gtk2::Frame->new(" Going to sleep "),Gtk2::Frame->new(" Waking up "),Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" Status "));
 	my @vbox;
 
+	CreateWidgets();
+	CreateTopButtons();
+	CreateSignals();
 	UpdateWidgetsFromScheme($_) for ('Sleep','Wake');
 	DisableWidgets();
 	UpdateStatusTexts();
@@ -1093,15 +1099,19 @@ sub WakeUp
 	RemoveAlarm(\%Alarm);
 	UpdateStatusTexts();	
 
-	if ($::Options{OPT.'Advanced_Albumrandom'}) 
-	{ 
-		#if we can't launch albumrandom, just go with regular wake
-		eval('GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum()');
-    	if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
-    	else {::NextSong(); ::Play();}
+	#don't launch alarm if a_SAIP is set and music is already playing ($togplay==1)
+	if (!(($::Options{OPT.'Advanced_SkipAlarmIfPlaying'}) and ($::TogPlay)))
+	{
+		if ($::Options{OPT.'Advanced_Albumrandom'}) 
+		{ 
+			#if we can't launch albumrandom, just go with regular wake
+			eval('GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum()');
+    		if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
+    		else {::NextSong(); ::Play();}
+		}
+		else {eval($::Options{OPT.'Advanced_WakeCommand'});}
 	}
-	else {eval($::Options{OPT.'Advanced_WakeCommand'});}
-
+	
 	if ($Alarm{wakerepeatcheck}) { LaunchSunshine(force => 'Wake',Alarm_ref => \%Alarm); }
 
 	return 1; 
@@ -1189,7 +1199,7 @@ sub LaunchSunshine
 			else {	$Alarm{interval} = 1000*($Alarm{modelength}+1); }#this may go wrong if user wants specific number of random songs, but should be an ok guess?
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
-	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".$Alarm{finishingtime}) unless ($silent);
+	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime($Alarm{finishingtime})) unless ($silent);
 		
 			AddAlarm(\%Alarm,$silent);
 		}
@@ -1220,7 +1230,7 @@ sub LaunchSunshine
 		
 		$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{modelength}*1000,sub {WakeUp(\%Alarm);});
  		
- 		Notify("Launched '".$Alarm{label}."'.\nWaking at ".localtime(time+$Alarm{modelength})) unless ($silent);
+ 		Notify("Launched '".$Alarm{label}."'.\nWaking at ".localtime($Alarm{finishingtime})) unless ($silent);
  		
  		AddAlarm(\%Alarm,$silent);
 	}
