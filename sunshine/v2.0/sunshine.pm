@@ -29,7 +29,8 @@ use constant
 
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
-::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SleepEnabled => 1, WakeEnabled => 1, A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause');
+::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SleepEnabled => 1, WakeEnabled => 1,
+	 A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause', Advanced_VolumaFadeInPerc => 100);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
@@ -216,10 +217,6 @@ sub Start
 		}
 	}
 	
-	CreateWidgets();
-	CreateTopButtons();
-	CreateSignals();
-	
 }
 sub Stop
 {
@@ -313,8 +310,7 @@ sub NameDialog
 sub ShowAdvancedSettings
 {
 	# Todo: 	
-	# volumefademode (linear/exponential/custom power[0.1;2.0]), custom layout button functions, killing individual alarms
-	# 
+	# custom layout button functions
 
 	my $Dialog = Gtk2::Dialog->new('Advanced Settings', undef, 'modal');
 	my %LastSetup; my @commandlist;
@@ -324,6 +320,22 @@ sub ShowAdvancedSettings
 	$Dialog->add_buttons('gtk-ok' => 'ok', 'gtk-cancel','cancel');
 	$Dialog->set_position('center-always');
 
+	my @aa; for (@ActiveAlarms) { push @aa, $_->{label};}
+	my $activealarmskillbox = ::NewPrefCombo(OPT.'A_ActiveAlarmsBox',\@aa);
+	@aa = @ActiveAlarms;
+	my $activealarmskillbutton; $activealarmskillbutton = ::NewIconButton('gtk-delete','Kill this',sub 
+		{
+			RemoveAlarm($aa[$activealarmskillbox->get_active]);
+			UpdateStatusTexts();
+			$activealarmskillbox->remove_text($activealarmskillbox->get_active);
+			if (!scalar@ActiveAlarms){ $activealarmskillbox->set_sensitive(0); $activealarmskillbutton->set_sensitive(0);}
+			else {$activealarmskillbox->set_active(0);}
+			
+		}); 
+	my $activealarmskilllabel = Gtk2::Label->new('Active Alarms ');
+	
+	if (!scalar@ActiveAlarms){ $activealarmskillbox->set_sensitive(0); $activealarmskillbutton->set_sensitive(0);}
+	
 	for (sort keys %SleepWakeCommands) { push @commandlist, $SleepWakeCommands{$_}->{label};}
 	my $sleepcommand = ::NewPrefCombo(OPT.'A_SleepCommandBox',\@commandlist,text => 'Sleepcommand', cb => 
 		sub {
@@ -335,8 +347,9 @@ sub ShowAdvancedSettings
 			for (keys %SleepWakeCommands) { if ($SleepWakeCommands{$_}->{label} eq $::Options{OPT.'A_WakeCommandBox'}) 
 				{$::Options{OPT.'Advanced_WakeCommand'} = $SleepWakeCommands{$_}->{command}; last;}}
 		});
-	
-	my $multiplealarms = ::NewPrefCheckButton(OPT.'Advanced_MultipleAlarms','Allow multiple alarms', tip => 'If unchecked, Sunshine will allow only one sleep- and one wake-alarm at time. Old alarms will be disabled when new is started.');
+
+	my $volumefadeinperc = ::NewPrefSpinButton(OPT.'Advanced_VolumaFadeInPerc',10,100, text1 => 'Finish volumefade in ', text2=> '% of fadelength');
+	my $multiplealarms = ::NewPrefCheckButton(OPT.'Advanced_MultipleAlarms','Allow multiple alarms', tip => 'If unchecked, Sunshine will allow only one sleep- and one wake-alarm at time. Old alarms will be removed when new is started.');
 	my $keepalarms = ::NewPrefCheckButton(OPT.'Advanced_KeepAlarms','Keep alarms between sessions', tip => 'If unchecked, Sunshine will disable all active alarms when gmusicbrowser is shut down.');
 	my $morenots = ::NewPrefCheckButton(OPT.'Advanced_MoreNotifications','More notifications!', tip => 'Nice pop-up every now and then, now who wouldn\'t like that?');
 	my $ar = ::NewPrefCheckButton(OPT.'Advanced_Albumrandom','Launch Albumrandom when waking', tip => 'This obviously doesn\'t work unless Albumrandom-plugin is installed and enabled');
@@ -345,7 +358,7 @@ sub ShowAdvancedSettings
 	my $dontfinishlast = ::NewPrefCheckButton(OPT.'Advanced_DontFinishLastInTimed',"Don't finish last song in timed mode", tip => 'Did you know that he fourth wise monkey is called Shizaru?');
 	my $manusleepspin = ::NewPrefSpinButton(OPT.'Advanced_ManualTimeSpin',1,720, text2=> ' minutes instead');
 	my $manualsleeptime = ::NewPrefCheckButton(OPT.'Advanced_ManualFadeTime',"Don't calculate sleep-modes' fadetime, but use ", 
-		tip => 'Calculating might go horribly wrong if you\'re playing random tracks, since they are generated only when necessary', widget => $manusleepspin);
+		tip => 'Calculating might go wrong if you\'re playing random tracks, since they are re-generated when played', widget => $manusleepspin);
 	my $label1 = Gtk2::Label->new("Please note that some of these settings might have non-obvious effects!\nCheck the README before changing unless you know what you're doing.");
 
 	#disable albumrandom-option if can't find plugin
@@ -354,7 +367,8 @@ sub ShowAdvancedSettings
 	$ar->set_sensitive($s); $ar->set_active($s);
 	$::Options{OPT.'Advanced_Albumrandom'} = $s;
 	
-	my $vbox = ::Vpack($label1,[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],[$skipalarmifplaying],$manualsleeptime,[$sleepcommand,$wakecommand]);
+	my $vbox = ::Vpack($label1,[$activealarmskilllabel,'_',$activealarmskillbox,$activealarmskillbutton],[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],
+		[$skipalarmifplaying],$volumefadeinperc,$manualsleeptime,[$sleepcommand,$wakecommand]);
 
 	$Dialog->get_content_area()->add($vbox);
 	$Dialog->set_default_response ('cancel');	
@@ -844,6 +858,7 @@ sub prefbox
 	::Vpack( $prefWidgets{sleepstatuslabel}->{widget},[$prefWidgets{wakestatuslabel}->{widget},'-',$mStatusRefresh] ));
 
 	$frame[$_]->add($vbox[$_]) for (0..$#frame);
+
 	return ::Vpack($frame[2],'_',['_',$frame[0],'_',$frame[1]],$frame[3]);
 }
 
@@ -919,15 +934,23 @@ sub SleepInterval
 {
 	my %Alarm = %{$_[0]};
 	
-	$Alarm{passedtime} += $Alarm{interval};
-	
-	#%Alarm is only a temporary representation, so must put changes back where they came from
-	%{$_[0]} = %Alarm;
-	
+	$Alarm{passedtime} += ($Alarm{interval}/1000);#interval is in ms, we want secs
+
 	if ($Alarm{svolumefadecheck})	{
 		if (::GetVol() < $Alarm{svolumefadeto}) {::UpdateVol(::GetVol()+1);}
 		elsif (::GetVol() > $Alarm{svolumefadeto}) {::UpdateVol(::GetVol()-1);}
+		elsif (!$Alarm{newintervalset})
+		{
+			#we have finished volumefading, so we set interval to finishingtime+1 
+			my $newinterval = ($Alarm{finishingtime}-time)+1;
+			Glib::Source->remove($Alarm{alarmhandle});
+			$Alarm{alarmhandle}=Glib::Timeout->add($newinterval,sub {SleepInterval(\%Alarm);});
+			$Alarm{newintervalset} = 1;
+		}
 	}
+
+	#%Alarm is only a temporary representation, so must send changes back
+	%{$_[0]} = %Alarm;
 	
 	my $finished = eval($SleepModes{$Alarm{sleepmode}}{IsCompleted});
 	if ($@) {$finished = 0;}
@@ -1014,14 +1037,15 @@ sub AddAlarm
 	@{$::Options{OPT.'ActiveAlarms'}} = @ActiveAlarms;
 	
 	%{$_[0]} = %Alarm;
-	UpdateStatusTexts() unless ($silent);#updating statustexts when adding alarms on launch causes error, since widgets are not yet created
+	#updating statustexts when adding alarms automatically on plugin's launch causes error, since widgets are not yet created
+	UpdateStatusTexts() unless ($silent);
 
 	return 1;	
 }
 sub RemoveAlarm
 {
 	my %Alarm = %{$_[0]};
-	
+
 	Glib::Source->remove($Alarm{alarmhandle}) if (defined $Alarm{alarmhandle});
 	if ((defined $Alarm{activealarmid}) and ($Alarm{activealarmid} < $#ActiveAlarms)) {
 		for (($Alarm{activealarmid}+1)..$#ActiveAlarms) { ${$ActiveAlarms[$_]}{activealarmid}--;}
@@ -1141,8 +1165,8 @@ sub LaunchSunshine
 {
 	my (%opts) = @_;
 	my ($Alarm_ref,$force,$silent) = @opts{qw/Alarm_ref force silent/} if (%opts);	
-
 	$force ||= '';
+
 	return unless (($::Options{OPT.'SleepEnabled'}) or ($::Options{OPT.'WakeEnabled'}) or (defined $force));
 
 	if (($force eq 'Sleep') or (($::Options{OPT.'SleepEnabled'}) and ($force ne 'Wake')))
@@ -1193,10 +1217,19 @@ sub LaunchSunshine
 				my $fromvol = ($Alarm{svolumefadefrom} == -1)? ::GetVol() : $Alarm{svolumefadefrom};
 				if ($::Options{OPT.'Advanced_ManualFadeTime'}) { $Alarm{interval} = $::Options{OPT.'Advanced_ManualTimeSpin'};}
 				else {$Alarm{interval} = int(0.5+(1000*$Alarm{modelength}/(abs($Alarm{svolumefadeto}-$fromvol)+1)));}
-				 
+				
+				#volumefadeinpec = [10,100]
+				$Alarm{interval} = int(($Alarm{interval}*$::Options{OPT.'Advanced_VolumaFadeInPerc'})/100);
+				$Alarm{interval} = 1000 if ($Alarm{interval} < 1000);
+
 				if ($Alarm{svolumefadefrom} > 0) { ::UpdateVol($Alarm{svolumefadefrom});} #update volume unless we are using (-1)
 			}
-			else {	$Alarm{interval} = 1000*($Alarm{modelength}+1); }#this may go wrong if user wants specific number of random songs, but should be an ok guess?
+			else 
+			{	
+				#this may go wrong if user wants specific number of random songs, but should be an ok guess?
+				#doesn't matter to finishing, since 'number of random songs' finishes from SongChanged
+				$Alarm{interval} = 1000*($Alarm{modelength}+1); 
+			}
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
 	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime($Alarm{finishingtime})) unless ($silent);
