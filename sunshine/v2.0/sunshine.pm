@@ -203,15 +203,20 @@ sub Start
 			for (@tempAlarms) 
 			{
 				my %aAlarm = %{$_};
+			
 				#clean old ids and handles from alarms
 				delete $aAlarm{activealarmid} if ($aAlarm{activealarmid}); 
 				delete $aAlarm{alarmhandle} if ($aAlarm{alarmhandle});
 				delete $aAlarm{waitingforlaunchtime} if ($aAlarm{waitingforlaunchtime});
+
 				#only launch 'em if repeat is set for Wake, automatic_launch for Sleepmodes
 				#also remove automatically launched sleepalarm, if repeat is not set and it's alarmtime has passed
 				next if (($aAlarm{type} eq 'Wake') and (!$aAlarm{lc($aAlarm{type}).'repeatcheck'}));
 				next if (($aAlarm{type} eq 'Sleep') and (!$aAlarm{launchautomaticallycheck}));
 				next if (($aAlarm{type} eq 'Sleep') and (defined $aAlarm{finishingtime}) and ($aAlarm{finishingtime} < time) and (!$aAlarm{sleeprepeatcheck}) and ($aAlarm{launchautomaticallycheck}));
+
+				$aAlarm{relaunch} = 1; #tell everybody we're recycling
+				
 				LaunchSunshine(force => $aAlarm{type}, Alarm_ref => \%aAlarm, silent => 1);
 			}
 		}
@@ -1147,18 +1152,43 @@ sub SetDefaultFilterSort
 	return unless (%scheme);
 	
 	$scheme{wselectedfilter} = $::SelectedFilter->{string} if $::SelectedFilter;
-	unless ($scheme{wselectedfilter})
-	{
-		for (sort keys %{$::Options{SavedFilters}}){
-			$scheme{wselectedfilter} = $::Options{SavedFilters}{$_}->{string}; last;
-		}
+	unless ($scheme{wselectedfilter}){
+		$scheme{wselectedfilter} = ((sort keys %{$::Options{SavedFilters}})[0]);
 	}
 	$scheme{wselectedsort} = $::Options{Sort};
 	unless ($scheme{wselectedsort})	{
-		for (sort keys %{$::Options{SavedSorts}}) {$scheme{wselectedsort} = $::Options{SavedSorts}{$_}; last; }
+		$scheme{wselectedsort} = ((sort keys %{$::Options{SavedSorts}})[0]);
 	}
 	
 	return \%scheme;
+}
+
+sub CheckRemovableAlarms
+{
+	my (%opts) = @_;
+	my ($alarmhandle,$type,$silent, $alarmlabel) = @opts{qw/alarmhandle type silent label/} if (%opts);	
+	return unless $type;
+	
+	for (@ActiveAlarms) 
+	{ 
+		next unless (${$_}{type} eq $type);
+		my $off = 0;
+
+		if ($type eq 'Wake') {
+			#remove if multiple alarms not allowed, OR if there's already an alarm by the same name
+			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) or (${$_}{label} eq $alarmlabel));}
+		elsif ($type eq 'Sleep'){
+			#remove if multiple alarms not allowed, UNLESS there's alarmhandle and it's same as with the new alarm 
+			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) and (!((defined $alarmhandle) and ($alarmhandle == ${$_}{alarmhandle}))));
+		}
+
+		if ($off){
+			RemoveAlarm($_);
+			Notify("Removed previous alarm '".${$_}{label}."'") if (($::Options{OPT.'Advanced_MoreNotifications'}) and (!$silent));
+		}
+	}
+
+	return 1;
 }
 
 sub LaunchSunshine
@@ -1174,26 +1204,18 @@ sub LaunchSunshine
 		my $realScheme = GetRealScheme('Sleep',$::Options{OPT.'LastActiveSleepScheme'});
 		my %Alarm = %{$Alarm_ref || $SleepSchemes{$realScheme}};
 
-		if (!$::Options{OPT.'Advanced_MultipleAlarms'})
-		{
-			#if there is an alarm already, we'll ditch her (unless it's 'us' waiting for launch).
-			for (@ActiveAlarms) 
-			{ 
-				next unless (${$_}{type} eq 'Sleep');
-				next if ((defined $Alarm{alarmhandle}) and ($Alarm{alarmhandle} == ${$_}{alarmhandle}));
-				RemoveAlarm($_);
-				Notify("Removed previous sleep-mode '".${$_}{label}."'") if (($::Options{OPT.'Advanced_MoreNotifications'}) and (!$silent));
-			}
-		}
+		CheckRemovableAlarms(type => 'Sleep',alarmhandle => $Alarm{alarmhandle},silent => $silent);
+
+		#if we want automatic launch, create an timer to wait for the right moment
 		if (($Alarm{launchautomaticallycheck}) and (not defined $Alarm{waitingforlaunchtime})) 
 		{
-			Notify("Activated sleepmode: ".$Alarm{label}."\nStarting automatically at ".sprintf("%.2d\:%.2d",$Alarm{launchautomaticallyhour},$Alarm{launchautomaticallymin})) unless ($silent);
 			$Alarm{waitingforlaunchtime} = 1; 
 			$Alarm{modelength} = GetShortestTimeTo($Alarm{launchautomaticallyhour}.':'.$Alarm{launchautomaticallymin});
 			$Alarm{finishingtime} = time+$Alarm{modelength};
 			$Alarm{alarmhandle}=Glib::Timeout->add(1000*$Alarm{modelength},
 				sub { $Alarm{waitingforlaunchtime} = 2; LaunchSunshine(force => 'Sleep',type => \%Alarm); return 0;});
 			AddAlarm(\%Alarm,$silent);
+			Notify("Activated sleepmode: ".$Alarm{label}."\nStarting automatically at ".sprintf("%.2d\:%.2d",$Alarm{launchautomaticallyhour},$Alarm{launchautomaticallymin})) unless ($silent);
 		}
 		elsif ((not defined $Alarm{waitingforlaunchtime}) or ($Alarm{waitingforlaunchtime} == 2))
 		{
@@ -1204,13 +1226,16 @@ sub LaunchSunshine
 			$Alarm{initialalbum} = join " ",Songs::Get($::SongID,qw/album_artist album/);
 			$Alarm{passedtracks} = $Alarm{passedtime} = 0;
 
-			#try to calc length for sleepmode
-			$Alarm{modelength} = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
-			if ($@) {warn 'SUNSHINE: örrör in the room \'LaunchSunshine\''; $Alarm{modelength} = 0;}
+			# try to calc length for sleepmode
+			# this may go wrong if user wants specific number of random songs
+			# doesn't matter to finishing, since 'number of random songs' finishes from SongChanged
 
+			$Alarm{modelength} = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
+			if ($@) {warn 'SUNSHINE: örrör in the room \'LaunchSunshine\''; $Alarm{modelength} = 0;}##should we return here?
 			if (!$Alarm{modelength}) { GoSleep(\%Alarm); return 1;}
 
 			$Alarm{finishingtime} = time+$Alarm{modelength};
+			
 			if ($Alarm{svolumefadecheck})
 			{
 				## (-1) in 'from' means we use whatever the volume currently is
@@ -1218,25 +1243,21 @@ sub LaunchSunshine
 				if ($::Options{OPT.'Advanced_ManualFadeTime'}) { $Alarm{interval} = $::Options{OPT.'Advanced_ManualTimeSpin'};}
 				else {$Alarm{interval} = int(0.5+(1000*$Alarm{modelength}/(abs($Alarm{svolumefadeto}-$fromvol)+1)));}
 				
-				#volumefadeinpec = [10,100]
-				$Alarm{interval} = int(($Alarm{interval}*$::Options{OPT.'Advanced_VolumaFadeInPerc'})/100);
+				$Alarm{interval} = int(($Alarm{interval}*$::Options{OPT.'Advanced_VolumaFadeInPerc'})/100);#volumefadeinperc <=> [10,100]
 				$Alarm{interval} = 1000 if ($Alarm{interval} < 1000);
-
-				if ($Alarm{svolumefadefrom} > 0) { ::UpdateVol($Alarm{svolumefadefrom});} #update volume unless we are using (-1)
+				
+				# update volume unless we are using (-1) OR if we're relaunching between sessions and have already reached goal (and it's currently set)
+				if ($Alarm{svolumefadefrom} > 0) { 
+					::UpdateVol($Alarm{svolumefadefrom}) unless (($Alarm{relaunch}) and (::GetVol() == $Alarm{volumefadeto}));
+				}
 			}
-			else 
-			{	
-				#this may go wrong if user wants specific number of random songs, but should be an ok guess?
-				#doesn't matter to finishing, since 'number of random songs' finishes from SongChanged
-				$Alarm{interval} = 1000*($Alarm{modelength}+1); 
-			}
+			else{ $Alarm{interval} = 1000*($Alarm{modelength}+1);}
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
-	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime($Alarm{finishingtime})) unless ($silent);
-		
 			AddAlarm(\%Alarm,$silent);
+	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime($Alarm{finishingtime})) unless ($silent);
 		}
-		else {warn "SUNSHNE: Something's wrong in the neighborhood";}
+		else {warn "SUNSHINE: Something's wrong in the neighborhood";}
 	}
 	
 	if (($force eq 'Wake') or (($::Options{OPT.'WakeEnabled'}) and ($force ne 'Sleep')))
@@ -1244,28 +1265,15 @@ sub LaunchSunshine
 		my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
 		my %Alarm = %{$Alarm_ref || $WakeSchemes{$realScheme}};
 
-		# Remove previous alarms if multiple alarms not allowed or if we are launching alarm that already exists				
-		for (@ActiveAlarms){
-			next unless (${$_}{type} eq 'Wake');
-			my $offyougo = 0;
-			$offyougo = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) or (${$_}{label} eq $Alarm{label}));
-
-			if ($offyougo)
-			{
-				RemoveAlarm($_);
-				Notify("Removed previous sleep-mode '".${$_}{label}."'") if (($::Options{OPT.'Advanced_MoreNotifications'}) and (!$silent));
-			}
-		}
+		CheckRemovableAlarms(type => 'Wake');
 
 		$Alarm{modelength} = ($Alarm{wakecustomtimes})? GetShortestTimeTo(@{$Alarm{wakecustomtimestrings}}) :  GetShortestTimeTo($Alarm{wakelaunchhour}.':'.$Alarm{wakelaunchmin});
 		return unless ($Alarm{modelength} > 0);
 		$Alarm{finishingtime} = time+$Alarm{modelength};
-		
+
 		$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{modelength}*1000,sub {WakeUp(\%Alarm);});
- 		
- 		Notify("Launched '".$Alarm{label}."'.\nWaking at ".localtime($Alarm{finishingtime})) unless ($silent);
- 		
  		AddAlarm(\%Alarm,$silent);
+ 		Notify("Launched '".$Alarm{label}."'.\nWaking at ".localtime($Alarm{finishingtime})) unless ($silent);
 	}
 	
 	return 1;

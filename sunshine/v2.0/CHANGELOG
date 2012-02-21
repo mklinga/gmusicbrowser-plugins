@@ -3,6 +3,8 @@ Changelog for Sunshine (* = major, - = minor change)
 21.2.2012
 * possibility to kill individual alarms
 * added advanced option to set volume fade 10-100% of total length
+- cleaned LaunchSunshine a bit
+- simplified code here and there
 - fixed notify showing epoch time instead of local
 - new option Advanced_SkipAlarmIfPlaying: don't launch wakecommand if music is already playing
 
