@@ -8,8 +8,6 @@
 # published by the Free Software Foundation.
 
 # TODO:
-#  - more advanced settings
-#  - more reasonable names for presets? =P
 #
 # BUGS:
 #
@@ -21,6 +19,8 @@ desc	For scheduling pleasant nights and sharp-starting mornings
 =cut
 
 package GMB::Plugin::SUNSHINE;
+my $VNUM = '2.0';
+
 use strict;
 use warnings;
 use constant
@@ -30,7 +30,7 @@ use constant
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SleepEnabled => 1, WakeEnabled => 1,
-	 A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause', Advanced_VolumaFadeInPerc => 100);
+	 A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause', Advanced_VolumeFadeInPerc => 100);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
@@ -38,30 +38,32 @@ my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
 my %sunshine_button=
 (	class	=> 'Layout::Button',
 	stock	=> 'plugin-sunshine',
-	tip	=> "Launch Sunshine",
-	activate=> sub {LaunchSunshine();},
+	tip	=> " Sunshine v".$VNUM." \n LClick - Launch enabled Alarmmodes \n MClick - Force-launch Sleepmode \n RClick - Force-launch Wakemode",
+	click1 => sub {LaunchSunshine();},
+	click2 => sub {LaunchSunshine(force => 'Sleep');},
+	click3 => sub {LaunchSunshine(force => 'Wake');},
 	autoadd_type	=> 'button main',
 );
 
 my %SleepSchemes=
 (
 	default1 => {type => 'Sleep',label => 'The End', sleepmode => 'simpletime', simpletime => 30, simplecount => 8, launchautomatically => 1, 
-		launchautomaticallyhour => 22, launchautomaticallymin => 0, svolumefadecheck => 1, svolumefadefrom => -1,	svolumefadeto => 20},
+		launchautomaticallyhour => 22, launchautomaticallymin => 0, svolumefadecheck => 1, svolumefadefrom => -1,	svolumefadeto => 20, schemekey => 'default1'},
 	default2 => {type => 'Sleep',label => 'Take It As It Comes', sleepmode => 'queue', ignorelast => 0,	svolumefadecheck => 1, svolumefadefrom => 100,
-		svolumefadeto => 0, launchautomaticallyhour => 22, launchautomaticallymin => 0, simplecount => 8, simpletime => 30},
+		svolumefadeto => 0, launchautomaticallyhour => 22, launchautomaticallymin => 0, simplecount => 8, simpletime => 30, schemekey => 'default2'},
 	default3 => {type => 'Sleep',label => 'When The Music\'s Over', sleepmode => 'albumchange', svolumefadecheck => 0, simplecount => 8, 
-		simpletime => 30, launchautomaticallyhour => 22,launchautomaticallymin => 0, svolumefadefrom => 50, svolumefadeto => 50},
+		simpletime => 30, launchautomaticallyhour => 22,launchautomaticallymin => 0, svolumefadefrom => 50, svolumefadeto => 50, schemekey => 'default3'},
 	default4 => {type => 'Sleep',label => 'Easy Ride', sleepmode => 'simplecount', svolumefadecheck => 1, svolumefadefrom => -1, launchautomaticallyhour => 22, 
-		launchautomaticallymin => 0, svolumefadeto => 30, simplecount => 8, simpletime => 30}
+		launchautomaticallymin => 0, svolumefadeto => 30, simplecount => 8, simpletime => 30, schemekey => 'default4'}
 );
 my %WakeSchemes=
 (
-	default1 => {type => 'Wake',label => 'Strange Days', wvolumefadecheck => 1, wvolumefadefrom => 0, wvolumefadeto => 100, wakefadeinmin => 60,
+	default1 => {type => 'Wake',label => 'Strange Days', wvolumefadecheck => 1, wvolumefadefrom => 0, wvolumefadeto => 100, wakefadeinmin => 60, schemekey => 'default1',
 		wakelaunchhour => 3, wakelaunchmin => 30, wakecustomtimes => 1, wakecustomtimestrings => ['Sat10:00','Sun10:00'], wakerepeatcheck => 1, wakestartfromcombo => 'First Track'},
 	default2 => {type => 'Wake',label => 'Celebration Of The Lizard', wakelaunchhour => 3, wakelaunchmin => 30, wakefadeinmin => 30, 
-		wakestartfromcombo => 'First Track', wvolumefadefrom => 50, wvolumefadeto => 50},
+		wakestartfromcombo => 'First Track', wvolumefadefrom => 50, wvolumefadeto => 50, schemekey => 'default2'},
 	default3 => {type => 'Wake',label => 'Waiting For The Sun', wakecustomtimes => 1, wvolumefadefrom => 50, wvolumefadeto => 50,wakelaunchhour => 3, wakelaunchmin => 30, 
-		wakecustomtimestrings => ['Mon:6:0','Tue:6:0','Wed:6:0','Thu:6:0','Fri:6:0'], wakefadeinmin => 30, wakerepeatcheck => 1, wakestartfromcombo => 'First Track'}
+		wakecustomtimestrings => ['Mon:6:0','Tue:6:0','Wed:6:0','Thu:6:0','Fri:6:0'], wakefadeinmin => 30, wakerepeatcheck => 1, wakestartfromcombo => 'First Track', schemekey => 'default3'}
 );
 
 my %SleepModes= 
@@ -69,6 +71,7 @@ my %SleepModes=
 	# Available Variables:
 	# all values as $Alarm{value}
 	# EXTRAS for 'value': $passedtime (in seconds), $passedtracks, $initialalbum
+	# (lengthcalc doesn't take current song in count, do that in function)
 	queue => {label => 'When queue is empty', CalcLength => 'my $l=0; $l += Songs::Get($_,qw/length/) for (@$::Queue); return $l;', 
 		IsCompleted => 'return !scalar@$::Queue;'}, 
 	simpletime => {label => 'When time has passed', CalcLength => 'return 60*$Alarm{simpletime}', 
@@ -78,7 +81,7 @@ my %SleepModes=
 		IsCompleted => 'return ($Alarm{passedtracks} >= ($Alarm{simplecount} || 5))'},
 	immediate => {label => 'Sleep immediately', CalcLength => 'return 0', IsCompleted => 'return 1;'},
 	albumchange => {label => 'When currently playing album is played', 
-		CalcLength => 'my $l=0;	my $IDs = AA::GetIDs(qw/album/,Songs::Get_gid($::SongID,qw/album/)); Songs::SortList($IDs,$::Options{Sort}); splice (@$IDs, 0, Songs::Get($::SongID,qw/track/)); $l += Songs::Get($_,qw/length/) for (@$IDs); return $l;',
+		CalcLength => 'my $l=0;	my $IDs = AA::GetIDs(qw/album/,Songs::Get_gid($::SongID,qw/album/));Songs::SortList($IDs,$::Options{Sort});splice (@$IDs, 0, Songs::Get($::SongID,qw/track/));$l += Songs::Get($_,qw/length/) for (@$IDs); return $l;',
 		IsCompleted => 'return ($Alarm{initialalbum} ne (join " ",Songs::Get($::SongID,qw/album_artist album/)))'},
 );
 
@@ -173,6 +176,7 @@ my ($Daemon_name,$can_actions,$can_body);
 my $handle; my $volumehandle;
 my $EditingScheme=0;
 my $oldID=-1;#prevent double-call to SongChanged
+my $createdPrefs = 0;
 
 sub Start
 {
@@ -199,25 +203,26 @@ sub Start
 		
 		if (($::Options{OPT.'ActiveAlarms'}) and ($::Options{OPT.'Advanced_KeepAlarms'}))
 		{
+			#we must do tempalarm, since opt.activeAlarms is modified during loop if more than one alarm to launch
 			my @tempAlarms = @{$::Options{OPT.'ActiveAlarms'}};
 			for (@tempAlarms) 
 			{
-				my %aAlarm = %{$_};
+				my %Alarm = %{$_};
 			
 				#clean old ids and handles from alarms
-				delete $aAlarm{activealarmid} if ($aAlarm{activealarmid}); 
-				delete $aAlarm{alarmhandle} if ($aAlarm{alarmhandle});
-				delete $aAlarm{waitingforlaunchtime} if ($aAlarm{waitingforlaunchtime});
+				delete $Alarm{activealarmid} if ($Alarm{activealarmid}); 
+				delete $Alarm{alarmhandle} if ($Alarm{alarmhandle});
+				delete $Alarm{waitingforlaunchtime} if ($Alarm{waitingforlaunchtime});
 
 				#only launch 'em if repeat is set for Wake, automatic_launch for Sleepmodes
 				#also remove automatically launched sleepalarm, if repeat is not set and it's alarmtime has passed
-				next if (($aAlarm{type} eq 'Wake') and (!$aAlarm{lc($aAlarm{type}).'repeatcheck'}));
-				next if (($aAlarm{type} eq 'Sleep') and (!$aAlarm{launchautomaticallycheck}));
-				next if (($aAlarm{type} eq 'Sleep') and (defined $aAlarm{finishingtime}) and ($aAlarm{finishingtime} < time) and (!$aAlarm{sleeprepeatcheck}) and ($aAlarm{launchautomaticallycheck}));
+				next if (($Alarm{type} eq 'Wake') and (!$Alarm{lc($Alarm{type}).'repeatcheck'}));
+				next if (($Alarm{type} eq 'Sleep') and (!$Alarm{launchautomaticallycheck}));
+				next if (($Alarm{type} eq 'Sleep') and (defined $Alarm{finishingtime}) and ($Alarm{finishingtime} < time) and (!$Alarm{sleeprepeatcheck}) and ($Alarm{launchautomaticallycheck}));
 
-				$aAlarm{relaunch} = 1; #tell everybody we're recycling
+				$Alarm{relaunch} = 1; #tell everybody we're recycling
 				
-				LaunchSunshine(force => $aAlarm{type}, Alarm_ref => \%aAlarm, silent => 1);
+				LaunchSunshine(force => $Alarm{type}, Alarm_ref => \%Alarm, silent => 1);
 			}
 		}
 	}
@@ -375,7 +380,7 @@ sub ShowAdvancedSettings
 				{$::Options{OPT.'Advanced_WakeCommand'} = $SleepWakeCommands{$_}->{command}; last;}}
 		});
 
-	my $volumefadeinperc = ::NewPrefSpinButton(OPT.'Advanced_VolumaFadeInPerc',10,100, text1 => 'Finish volumefade in ', text2=> '% of fadelength');
+	my $volumefadeinperc = ::NewPrefSpinButton(OPT.'Advanced_VolumeFadeInPerc',10,100, text1 => 'Finish volumefade in ', text2=> '% of fadelength');
 	my $multiplealarms = ::NewPrefCheckButton(OPT.'Advanced_MultipleAlarms','Allow multiple alarms', tip => 'If unchecked, Sunshine will allow only one sleep- and one wake-alarm at time. Old alarms will be removed when new is started.');
 	my $keepalarms = ::NewPrefCheckButton(OPT.'Advanced_KeepAlarms','Keep alarms between sessions', tip => 'If unchecked, Sunshine will disable all active alarms when gmusicbrowser is shut down.');
 	my $morenots = ::NewPrefCheckButton(OPT.'Advanced_MoreNotifications','More notifications!', tip => 'Nice pop-up every now and then, now who wouldn\'t like that?');
@@ -644,6 +649,7 @@ sub CreateNewScheme
 	#set necessary initialvalues
 	my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
 	$CurScheme{$realScheme}->{type} = $type;
+	$CurScheme{$realScheme}->{schemekey} = $realScheme;
 	$CurScheme{$realScheme}{sleepmode} = 'immediate' if ($type eq 'Sleep');
 	$CurScheme{$realScheme} = SetDefaultFilterSort($CurScheme{$realScheme}) if ($type eq 'Wake');
 
@@ -912,6 +918,7 @@ sub prefbox
 	CreateSignals();
 	UpdateWidgetsFromScheme($_) for ('Sleep','Wake');
 	DisableWidgets();
+	$createdPrefs = 1; #put here, so we can update status'
 	UpdateStatusTexts();
 
 	my $sAddAlarm=::NewIconButton('gtk-apply','Activate this scheme', sub { LaunchSunshine(force => 'Sleep');});
@@ -1053,7 +1060,6 @@ sub CheckIfSleepFinished
 		if ($@) {$finished = 0;}
 	}
 	
-	
 	return $finished;
 }
 sub SleepInterval
@@ -1183,7 +1189,7 @@ sub AddAlarm
 	
 	%{$_[0]} = %Alarm;
 	#updating statustexts when adding alarms automatically on plugin's launch causes error, since widgets are not yet created
-	UpdateStatusTexts() unless ($silent);
+	UpdateStatusTexts() unless (($silent) or (!$createdPrefs));
 
 	return 1;	
 }
@@ -1244,15 +1250,19 @@ sub WakeUp
 		if ($Alarm{wvolumefadecheck})
 		{
 			::UpdateVol($Alarm{wvolumefadefrom});#set starting volume immediately
-			my $t = int((1000*60*$Alarm{wakefadeinmin})/abs(($Alarm{wvolumefadeto}-$Alarm{wvolumefadefrom})));
+			
+			if ($Alarm{wvolumefadefrom} != $Alarm{wvolumefadeto})
+			{
+				my $t = int((1000*60*$Alarm{wakefadeinmin})/abs(($Alarm{wvolumefadeto}-$Alarm{wvolumefadefrom})));
 
-			$volumehandle=Glib::Timeout->add($t, 
-			sub {
-				if (::GetVol() < $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()+1);}
-				elsif (::GetVol() > $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()-1);}
-				else {return 0;}#returning false destroys timeout
-				return 1;
-			},1);
+				$volumehandle=Glib::Timeout->add($t, 
+				sub {
+					if (::GetVol() < $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()+1);}
+					elsif (::GetVol() > $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()-1);}
+					else {return 0;}#returning false destroys timeout
+					return 1;
+				},1);
+			}
 		}
 	
 		if ($Alarm{wakefiltercheck}) { ::Select( $Alarm{wselectedfiltertype} => $Alarm{wselectedfilter});}
@@ -1286,7 +1296,7 @@ sub WakeUp
 	RemoveAlarm(\%Alarm);
 	UpdateStatusTexts();
 
-	#wate a bit before repeating alarm
+	#wait a bit before repeating alarm
 	if ($Alarm{wakerepeatcheck}) 
 	{ 
 		my $repeathandle = Glib::Timeout->add(5000,sub{
@@ -1304,13 +1314,9 @@ sub SetDefaultFilterSort
 	return unless (%scheme);
 	
 	$scheme{wselectedfilter} = $::SelectedFilter->{string} if $::SelectedFilter;
-	unless ($scheme{wselectedfilter}){
-		$scheme{wselectedfilter} = ((sort keys %{$::Options{SavedFilters}})[0]);
-	}
+	$scheme{wselectedfilter} = ((sort keys %{$::Options{SavedFilters}})[0]) unless ($scheme{wselectedfilter});
 	$scheme{wselectedsort} = $::Options{Sort};
-	unless ($scheme{wselectedsort})	{
-		$scheme{wselectedsort} = ((sort keys %{$::Options{SavedSorts}})[0]);
-	}
+	$scheme{wselectedsort} = ((sort keys %{$::Options{SavedSorts}})[0]) unless ($scheme{wselectedsort});
 	
 	return \%scheme;
 }
@@ -1318,7 +1324,7 @@ sub SetDefaultFilterSort
 sub CheckRemovableAlarms
 {
 	my (%opts) = @_;
-	my ($alarmhandle,$type,$silent, $alarmlabel) = @opts{qw/alarmhandle type silent label/} if (%opts);	
+	my ($alarmhandle,$type,$silent, $alarmschemekey) = @opts{qw/alarmhandle type silent schemekey/} if (%opts);	
 	return unless $type;
 	
 	for (@ActiveAlarms) 
@@ -1327,8 +1333,9 @@ sub CheckRemovableAlarms
 		my $off = 0;
 
 		if ($type eq 'Wake') {
-			#remove if multiple alarms not allowed, OR if there's already an alarm by the same name
-			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) or (${$_}{label} eq $alarmlabel));}
+			#remove if multiple alarms not allowed, OR if there's already an alarm by the same type
+			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) or (${$_}{schemekey} eq $alarmschemekey));
+		}
 		elsif ($type eq 'Sleep'){
 			#remove if multiple alarms not allowed, UNLESS there's alarmhandle and it's same as with the new alarm 
 			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) and (!((defined $alarmhandle) and ($alarmhandle == ${$_}{alarmhandle}))));
@@ -1354,6 +1361,11 @@ sub CalcSleepLength
 		for (@{$Alarm{multisleepmodes}})
 		{
 			my $l = eval($SleepModes{$_}{CalcLength});
+			if (($::SongID) and (($_ eq 'queue') or ($_ eq 'albumchange') or ($_ eq 'simplecount'))){
+				$l += Songs::Get($::SongID,'length');
+				$l -= $::PlayTime if ($::PlayTime);
+			}
+
 			if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [1: '.$_.']';}
 			elsif (not defined $modelength) {$modelength=$l;}
 
@@ -1365,6 +1377,8 @@ sub CalcSleepLength
 	{
 		$modelength = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
 		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [2: '.$Alarm{sleepmode}.']';}
+
+		$modelength += (Songs::Get($::SongID,'length') - $::PlayTime) if (($::SongID) and (($_ eq 'queue') or ($_ eq 'albumchange') or ($_ eq 'simplecount')));
 	}
 
 	return $modelength;
@@ -1421,7 +1435,7 @@ sub LaunchSunshine
 				if ($::Options{OPT.'Advanced_ManualFadeTime'}) { $Alarm{interval} = $::Options{OPT.'Advanced_ManualTimeSpin'};}
 				else {$Alarm{interval} = int(0.5+(1000*$Alarm{modelength}/(abs($Alarm{svolumefadeto}-$fromvol)+1)));}
 				
-				$Alarm{interval} = int(($Alarm{interval}*$::Options{OPT.'Advanced_VolumaFadeInPerc'})/100);#volumefadeinperc <=> [10,100]
+				$Alarm{interval} = int(($Alarm{interval}*$::Options{OPT.'Advanced_VolumeFadeInPerc'})/100);#volumefadeinperc <=> [10,100]
 				$Alarm{interval} = 1000 if ($Alarm{interval} < 1000);
 				
 				# update volume unless we are using (-1) OR if we're relaunching between sessions and have already reached goal (and it's currently set)
@@ -1443,7 +1457,7 @@ sub LaunchSunshine
 		my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
 		my %Alarm = %{$Alarm_ref || $WakeSchemes{$realScheme}};
 
-		CheckRemovableAlarms(type => 'Wake');
+		CheckRemovableAlarms(type => 'Wake', schemekey => $Alarm{schemekey});
 
 		$Alarm{modelength} = ($Alarm{wakecustomtimes})? GetShortestTimeTo(@{$Alarm{wakecustomtimestrings}}) :  GetShortestTimeTo($Alarm{wakelaunchhour}.':'.$Alarm{wakelaunchmin});
 		return unless ($Alarm{modelength} > 0);
@@ -1458,6 +1472,7 @@ sub LaunchSunshine
 }
 sub UpdateStatusTexts
 {
+	return unless ($createdPrefs);
 	my @ts = ("  Sleepmode:\t","  Wakemode:\t");
 
 	for (0..$#ActiveAlarms)
