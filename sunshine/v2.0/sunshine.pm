@@ -1082,7 +1082,7 @@ sub GetShortestTimeTo
 		my $Weekday;
 		
 		if (defined $1) {$Weekday = $dayvalues{$1}} 
-		else {$Weekday = ((($Hour*60)+$Min) < (($cHour*60)+$cMin))? ($cWeekday+1)%7 : $cWeekday;}
+		else {$Weekday = ((($Hour*3600)+($Min*60)+(0)) < (($cHour*3600)+($cMin*60)+$cSec))? ($cWeekday+1)%7 : $cWeekday;}
 		my $Monthday = ($Weekday == $cWeekday)? $cMday : ($cMday+1);
 
 		my $NextTime = ::mktime(0,$Min,$Hour,$Monthday,$cMon,$cYear);
@@ -1098,50 +1098,62 @@ sub WakeUp
 {
 	my %Alarm = %{$_[0]};
 
-	if ($Alarm{wvolumefadecheck})
-	{
-		::UpdateVol($Alarm{wvolumefadefrom});#set starting volume immediately
-		my $t = int((1000*60*$Alarm{wakefadeinmin})/abs(($Alarm{wvolumefadeto}-$Alarm{wvolumefadefrom})));
-
-		$volumehandle=Glib::Timeout->add($t, 
-		sub {
-			if (::GetVol() < $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()+1);}
-			elsif (::GetVol() > $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()-1);}
-			else {return 0;}#returning false destroys timeout
-			return 1;
-		},1);
-	}
-	
-	if ($Alarm{wakefiltercheck}) { ::Select( $Alarm{wselectedfiltertype} => $Alarm{wselectedfilter});}
-	if ($Alarm{wakeplaymodecheck}) 
-	{ 
-		::Select( 'sort' => $Alarm{wselectedsort}); 
-		::SetRepeat($Alarm{wselectedsortrepeat}) if ($Alarm{wselectedsortrepeat});
-	}
-	if ($Alarm{wcommandcheck}) { RunCommand($Alarm{wcommandentry}); }
-	if ($Alarm{wakestartfromcheck}){ 
-		my $p = ($Alarm{wakestartfromcombo} =~ /First/)? 0 : int(rand(scalar@$::ListPlay));
-		::Select(position => $p);
-	}
-
-	Notify("Activated alarm '".$Alarm{label}."'\nTime to wake up!");
-	RemoveAlarm(\%Alarm);
-	UpdateStatusTexts();	
-
 	#don't launch alarm if a_SAIP is set and music is already playing ($togplay==1)
 	if (!(($::Options{OPT.'Advanced_SkipAlarmIfPlaying'}) and ($::TogPlay)))
 	{
+		if ($Alarm{wvolumefadecheck})
+		{
+			::UpdateVol($Alarm{wvolumefadefrom});#set starting volume immediately
+			my $t = int((1000*60*$Alarm{wakefadeinmin})/abs(($Alarm{wvolumefadeto}-$Alarm{wvolumefadefrom})));
+
+			$volumehandle=Glib::Timeout->add($t, 
+			sub {
+				if (::GetVol() < $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()+1);}
+				elsif (::GetVol() > $Alarm{wvolumefadeto}) {::UpdateVol(::GetVol()-1);}
+				else {return 0;}#returning false destroys timeout
+				return 1;
+			},1);
+		}
+	
+		if ($Alarm{wakefiltercheck}) { ::Select( $Alarm{wselectedfiltertype} => $Alarm{wselectedfilter});}
+		if ($Alarm{wakeplaymodecheck}) 
+		{ 
+			::Select( 'sort' => $Alarm{wselectedsort}); 
+			::SetRepeat($Alarm{wselectedsortrepeat}) if ($Alarm{wselectedsortrepeat});
+		}
+		if ($Alarm{wcommandcheck}) { RunCommand($Alarm{wcommandentry}); }
+		if ($Alarm{wakestartfromcheck}){ 
+			my $p = ($Alarm{wakestartfromcombo} =~ /First/)? 0 : int(rand(scalar@$::ListPlay));
+			::Select(position => $p);
+		}
+
+		Notify("Activated alarm '".$Alarm{label}."'\nTime to wake up!");
+
 		if ($::Options{OPT.'Advanced_Albumrandom'}) 
 		{ 
 			#if we can't launch albumrandom, just go with regular wake
 			eval('GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum()');
-    		if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
-    		else {::NextSong(); ::Play();}
+   			if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
+   			else {::NextSong(); ::Play();}
 		}
 		else {eval($::Options{OPT.'Advanced_WakeCommand'});}
 	}
-	
-	if ($Alarm{wakerepeatcheck}) { LaunchSunshine(force => 'Wake',Alarm_ref => \%Alarm); }
+	else 
+	{ 
+		Notify("Alarm '".$Alarm{label}."' skipped because music is already playing!") if ($::Options{OPT.'Advanced_MoreNotifications'});
+	}
+
+	RemoveAlarm(\%Alarm);
+	UpdateStatusTexts();
+
+	#wate a bit before repeating alarm
+	if ($Alarm{wakerepeatcheck}) 
+	{ 
+		my $repeathandle = Glib::Timeout->add(5000,sub{
+			LaunchSunshine(force => 'Wake',Alarm_ref => \%Alarm);
+			return 0;	
+		});
+	}
 
 	return 1; 
 }

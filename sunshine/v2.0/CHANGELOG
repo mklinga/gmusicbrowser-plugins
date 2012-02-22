@@ -1,5 +1,9 @@
 Changelog for Sunshine (* = major, - = minor change)
 
+22.2.2012
+- fixed 'don't launch alarm if music playing'
+- fixed bug with repeating alarms
+
 21.2.2012
 * possibility to kill individual alarms
 * added advanced option to set volume fade 10-100% of total length
