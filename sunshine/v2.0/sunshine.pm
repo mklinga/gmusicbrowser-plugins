@@ -1053,6 +1053,7 @@ sub CheckIfSleepFinished
 		if ($@) {$finished = 0;}
 	}
 	
+	
 	return $finished;
 }
 sub SleepInterval
@@ -1362,7 +1363,7 @@ sub CalcSleepLength
 	}
 	else 
 	{
-		eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
+		$modelength = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
 		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [2: '.$Alarm{sleepmode}.']';}
 	}
 
