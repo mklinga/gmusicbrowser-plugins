@@ -245,12 +245,34 @@ sub SaveSchemes
 
 sub DisableWidgets
 {
-	#disable 2 or 3 of these widgets depending on sleepmode	
-	my $cur = $prefWidgets{sleepmodecombo}->{widget}->get_active_text;
-	$prefWidgets{ignorelastinqueue}->{widget}->set_sensitive(($cur eq $SleepModes{queue}->{label})); 
-	$prefWidgets{simpletime}->{widget}->set_sensitive(($cur eq $SleepModes{simpletime}->{label})); 
-	$prefWidgets{simplecount}->{widget}->set_sensitive(($cur eq $SleepModes{simplecount}->{label}));
+	# set sleepmodelabel/combo, if multimode is on
+	my $realScheme = GetRealScheme('Sleep',$::Options{OPT.'LastActiveSleepScheme'});
+	my $sen = ($SleepSchemes{$realScheme}->{multisleepmodeison})? 0 : 1;
+	my $lText = ($sen)? ' Sleepmode: ' : ' Sleepmode:  [CUSTOM]';
+
+	$prefWidgets{sleeplabel1}->{widget}->set_text($lText);
+	$prefWidgets{sleepmodecombo}->{widget}->set_sensitive($sen);
+
+	#disable 2 or 3 of these widgets depending on sleepmode
+	my @smsen = (0,0,0);
 	
+	if (($SleepSchemes{$realScheme}->{multisleepmodeison})){
+		for (@{$SleepSchemes{$realScheme}->{multisleepmodes}}) {
+			$smsen[0] = 1 if ($_ eq 'queue');
+			$smsen[1] = 1 if ($_ eq 'simpletime');
+			$smsen[2] = 1 if ($_ eq 'simplecount');
+		}
+	}
+	else { 
+		$smsen[0] = ($prefWidgets{sleepmodecombo}->{widget}->get_active_text eq $SleepModes{queue}->{label});
+		$smsen[1] = ($prefWidgets{sleepmodecombo}->{widget}->get_active_text eq $SleepModes{simpletime}->{label});
+		$smsen[2] = ($prefWidgets{sleepmodecombo}->{widget}->get_active_text eq $SleepModes{simplecount}->{label});
+	}
+		
+	$prefWidgets{ignorelastinqueue}->{widget}->set_sensitive($smsen[0]); 
+	$prefWidgets{simpletime}->{widget}->set_sensitive($smsen[1]); 
+	$prefWidgets{simplecount}->{widget}->set_sensitive($smsen[2]);
+		
 	#disable remove scheme - button if only 1 scheme left
 	for my $type ('sleep','wake')
 	{
@@ -270,9 +292,9 @@ sub DisableWidgets
 	}
 	
 	#set wakelaunchtimes
-	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
-	my $sen = ($WakeSchemes{$realScheme}->{wakecustomtimes})? 0 : 1;
-	my $lText = ($sen)? ' Wake up at: ' : ' Wake up at:  [CUSTOM]';
+	$realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
+	$sen = ($WakeSchemes{$realScheme}->{wakecustomtimes})? 0 : 1;
+	$lText = ($sen)? ' Wake up at: ' : ' Wake up at:  [CUSTOM]';
 
 	$prefWidgets{wakelaunchhour}->{widget}->set_sensitive($sen); 
 	$prefWidgets{wakelaunchmin}->{widget}->set_sensitive($sen);
@@ -388,6 +410,77 @@ sub ShowAdvancedSettings
 
 	return 1;	
 }
+
+sub SelectMultiSleepmode
+{
+	my $realScheme = GetRealScheme('Sleep',$::Options{OPT.'LastActiveSleepScheme'});
+	
+	my $Dialog = Gtk2::Dialog->new('Select Sleepmodes', undef, 'modal');
+	my @LastSetup = (); 
+	my $lastmodeison = $SleepSchemes{$realScheme}->{multisleepmodeison} || 0;
+	my $lastmodereq = $SleepSchemes{$realScheme}->{multisleepmoderequireall} || 0;
+	
+	if ($SleepSchemes{$realScheme}->{multisleepmodeison}) { for (@{$SleepSchemes{$realScheme}->{multisleepmodes}}) { push @LastSetup, $_; }}
+	
+	$Dialog->add_buttons('gtk-ok' => 'ok', 'gtk-cancel','cancel');
+	$Dialog->set_position('center-always');
+
+	my @boxes = ();
+	for my $key (sort keys %SleepModes)
+	{
+		push @boxes, Gtk2::CheckButton->new($SleepModes{$key}->{label});
+		$boxes[$#boxes]->set_active(0);
+		for my $mode (@{$SleepSchemes{$realScheme}->{multisleepmodes}}) {
+			if ($key eq $mode) {$boxes[$#boxes]->set_active(1); last;} 
+		}
+	}
+	
+	my $combo = Gtk2::ComboBox->new_text;
+	$combo->append_text('Require ANY of selected');
+	$combo->append_text('Require ALL of selected');
+	$combo->set_active($SleepSchemes{$realScheme}->{multisleepmoderequireall} || 0);
+	$combo->signal_connect(changed => sub { $SleepSchemes{$realScheme}->{multisleepmoderequireall} = $combo->get_active;});
+	
+	my $vbox = ::Vpack(@boxes,$combo);
+
+	$Dialog->get_content_area()->add($vbox);
+	$Dialog->set_default_response ('cancel');	
+	$Dialog->show_all;
+
+	my $response = $Dialog->run;
+
+	#cancel => return values as they were
+	if ($response eq 'cancel'){
+		@{$SleepSchemes{$realScheme}->{multisleepmodes}} = (); 	
+		push @{$SleepSchemes{$realScheme}->{multisleepmodes}}, $_ for (@LastSetup);
+		$SleepSchemes{$realScheme}->{multisleepmodeison} = $lastmodeison;
+		$SleepSchemes{$realScheme}->{multisleepmoderequireall} = $lastmodereq;
+	}
+	else
+	{
+		@{$SleepSchemes{$realScheme}->{multisleepmodes}} = ();
+		
+		for my $boxnum (0..((keys %SleepModes)-1))
+		{
+			# find corresponding key for check-label
+			my @boxkeys = grep { $SleepModes{$_}->{label} eq $boxes[$boxnum]->get_label} keys %SleepModes;
+			if (scalar@boxkeys == 1) { 
+				push @{$SleepSchemes{$realScheme}->{multisleepmodes}}, $boxkeys[0] if ($boxes[$boxnum]->get_active); 
+			}
+			else {warn "SUNSHINE: Strange number of items in \@boxkeys at SelectMultiSleepmode!";}
+		}
+		
+		# make sure nothing's in table twice			
+		my %unique; %unique = map { $_ => 1 } @{$SleepSchemes{$realScheme}->{multisleepmodes}};
+		@{$SleepSchemes{$realScheme}->{multisleepmodes}} = keys %unique;
+		
+		$SleepSchemes{$realScheme}->{multisleepmodeison} = (scalar@{$SleepSchemes{$realScheme}->{multisleepmodes}})? 1 : 0;
+	}
+	$Dialog->destroy();
+
+	return 1;	
+}
+
 sub SetCustomTimes
 {
 	my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
@@ -804,9 +897,9 @@ sub GetRealScheme
 	my ($type,$scheme) = @_;
 
 	my %CurScheme = ($type =~ /Sleep/)? %SleepSchemes : %WakeSchemes;
-	for (sort keys %CurScheme) {return ($_) if ($CurScheme{$_}->{label} eq $scheme);}
+	my @keys = grep { $CurScheme{$_}->{label} eq $scheme} keys %CurScheme;
 	
-	return undef;
+	return ((scalar@keys)? $keys[0] : undef);
 }
 
 sub prefbox
@@ -832,13 +925,14 @@ sub prefbox
 	my $mCheck1=::NewPrefCheckButton(OPT."ShowNotifications",'Show notifications', horizontal=>1);
 	my $mCheck2=::NewPrefCheckButton(OPT."ShowButton",'Show layout-button', horizontal=>1);
 	my $CustomTimes = ::NewIconButton('gtk-properties','Custom', sub { SetCustomTimes(); UpdateWidgetsFromScheme('Wake');});
+	my $MultiSleepmode = ::NewIconButton('gtk-properties','', sub { SelectMultiSleepmode(); UpdateWidgetsFromScheme('Sleep');});
 	my $mAdvanced = ::NewIconButton('gtk-preferences','Advanced Settings', sub {ShowAdvancedSettings(); SaveSchemes();});
 	my $mStatusRefresh=::NewIconButton('gtk-refresh','', sub { UpdateStatusTexts();}, undef, 'Refresh status-texts');
 	
 	@vbox = (
 	::Vpack( [$sCheck1,'-',$sAddAlarm],
 			['_',$prefWidgets{sleepschemecombo}->{widget},$prefWidgets{sleepbutton_new}->{widget},$prefWidgets{sleepbutton_rename}->{widget},$prefWidgets{sleepbutton_remove}->{widget}],
-			[$prefWidgets{sleeplabel1}->{widget},'_',$prefWidgets{sleepmodecombo}->{widget}],
+			['_',$prefWidgets{sleeplabel1}->{widget},$prefWidgets{sleepmodecombo}->{widget},$MultiSleepmode],
 			['_',$prefWidgets{launchautomaticallycheck}->{widget},$prefWidgets{launchautomaticallyhour}->{widget},$prefWidgets{launchautomaticallymin}->{widget}],
 			['20',$prefWidgets{sleeprepeatcheck}->{widget}],
 			['_',$prefWidgets{svolumefadecheck}->{widget},$prefWidgets{svolumefadefrom}->{widget},
@@ -935,6 +1029,32 @@ sub RunCommand
 	
 	return 1;
 }
+sub CheckIfSleepFinished
+{
+	my %Alarm = %{$_[0]};
+	my $finished;
+
+	if ($Alarm{multisleepmode})
+	{
+		my @finishcodes; my @wrongs;
+		push @finishcodes, eval($SleepModes{$_}{IsCompleted}) for (@{$Alarm{multisleepmodes}});	
+
+		#all finishcodes that are 0 go to @wrongs
+		@wrongs = grep { $_  == 0} @finishcodes;
+		
+		# we are finished if requireall == 1 and nothing @wrongs, OR if requireall == 0 and not all items from @finishcodes are in @wrongs
+		$finished = ((($Alarm{multisleepmoderequireall}) and (scalar@wrongs)) 
+					or 
+					((!$Alarm{multisleepmoderequireall}) and (scalar@wrongs == scalar@finishcodes)))? 0 : 1;
+	}
+	else
+	{
+		$finished = eval($SleepModes{$Alarm{sleepmode}}{IsCompleted});
+		if ($@) {$finished = 0;}
+	}
+	
+	return $finished;
+}
 sub SleepInterval
 {
 	my %Alarm = %{$_[0]};
@@ -957,12 +1077,11 @@ sub SleepInterval
 	#%Alarm is only a temporary representation, so must send changes back
 	%{$_[0]} = %Alarm;
 	
-	my $finished = eval($SleepModes{$Alarm{sleepmode}}{IsCompleted});
-	if ($@) {$finished = 0;}
-
+	my $finished = CheckIfSleepFinished(\%Alarm);	
+	
 	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})){$Alarm{isfinished} = 1;}
 	elsif ($finished) {GoSleep(\%Alarm);}
-	
+
 	return (!$finished);#returning false ends timeout
 }
 sub SongChanged
@@ -979,14 +1098,34 @@ sub SongChanged
 		if ($Alarm{type} eq 'Sleep')
 		{
 			$Alarm{passedtracks}++;
-			my $finished = eval($SleepModes{$Alarm{sleepmode}}{IsCompleted});
-			if ($@) { $finished = 0;}
-			
-			if (($finished) and (not defined $Alarm{isfinished}))	{
-				if (($Alarm{sleepmode} eq 'queue') and ($Alarm{ignorelastinqueue})) { push @SleepNow, \%Alarm; }
-				elsif ($Alarm{sleepmode} eq 'albumchange') { push @SleepNow, \%Alarm; }
-				elsif (($Alarm{sleepmode} eq 'simplecount') and ($::Options{OPT.'Advanced_IgnoreLastInCount'})) { push @SleepNow, \%Alarm; }
-				else {$Alarm{isfinished} = 1;}
+			my $finished = CheckIfSleepFinished(\%Alarm);
+
+			if (($finished) and (not defined $Alarm{isfinished}))	
+			{				
+				my @handledalarms;
+				my $atleastone = 0;
+				if (!$Alarm{multisleepmodeison}){ push @handledalarms, $Alarm{sleepmode};}
+				else { @handledalarms = @{$Alarm{multisleepmodes}};}
+				
+				for my $smode (@handledalarms)
+				{
+					if ((($smode eq 'queue') and ($Alarm{ignorelastinqueue})) or 
+					($smode eq 'albumchange') or 
+					(($smode eq 'simplecount') and ($::Options{OPT.'Advanced_IgnoreLastInCount'})))	
+					{ 
+						$atleastone = 1;
+					}
+					else {$Alarm{isfinished} = 1;}
+				}
+				
+			    if ((!$Alarm{multisleepmodeison}) and ($atleastone))   {
+					push @SleepNow, \%Alarm;
+			    }
+			    elsif (($Alarm{multisleepmodeison}) and (
+			    (!$Alarm{multisleepmoderequireall}) and ($atleastone)) or
+			    (($Alarm{multisleepmodeison}) and ($Alarm{multisleepmoderequireall}) and (not defined $Alarm{isfinished}))) {
+					push @SleepNow, \%Alarm;
+			    }
 			}
 			elsif ($finished) { push @SleepNow, \%Alarm; }
 			
@@ -1015,7 +1154,7 @@ sub GoSleep
 		$Alarm{passedtracks} = $Alarm{passedtime} = 0;
 
 		#no point in repeating, if it would launch immediately again (e.g. empty queue, immediate sleep)
-		my $length = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
+		my $length = CalcSleepLength(\%Alarm);
 		if ($length) {LaunchSunshine(force => 'Sleep', Alarm_ref => \%Alarm);}
 	}
 
@@ -1203,6 +1342,32 @@ sub CheckRemovableAlarms
 	return 1;
 }
 
+sub CalcSleepLength
+{
+	my %Alarm = %{$_[0]};
+	my $modelength=undef;
+	
+	if ($Alarm{multisleepmodeison})
+	{
+		# if multisleepreqall == 1 we want longest, otherwise shortest
+		for (@{$Alarm{multisleepmodes}})
+		{
+			my $l = eval($SleepModes{$_}{CalcLength});
+			if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [1: '.$_.']';}
+			elsif (not defined $modelength) {$modelength=$l;}
+
+			$modelength = $l if (($Alarm{multisleepmoderequireall}) and ($modelength < $l));
+			$modelength = $l if ((!$Alarm{multisleepmoderequireall}) and ($modelength > $l));
+		}
+	}
+	else 
+	{
+		eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
+		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [2: '.$Alarm{sleepmode}.']';}
+	}
+warn $modelength;
+	return $modelength;
+}
 sub LaunchSunshine
 {
 	my (%opts) = @_;
@@ -1242,8 +1407,8 @@ sub LaunchSunshine
 			# this may go wrong if user wants specific number of random songs
 			# doesn't matter to finishing, since 'number of random songs' finishes from SongChanged
 
-			$Alarm{modelength} = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
-			if ($@) {warn 'SUNSHINE: örrör in the room \'LaunchSunshine\''; $Alarm{modelength} = 0;}##should we return here?
+			$Alarm{modelength} = CalcSleepLength(\%Alarm);
+
 			if (!$Alarm{modelength}) { GoSleep(\%Alarm); return 1;}
 
 			$Alarm{finishingtime} = time+$Alarm{modelength};
