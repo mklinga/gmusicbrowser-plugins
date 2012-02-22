@@ -1034,14 +1034,14 @@ sub CheckIfSleepFinished
 	my %Alarm = %{$_[0]};
 	my $finished;
 
-	if ($Alarm{multisleepmode})
+	if ($Alarm{multisleepmodeison})
 	{
 		my @finishcodes; my @wrongs;
 		push @finishcodes, eval($SleepModes{$_}{IsCompleted}) for (@{$Alarm{multisleepmodes}});	
 
 		#all finishcodes that are 0 go to @wrongs
 		@wrongs = grep { $_  == 0} @finishcodes;
-		
+
 		# we are finished if requireall == 1 and nothing @wrongs, OR if requireall == 0 and not all items from @finishcodes are in @wrongs
 		$finished = ((($Alarm{multisleepmoderequireall}) and (scalar@wrongs)) 
 					or 
@@ -1117,13 +1117,13 @@ sub SongChanged
 					}
 					else {$Alarm{isfinished} = 1;}
 				}
-				
+
 			    if ((!$Alarm{multisleepmodeison}) and ($atleastone))   {
 					push @SleepNow, \%Alarm;
 			    }
 			    elsif (($Alarm{multisleepmodeison}) and (
 			    (!$Alarm{multisleepmoderequireall}) and ($atleastone)) or
-			    (($Alarm{multisleepmodeison}) and ($Alarm{multisleepmoderequireall}) and (not defined $Alarm{isfinished}))) {
+			    (($Alarm{multisleepmoderequireall}) and (not defined $Alarm{isfinished}))) {
 					push @SleepNow, \%Alarm;
 			    }
 			}
@@ -1365,7 +1365,7 @@ sub CalcSleepLength
 		eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
 		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [2: '.$Alarm{sleepmode}.']';}
 	}
-warn $modelength;
+
 	return $modelength;
 }
 sub LaunchSunshine

@@ -2,6 +2,8 @@ Changelog for Sunshine (* = major, - = minor change)
 
 22.2.2012
 * option to select multiple sleepmodes at once (LOTS of changes, new alarm-keys, e.g. @multisleepmodes, everything with sleepmode rewritten)
+- small bugfix #1 to multisleepmodes
+- simplified some, new function CalcSleepLength
 - fixed 'don't launch alarm if music playing'
 - fixed bug with repeating alarms
 
