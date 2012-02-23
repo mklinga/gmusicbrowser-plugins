@@ -1,0 +1,116 @@
+Sunshine2 is an "alarm clock" plugin for gmusicbrowser.
+_________________________
+
+I. How to install plugin:
+
+1. Main plugin
+
+0) If you have used old Sunshine-plugin it's necessary to remove it first from your config-folder.
+
+1) Copy sunshine.pm to ~/.config/gmusicbrowser/plugins/ (create folder if necessary)
+2) Copy either one of included icons to to /usr/share/gmusicbrowser/pix 
+	- Note, that icon you wish to use must be named 'plugin-sunshine.png', so if you wish to use alternative icon, just rename it.
+3) Restart gmusicbrowser
+4) Enable sunshine from Preferences -> Plugins
+
+2. Button
+
+If you already have layoutitem called Extrabuttons in your layout, Sunshine-button should appear to it automatically. Otherwise you need to add item called 'Sunshine' (without quotes) to your layout manually.
+
+It's not very hard, but if you never edited layouts gmusicbrowser's official layout documentation (http://gmusicbrowser.org/layout_doc.html) is of great help.
+
+______________________
+
+II. How to use plugin:
+
+1. Basics
+
+The purpose of Sunshine is to be an alarm clock that handles automatically music playing in the evening, and once again in the morning. Of course, you can set any time you want to it, and it will obey, but this is the original idea. To achieve this as smoothly as possible I have divided the process to two separate modes, called wake- and sleep-modes. It's possible to have different schemas, sets of settings, to ease up users ever-changing needs.
+
+In Sunshine2 you can have many alarms simultaneously, should you wish so, so you can for example set different alarm-modes and -times on weekdays and weekends, or for every day for that matter, and if you want, you can set Sunshine to handle everything from now on, so you don't personally have to touch anything ever again to have alarms. Or, if you're like me and go sleep at irregular times, you can use that big, bright button on the layout when heading for bed, and close the lights. Sunshine should be quite flexible when it comes to different alarms.
+
+
+2. Modes
+
+Sunshine consists of individual sleep- and wake-modes, which can be launched separately or together.
+
+2.1. Sleepmode
+
+Brief explanation of settings:
+
+* Launch Automatically
+	- You can set time, when sleepmode is launched
+* Repeat
+	- 'Automatic launch' will be repeated daily
+* Fade volume from XX to YY
+	- Volume is faded during sleepmode launch and finish, e.g. minutes in timed-mode. Note, that you can set 'from'-volume as -1 to always use 'current volume' from gmusicbrowser.
+* Run command
+	- When sleepmode finishes, it can launch external command, e.g. gedit
+* Shut down gmusicbrowser when finished
+* Turn Off Computer
+	- Turning off relies on 'Shutdown command' in gmusicbrowsers preferences->misc
+* Ignore last track in queue-mode
+	- Stops immediately when last track has been reached. This is useful if you want to set specific track for waking in the morning.
+* Minutes in timed-mode
+* Tracks in countmode
+	- How many tracks are played *after current* track before going to sleep
+
+2.2. Wakemode
+
+* Repeat alarm
+	- Repeats launched alarm either daily, or if [custom] alarmtimes are set, on specific weekdays and times.
+* Wake up at
+	- You can set either specific time or use custom-button to make more complex alarm schedule
+* Fade volume from XX to YY in ZZ minutes
+	- Unlike in sleepmode, we here have no specific calculation for duration, so you have to put it manually
+* Run command
+	- Runs external command, e.g. nautilus
+* Select source
+	- You can select specific filter that is applied before alarm starts to play music
+* Select playmode
+	- You can select specific playmode that is applied before alarm starts to play music
+* Start playing from
+	- You can force playing to start at current filters/playlists first track, or from a random.
+
+_______________________
+
+III. Advanced settings
+
+There are number of advanced settings in plugin. Here's a small reference:
+
+* Active Alarms
+	- The combobox will show active alarms, both sleep and wake, and button next to combo allows you to stop individual alarms.
+* Allow multiple alarms
+	- If checked, you can have many alarms as you like, except no more than one wakealarm per type may be launched (as it wouldn't make any sense). If not checked, old alarms will be replaced by new ones.
+* Keep alarms between sessions
+	- If not checked, 'repeat alarm' won't work after you close and restart gmb
+* More Notifications
+	- Some additional info about alarms
+* Launch Albumrandom when waking
+	- Only available, if Albumrandom-plugin is enabled. Instead of Wakecommand, on wakeup Sunshine will use albumrandom to generate album and start playing.
+* Count current song in count-mode
+	- Normally songcount only takes note of 'whole songs', but you can ask it to count also the song which is playing when sleep launches.
+* Don't finish last song in timed mode
+	- If not checked, sunshine will stop playing on 'timed mode', when 1) time is up and 2) playing song has finished. Check this to stop immediately when time is up.
+* Don't launch alarmcommand if music is already playing
+	- As it says, checks whether gmusicbrowser is already playing music. This prevents that annoying pause+volumefade that author has many times experienced when waken up before alarm and manually started music.
+* Finish volumefade in XX% of fadelength
+	- You can set percentage of mode's length when you want volumefade to reach it's final value.
+* Don't calculate sleep-modes' fadetime, but use XX minutes instead
+	- By default, Sunshine calculates automatically how long it will take before sleeping. You can bypass this here, if you wish.
+* Sleepcommand
+	- Command, that is launched when 'going to sleep'
+* Wakecommand
+	- Command, that is launched when 'waking up'
+
+_______________________
+
+IV. Contact
+
+I'm more than happy to help with any problems, or hear about any suggestions concerning my plugins. Please contact!
+
+You can usually find me (by the nick 'laite') at #gmusicbrowser (freenode), or you can send me private message in the gmusicbrowser forums, but most certain way to contact is by sending email to laite@gmx.com, that I try to check daily.
+
+
+Well. That's it. Thanks for reading!
+	- laite

@@ -12,13 +12,13 @@
 # BUGS:
 #
 
-=gmbplugin SUNSHINE
+=gmbplugin SUNSHINE2
 name	Sunshine
 title	Sunshine 2.0
 desc	For scheduling pleasant nights and sharp-starting mornings
 =cut
 
-package GMB::Plugin::SUNSHINE;
+package GMB::Plugin::SUNSHINE2;
 my $VNUM = '2.0';
 
 use strict;
@@ -47,23 +47,26 @@ my %sunshine_button=
 
 my %SleepSchemes=
 (
-	default1 => {type => 'Sleep',label => 'The End', sleepmode => 'simpletime', simpletime => 30, simplecount => 8, launchautomatically => 1, 
+	default1 => {type => 'Sleep',label => 'Basic fadeout', sleepmode => 'simpletime', simpletime => 30, simplecount => 8, launchautomatically => 1, 
 		launchautomaticallyhour => 22, launchautomaticallymin => 0, svolumefadecheck => 1, svolumefadefrom => -1,	svolumefadeto => 20, schemekey => 'default1'},
-	default2 => {type => 'Sleep',label => 'Take It As It Comes', sleepmode => 'queue', ignorelast => 0,	svolumefadecheck => 1, svolumefadefrom => 100,
+	default2 => {type => 'Sleep',label => 'Queue w/ ignore', sleepmode => 'queue', ignorelastinqueue => 1, svolumefadecheck => 1, svolumefadefrom => 100,
 		svolumefadeto => 0, launchautomaticallyhour => 22, launchautomaticallymin => 0, simplecount => 8, simpletime => 30, schemekey => 'default2'},
-	default3 => {type => 'Sleep',label => 'When The Music\'s Over', sleepmode => 'albumchange', svolumefadecheck => 0, simplecount => 8, 
+	default3 => {type => 'Sleep',label => 'Now!', sleepmode => 'immediate', svolumefadecheck => 0, simplecount => 8, 
 		simpletime => 30, launchautomaticallyhour => 22,launchautomaticallymin => 0, svolumefadefrom => 50, svolumefadeto => 50, schemekey => 'default3'},
-	default4 => {type => 'Sleep',label => 'Easy Ride', sleepmode => 'simplecount', svolumefadecheck => 1, svolumefadefrom => -1, launchautomaticallyhour => 22, 
-		launchautomaticallymin => 0, svolumefadeto => 30, simplecount => 8, simpletime => 30, schemekey => 'default4'}
+	default4 => {type => 'Sleep',label => 'Album or 45 min', multisleepmodeison => 1, multisleepmoderequireall => 0,  multisleepmodes => ['albumchange','simpletime'],
+		sleepmode => 'simplecount', svolumefadecheck => 1, svolumefadefrom => -1, launchautomaticallyhour => 22, 
+		launchautomaticallymin => 0, svolumefadeto => 30, simplecount => 8, simpletime => 45, schemekey => 'default4'}
 );
 my %WakeSchemes=
 (
-	default1 => {type => 'Wake',label => 'Strange Days', wvolumefadecheck => 1, wvolumefadefrom => 0, wvolumefadeto => 100, wakefadeinmin => 60, schemekey => 'default1',
-		wakelaunchhour => 3, wakelaunchmin => 30, wakecustomtimes => 1, wakecustomtimestrings => ['Sat10:00','Sun10:00'], wakerepeatcheck => 1, wakestartfromcombo => 'First Track'},
+	default1 => {type => 'Wake',label => 'Weekends', wvolumefadecheck => 1, wvolumefadefrom => 0, wvolumefadeto => 100, wakefadeinmin => 60, schemekey => 'default1',
+		wakelaunchhour => 3, wakelaunchmin => 30, wakecustomtimes => 1, wakecustomtimestrings => ['Sat10:30','Sun11:00'], wakerepeatcheck => 1, wakestartfromcombo => 'First Track'},
 	default2 => {type => 'Wake',label => 'Celebration Of The Lizard', wakelaunchhour => 3, wakelaunchmin => 30, wakefadeinmin => 30, 
-		wakestartfromcombo => 'First Track', wvolumefadefrom => 50, wvolumefadeto => 50, schemekey => 'default2'},
-	default3 => {type => 'Wake',label => 'Waiting For The Sun', wakecustomtimes => 1, wvolumefadefrom => 50, wvolumefadeto => 50,wakelaunchhour => 3, wakelaunchmin => 30, 
-		wakecustomtimestrings => ['Mon:6:0','Tue:6:0','Wed:6:0','Thu:6:0','Fri:6:0'], wakefadeinmin => 30, wakerepeatcheck => 1, wakestartfromcombo => 'First Track', schemekey => 'default3'}
+		wakestartfromcombo => 'First Track', wcommandcheck => 1, wcommandentry => 'killall snakes', 
+		wvolumefadefrom => 50, wvolumefadeto => 50, schemekey => 'default2'},
+	default3 => {type => 'Wake',label => 'Office Days', wakecustomtimes => 1, wvolumefadefrom => 50, wvolumefadeto => 50,wakelaunchhour => 3, wakelaunchmin => 30, 
+		wakecustomtimestrings => ['Mon:6:0','Tue:6:0','Wed:6:0','Thu:6:0','Fri:6:0'], wakefadeinmin => 30, wakerepeatcheck => 1,
+		wakestartfromcheck => 1, wakestartfromcombo => 'Random track', schemekey => 'default3'}
 );
 
 my %SleepModes= 
@@ -865,8 +868,9 @@ sub CreateSignals
 			if ($SleepSchemes{$_}->{label} eq $prefWidgets{sleepschemecombo}->{widget}->get_active_text) { $realScheme = $_; last;}
 		}
 		return unless $realScheme;
-		UpdateWidgetsFromScheme('Sleep',$SleepSchemes{$realScheme});
+
 		$::Options{OPT.'LastActiveSleepScheme'} = $prefWidgets{sleepschemecombo}->{widget}->get_active_text;
+		UpdateWidgetsFromScheme('Sleep',$SleepSchemes{$realScheme});
 	});
 
 	$prefWidgets{sleepmodecombo}->{widget}->signal_connect(changed => 
@@ -890,10 +894,9 @@ sub CreateSignals
 			if ($WakeSchemes{$_}->{label} eq $prefWidgets{wakeschemecombo}->{widget}->get_active_text) { $realScheme = $_; last;}
 		}
 		return unless $realScheme;
-		UpdateWidgetsFromScheme('Wake',$WakeSchemes{$realScheme});
 		$::Options{OPT.'LastActiveWakeScheme'} = $prefWidgets{wakeschemecombo}->{widget}->get_active_text;
+		UpdateWidgetsFromScheme('Wake',$WakeSchemes{$realScheme});
 	});
-
 			
 	return 1;	
 }
@@ -1541,7 +1544,6 @@ sub SortMenu
 	}
 	$sitem->set_submenu($submenu);
 	$menu->prepend($sitem);
-	$append->($menu,_"Shuffle",'shuffle');
 
 	{ my $item=Gtk2::CheckMenuItem->new(_"Repeat");
 	  $item->set_active($WakeSchemes{$realScheme}->{wselectedsortrepeat} || 0);

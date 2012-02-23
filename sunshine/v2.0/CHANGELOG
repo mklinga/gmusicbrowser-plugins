@@ -2,6 +2,8 @@ Changelog for Sunshine (* = major, - = minor change)
 
 23.12.2012
 * fixed bug where SongChanged had no idea of {passedtime}
+- reasonable names for default schemes
+- fixed schemecombos' changing
 - fixed bug where renaming scheme would get DisableWidgets to use wrong scheme
 
 22.2.2012
