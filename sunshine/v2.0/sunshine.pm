@@ -877,10 +877,10 @@ sub CreateSignals
 	sub	{
 			return if ($EditingScheme);
 			$realScheme = GetRealScheme('Sleep',$prefWidgets{sleepschemecombo}->{widget}->get_active_text);
-			DisableWidgets();
 			for (keys %SleepModes)	{
 				$SleepSchemes{$realScheme}->{sleepmode} = $_ if ($SleepModes{$_}->{label} eq $prefWidgets{sleepmodecombo}->{widget}->get_active_text); 	
 			}
+			DisableWidgets();
 	});
 
 	#then wake
@@ -1383,7 +1383,7 @@ sub CalcSleepLength
 		$modelength = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
 		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [2: '.$Alarm{sleepmode}.']';}
 
-		$modelength += (Songs::Get($::SongID,'length') - $::PlayTime) if (($::SongID) and (($_ eq 'queue') or ($_ eq 'albumchange') or ($_ eq 'simplecount')));
+		$modelength += (Songs::Get($::SongID,'length') - $::PlayTime) if (($::SongID) and (($Alarm{sleepmode} eq 'queue') or ($Alarm{sleepmode} eq 'albumchange') or ($Alarm{sleepmode} eq 'simplecount')));
 	}
 
 	return $modelength;
