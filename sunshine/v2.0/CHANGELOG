@@ -3,6 +3,7 @@ Changelog for Sunshine (* = major, - = minor change)
 23.12.2012
 * fixed bug where SongChanged had no idea of {passedtime}
 * fixed bug when calculating sleepmodes time (not multi-)
+* fixed bug where widgets wouldn't save their values
 - don't enable albumrandom-launch by default
 - reasonable names for default schemes
 - fixed schemecombos' changing

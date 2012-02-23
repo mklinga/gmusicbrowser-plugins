@@ -764,7 +764,8 @@ sub CreateWidgets
 				$curW->{widget}->signal_connect(clicked => 
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text);
-					$CurScheme{$realScheme}->{$curKey} = $curW->{widget}->get_active;
+					if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active;}
+					else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active;}
 					for (@{$curW->{friendwidgets}}){
 							#if we have a 'friendcondition' which returns TRUE, we don't set friendwidgets' status on change
 							$prefWidgets{$_}->{widget}->set_sensitive($CurScheme{$realScheme}->{$curKey}) unless (($prefWidgets{$_}->{friendcondition}) and (eval($prefWidgets{$_}->{friendcondition})));
@@ -789,7 +790,8 @@ sub CreateWidgets
 				$curW->{widget}->signal_connect(value_changed => 
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
-					$CurScheme{$realScheme}->{$curKey} = $curW->{widget}->get_value;
+					if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_value;}
+					else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_value;}
 					SaveSchemes;
 				});
 			}
@@ -802,7 +804,8 @@ sub CreateWidgets
 				$curW->{widget}->signal_connect(changed => 
 				sub { 
 					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
-					$CurScheme{$realScheme}->{$curKey} = $curW->{widget}->get_text;
+					if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_text;}
+					else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_text;}
 					SaveSchemes;
 				});
 			}
@@ -842,7 +845,8 @@ sub CreateWidgets
 					$curW->{widget}->signal_connect(changed => 
 					sub {
 						$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text);
-						$CurScheme{$realScheme}->{$curKey} = $curW->{widget}->get_active_text;
+						if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active_text;}
+						else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active_text;}
 						SaveSchemes;
 					});
 				}
