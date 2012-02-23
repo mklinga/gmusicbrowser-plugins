@@ -1,5 +1,9 @@
 Changelog for Sunshine (* = major, - = minor change)
 
+23.12.2012
+* fixed bug where SongChanged had no idea of {passedtime}
+- fixed bug where renaming scheme would get DisableWidgets to use wrong scheme
+
 22.2.2012
 * option to select multiple sleepmodes at once (LOTS of changes, new alarm-keys, e.g. @multisleepmodes, everything with sleepmode rewritten)
 - added field schemekey, test against it when removing previous wakealarms instead of just label

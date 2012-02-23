@@ -710,8 +710,8 @@ sub HandleTopButtonResponse
 	my $model = $prefWidgets{lc($type).'schemecombo'}->{widget}->get_model;
 	$prefWidgets{$key}->{widget}->set_sensitive(($model->iter_n_children != 1));
 						
-	UpdateWidgetsFromScheme($type,$CurScheme{$realScheme});
 	$::Options{OPT.'LastActive'.$type.'Scheme'} = $prefWidgets{lc($type).'schemecombo'}->{widget}->get_active_text;
+	UpdateWidgetsFromScheme($type,$CurScheme{$realScheme});
 	
 	$EditingScheme = 0;
 	SaveSchemes;
@@ -1068,6 +1068,9 @@ sub SleepInterval
 	
 	$Alarm{passedtime} += ($Alarm{interval}/1000);#interval is in ms, we want secs
 
+	#also send changes straight to activealarms, because SongChanged checks from there only
+	${$ActiveAlarms[$Alarm{activealarmid}]}{passedtime} = $Alarm{passedtime} if (defined $Alarm{activealarmid}); 	
+
 	if ($Alarm{svolumefadecheck})	{
 		if (::GetVol() < $Alarm{svolumefadeto}) {::UpdateVol(::GetVol()+1);}
 		elsif (::GetVol() > $Alarm{svolumefadeto}) {::UpdateVol(::GetVol()-1);}
@@ -1085,7 +1088,7 @@ sub SleepInterval
 	%{$_[0]} = %Alarm;
 	
 	my $finished = CheckIfSleepFinished(\%Alarm);	
-	
+
 	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})){$Alarm{isfinished} = 1;}
 	elsif ($finished) {GoSleep(\%Alarm);}
 
@@ -1098,7 +1101,7 @@ sub SongChanged
 	
 	return unless (scalar@ActiveAlarms);
 	my @SleepNow;
-	
+
 	foreach (@ActiveAlarms)
 	{
 		my %Alarm = %{$_};
@@ -1106,7 +1109,6 @@ sub SongChanged
 		{
 			$Alarm{passedtracks}++;
 			my $finished = CheckIfSleepFinished(\%Alarm);
-
 			if (($finished) and (not defined $Alarm{isfinished}))	
 			{				
 				my @handledalarms;
@@ -1423,7 +1425,6 @@ sub LaunchSunshine
 			# doesn't matter to finishing, since 'number of random songs' finishes from SongChanged
 
 			$Alarm{modelength} = CalcSleepLength(\%Alarm);
-
 			if (!$Alarm{modelength}) { GoSleep(\%Alarm); return 1;}
 
 			$Alarm{finishingtime} = time+$Alarm{modelength};
@@ -1445,8 +1446,8 @@ sub LaunchSunshine
 			}
 			else{ $Alarm{interval} = 1000*($Alarm{modelength}+1);}
 
-			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
 			AddAlarm(\%Alarm,$silent);
+			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
 	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime($Alarm{finishingtime})) unless ($silent);
 		}
 		else {warn "SUNSHINE: Something's wrong in the neighborhood";}
