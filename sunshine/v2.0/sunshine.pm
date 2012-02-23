@@ -399,8 +399,8 @@ sub ShowAdvancedSettings
 	#disable albumrandom-option if can't find plugin
 	eval('GMB::Plugin::ALBUMRANDOM::IsAlbumrandomOn()');
 	my $s = ($@)? 0 : 1;
-	$ar->set_sensitive($s); $ar->set_active($s);
-	$::Options{OPT.'Advanced_Albumrandom'} = $s;
+	$ar->set_sensitive($s);
+	unless ($s) {$::Options{OPT.'Advanced_Albumrandom'} = 0; $ar->set_active(0);}
 	
 	my $vbox = ::Vpack($label1,[$activealarmskilllabel,'_',$activealarmskillbox,$activealarmskillbutton],[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],
 		[$skipalarmifplaying],$volumefadeinperc,$manualsleeptime,[$sleepcommand,$wakecommand]);
