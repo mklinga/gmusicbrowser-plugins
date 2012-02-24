@@ -1,6 +1,10 @@
 Changelog for Sunshine (* = major, - = minor change)
 
-23.12.2012
+24.2.2012
+- fixed bug with friendwidgets and newly created schemes
+- fixed typo in changelog...
+
+23.2.2012
 * fixed bug where SongChanged had no idea of {passedtime}
 * fixed bug when calculating sleepmodes time (not multi-)
 * fixed bug where widgets wouldn't save their values

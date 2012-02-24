@@ -768,7 +768,8 @@ sub CreateWidgets
 					else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active;}
 					for (@{$curW->{friendwidgets}}){
 							#if we have a 'friendcondition' which returns TRUE, we don't set friendwidgets' status on change
-							$prefWidgets{$_}->{widget}->set_sensitive($CurScheme{$realScheme}->{$curKey}) unless (($prefWidgets{$_}->{friendcondition}) and (eval($prefWidgets{$_}->{friendcondition})));
+							if ($type =~ /Sleep/) { $prefWidgets{$_}->{widget}->set_sensitive($SleepSchemes{$realScheme}->{$curKey}) unless (($prefWidgets{$_}->{friendcondition}) and (eval($prefWidgets{$_}->{friendcondition})));}
+							else { $prefWidgets{$_}->{widget}->set_sensitive($WakeSchemes{$realScheme}->{$curKey}) unless (($prefWidgets{$_}->{friendcondition}) and (eval($prefWidgets{$_}->{friendcondition})));}							
 					}
 					SaveSchemes;
 				});
