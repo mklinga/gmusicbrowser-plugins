@@ -1,5 +1,8 @@
 Changelog for Sunshine (* = major, - = minor change)
 
+25.2.2012
+- (re)added 'shuffle' to sortmenu
+
 24.2.2012
 - fixed bug with friendwidgets and newly created schemes
 - fixed typo in changelog...
