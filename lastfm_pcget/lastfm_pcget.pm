@@ -1,9 +1,11 @@
-# Copyright (C) 2005-2009 Quentin Sculo <squentin@free.fr>
+# Gmusicbrowser: Copyright (C) 2005-2011 Quentin Sculo <squentin@free.fr>
+# laiteplay: Copyright (C) 2011- Markus Klinga <laite@gmx.com>
 #
-# This file is part of Gmusicbrowser.
-# Gmusicbrowser is free software; you can redistribute it and/or modify
+# This file is part of laiteplay, an individual fork of Gmusicbrowser.
+# laiteplay is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 3, as
-# published by the Free Software Foundation
+# published by the Free Software Foundation.
+
 
 =gmbplugin LASTFM_PCGET
 name	lastfm_pcGet
@@ -23,7 +25,6 @@ use constant
 	APIKEY => 'f39afc8f749e2bde363fc8d3cfd02aae',
 };
 
-
 ::SetDefaultOptions(OPT, checkcorrections => 1);
 
 use Digest::MD5 'md5_hex';
@@ -37,9 +38,9 @@ my $Datafile = $::HomeDir.'lastfm_corrections';
 my $Banfile = $::HomeDir.'lastfm_corrections.banned';
 my @corrections;
 
-use base 'Gtk2::Box';
-use base 'Gtk2::Dialog';
 use utf8;
+#use base 'Gtk2::Dialog';
+#use base 'Gtk2::Box';
 
 my @checks;
 my @banned;
@@ -173,6 +174,9 @@ sub checkCorrection()
 		{
 			if (my $utf8=Encode::decode_utf8($correcttrack)) {$correcttrack=$utf8}
 			if (my $utf8=Encode::decode_utf8($correctartist)) {$correctartist=$utf8}
+			
+			$correcttrack =~ s/\&amp\;/\&/g;
+			$correctartist =~ s/\&amp\;/\&/g;
 			
 			my $new_correction = Songs::Get($::SongID,'fullfilename')."\t".$correctartist."\t".$correcttrack."\n";
 			my $is_banned = 0;
@@ -395,7 +399,7 @@ sub Sync()
 }
 sub Correct
 {
-	$s2 = bless(Gtk2::Dialog->new(_"last.fm suggestions",undef,'destroy-with-parent'));
+	$s2 = Gtk2::Dialog->new(_"last.fm suggestions",undef,'destroy-with-parent');
 	@checks = ();
 	
 	$s2->set_default_size(700, 400);
@@ -428,7 +432,6 @@ sub Correct
 	# Handle the relevant events (signals).
 	#
 	$close ->signal_connect(clicked => sub {$s2->destroy();});
-
 
 	$remsel ->signal_connect(clicked => sub { confirm_action(1);});
 	$corsel ->signal_connect(clicked => sub { confirm_action(2);});
