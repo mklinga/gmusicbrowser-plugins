@@ -1,5 +1,12 @@
 Changelog for Sunshine (* = major, - = minor change)
 
+5.3.2012
+* fixed bug in CalcShortestTo
+- fixed bug with {isfinished}
+- made new function to clean up code
+- save startingtime, calculate more accurate passedtime with it
+
+
 25.2.2012
 - (re)added 'shuffle' to sortmenu
 

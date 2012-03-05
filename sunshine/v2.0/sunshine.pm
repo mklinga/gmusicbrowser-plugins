@@ -1072,7 +1072,7 @@ sub SleepInterval
 {
 	my %Alarm = %{$_[0]};
 	
-	$Alarm{passedtime} += ($Alarm{interval}/1000);#interval is in ms, we want secs
+	$Alarm{passedtime} = time-$Alarm{startingtime};
 
 	#also send changes straight to activealarms, because SongChanged checks from there only
 	${$ActiveAlarms[$Alarm{activealarmid}]}{passedtime} = $Alarm{passedtime} if (defined $Alarm{activealarmid}); 	
@@ -1113,7 +1113,8 @@ sub SongChanged
 		my %Alarm = %{$_};
 		if ($Alarm{type} eq 'Sleep')
 		{
-			$Alarm{passedtracks}++;
+			$Alarm{passedtracks}++;	$Alarm{passedtime} = time-$Alarm{startingtime};
+
 			my $finished = CheckIfSleepFinished(\%Alarm);
 			if (($finished) and (not defined $Alarm{isfinished}))	
 			{				
@@ -1242,7 +1243,10 @@ sub GetShortestTimeTo
 		my $NextTime = ::mktime(0,$Min,$Hour,$Monthday,$cMon,$cYear);
 
 		if ($Next) { $Next = $NextTime if ($Next > $NextTime);}
-		else { $Next = $NextTime;}
+		else { 
+			$Next = $NextTime;
+			$Next += (7*24*60*60) if ($Next < $Now); #if time we got is smaller than 'now', then next occurance is a week later
+		}
 	}
 
 	return ($Next-$Now);
@@ -1335,23 +1339,22 @@ sub CheckRemovableAlarms
 	my ($alarmhandle,$type,$silent, $alarmschemekey) = @opts{qw/alarmhandle type silent schemekey/} if (%opts);	
 	return unless $type;
 	
-	for (@ActiveAlarms) 
+	for my $Alarm (@ActiveAlarms) 
 	{ 
-		next unless (${$_}{type} eq $type);
+		next unless (${$Alarm}{type} eq $type);
 		my $off = 0;
-
 		if ($type eq 'Wake') {
 			#remove if multiple alarms not allowed, OR if there's already an alarm by the same type
-			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) or (${$_}{schemekey} eq $alarmschemekey));
+			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) or (${$Alarm}{schemekey} eq $alarmschemekey));
 		}
 		elsif ($type eq 'Sleep'){
 			#remove if multiple alarms not allowed, UNLESS there's alarmhandle and it's same as with the new alarm 
-			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) and (!((defined $alarmhandle) and ($alarmhandle == ${$_}{alarmhandle}))));
+			$off = 1 if ((!$::Options{OPT.'Advanced_MultipleAlarms'}) and (!((defined $alarmhandle) and ($alarmhandle == ${$Alarm}{alarmhandle}))));
 		}
 
 		if ($off){
-			RemoveAlarm($_);
-			Notify("Removed previous alarm '".${$_}{label}."'") if (($::Options{OPT.'Advanced_MoreNotifications'}) and (!$silent));
+			RemoveAlarm($Alarm);
+			Notify("Removed previous alarm '".${$Alarm}{label}."'") if (($::Options{OPT.'Advanced_MoreNotifications'}) and (!$silent));
 		}
 	}
 
@@ -1433,6 +1436,7 @@ sub LaunchSunshine
 			$Alarm{modelength} = CalcSleepLength(\%Alarm);
 			if (!$Alarm{modelength}) { GoSleep(\%Alarm); return 1;}
 
+			$Alarm{startingtime} = time;
 			$Alarm{finishingtime} = time+$Alarm{modelength};
 			
 			if ($Alarm{svolumefadecheck})
@@ -1468,6 +1472,8 @@ sub LaunchSunshine
 
 		$Alarm{modelength} = ($Alarm{wakecustomtimes})? GetShortestTimeTo(@{$Alarm{wakecustomtimestrings}}) :  GetShortestTimeTo($Alarm{wakelaunchhour}.':'.$Alarm{wakelaunchmin});
 		return unless ($Alarm{modelength} > 0);
+
+		$Alarm{startingtime} = time;
 		$Alarm{finishingtime} = time+$Alarm{modelength};
 
 		$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{modelength}*1000,sub {WakeUp(\%Alarm);});
