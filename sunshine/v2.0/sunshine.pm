@@ -11,6 +11,7 @@
 #
 # BUGS:
 #
+# 
 
 =gmbplugin SUNSHINE2
 name	Sunshine
@@ -745,6 +746,21 @@ sub CreateTopButtons
 	return 1;
 }
 
+sub SetSchemeValue
+{
+	my ($widgetname,$value,$realScheme) = @_;
+	
+	my $curW = $prefWidgets{$widgetname};
+	$realScheme ||= GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
+
+	if ($curW->{mode} =~ /Sleep/) { $SleepSchemes{$realScheme}->{$widgetname} = $value; }
+	else { $WakeSchemes{$realScheme}->{$widgetname} = $value;}
+
+	SaveSchemes;
+	return 1;
+}
+
+
 sub CreateWidgets
 {
 	for my $type ('Sleep','Wake')
@@ -788,13 +804,7 @@ sub CreateWidgets
 				$curW->{widget} = Gtk2::SpinButton->new($adj,1,0);
 
 				$curW->{widget}->set_wrap(1) if ($curW->{wrap});
-				$curW->{widget}->signal_connect(value_changed => 
-				sub { 
-					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
-					if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_value;}
-					else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_value;}
-					SaveSchemes;
-				});
+				$curW->{widget}->signal_connect(value_changed =>sub {SetSchemeValue($curKey,$curW->{widget}->get_value);});
 			}
 			elsif ($curW->{type} eq 'Label') {
 				$curW->{widget} = Gtk2::Label->new($curW->{text});
@@ -802,13 +812,7 @@ sub CreateWidgets
 			}
 			elsif ($curW->{type} eq 'Entry') {
 				$curW->{widget} = Gtk2::Entry->new();
-				$curW->{widget}->signal_connect(changed => 
-				sub { 
-					$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text); 
-					if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_text;}
-					else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_text;}
-					SaveSchemes;
-				});
+				$curW->{widget}->signal_connect(changed => sub {SetSchemeValue($curKey,$curW->{widget}->get_text);});
 			}
 			elsif ($curW->{type} eq 'ComboBox')
 			{
@@ -843,13 +847,7 @@ sub CreateWidgets
 					for (0..$#Items){
 						$curW->{widget}->append_text($Items[$_]);
 					}
-					$curW->{widget}->signal_connect(changed => 
-					sub {
-						$realScheme = GetRealScheme($curW->{mode},$prefWidgets{lc($curW->{mode}).'schemecombo'}->{widget}->get_active_text);
-						if ($type =~ /Sleep/) { $SleepSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active_text;}
-						else { $WakeSchemes{$realScheme}->{$curKey} = $curW->{widget}->get_active_text;}
-						SaveSchemes;
-					});
+					$curW->{widget}->signal_connect(changed => sub {SetSchemeValue($curKey,$curW->{widget}->get_active_text);});
 				}
 				
 			}
@@ -1092,14 +1090,14 @@ sub SleepInterval
 		}
 	}
 
+	my $finished = CheckIfSleepFinished(\%Alarm);	
+	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})){$Alarm{isfinished} = 1;}
+
 	#%Alarm is only a temporary representation, so must send changes back
 	%{$_[0]} = %Alarm;
+
+	if (($finished) and ($::Options{OPT.'Advanced_DontFinishLastInTimed'})){GoSleep(\%Alarm);}
 	
-	my $finished = CheckIfSleepFinished(\%Alarm);	
-
-	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})){$Alarm{isfinished} = 1;}
-	elsif ($finished) {GoSleep(\%Alarm);}
-
 	return (!$finished);#returning false ends timeout
 }
 sub SongChanged
