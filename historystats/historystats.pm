@@ -7,9 +7,10 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - limit history by time instead of count
-# - itemnumbers to history
 # - time-based stats (only for playcount?) 
+# - log history to file
+# - multiselect
+# - let user select the fields for 'overview'??
 #
 # BUGS:
 #
@@ -35,8 +36,9 @@ use Gtk2::Gdk::Keysyms;
 use base 'Gtk2::Box';
 use base 'Gtk2::Dialog';
 
-::SetDefaultOptions(OPT,RequirePlayConditions => 1,AmountOfHistoryItems => 10, AmountOfStatItems => 50, 
-	UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, TotalPlayTracks => 0);
+::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
+	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
+	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1);
 
 my %sites =
 (
@@ -98,17 +100,20 @@ sub prefbox {
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', toolitem => 'You can set treshold for these conditions in Preferences->Misc');
 	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter');
-	my $hCheck3 = ::NewPrefCheckButton(OPT.'OnlyOneInstanceInHistory','Allow only one instance of song in history');
-	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
+
+	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "));
+	my @historylimits = ('items','days');
+	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits);
 	
 	# Statistics
-	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
+	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "), cb => sub{ %HistoryHash = undef;});
+	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list', cb => sub{ %HistoryHash = undef;});
 	
 	
 	my @vbox = ( 
 		::Vpack(), 
-		::Vpack([$hCheck1,$hCheck2],[$hCheck3],$hAmount), 
-		::Vpack($sAmount), 
+		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo]), 
+		::Vpack($sCheck1,$sAmount), 
 		::Vpack()
 	
 	);
@@ -136,22 +141,14 @@ sub new
 	$textview->set_editable(0);
 	$textview->set_left_margin(5);
 	$textview->set_has_tooltip(0);
-	#$textview->signal_connect(button_release_event	=> \&button_release_cb);
+	$textview->signal_connect(button_press_event	=> \&ButtonReleaseCb);
 	$textview->signal_connect(motion_notify_event 	=> \&UpdateCursorCb);
 	$textview->signal_connect(visibility_notify_event=>\&UpdateCursorCb);
-	$textview->signal_connect(query_tooltip => \&UpdateCursorCb);
 	
 	## TreeView for history
 	my $Hstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt');
 	my $Htreeview=Gtk2::TreeView->new($Hstore);
-	my $renderer=Gtk2::CellRendererText->new;
-	my $Hplaytime=Gtk2::TreeViewColumn->new_with_attributes( "Playtime",$renderer,text => 0);
-	$Hplaytime->set_cell_data_func($renderer, sub 
-	{ 
-		my ($column, $cell, $model, $iter, $func_data) = @_; 
-		my $realtime = $model->get($iter,0);
-		$cell->set( text => FormatRealtime($realtime) ); 
-	}, undef);
+	my $Hplaytime=Gtk2::TreeViewColumn->new_with_attributes( "Playtime",Gtk2::CellRendererText->new,text => 0);
 	$Hplaytime->set_sort_column_id(0);
 	$Hplaytime->set_resizable(1);
 	$Hplaytime->set_alignment(0);
@@ -197,12 +194,21 @@ sub new
 	my $Streeview=Gtk2::TreeView->new($Sstore);
 
 	my $Sitemrenderer=Gtk2::CellRendererText->new;
-	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( "Value",$Sitemrenderer,text => 0);
+	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( "Item",$Sitemrenderer,markup => 0);
 	$Sitem->set_cell_data_func($Sitemrenderer, sub 
 	{ 
 		my ($column, $cell, $model, $iter, $func_data) = @_; 
-		my $raw = $model->get($iter,0);
-		$cell->set( text => $raw.'  ' ); 
+		my $raw = ::PangoEsc($model->get($iter,0));
+		my $field = $model->get($iter,3);
+		if (($::Options{OPT.'ShowArtistForAlbumsAndTracks'}) and ($field =~ /album|title/)) {
+			my $arti; my $num = ''; 
+			my $gid = $model->get($iter,2);
+			if ($field eq 'album') { my $ag = AA::Get('album_artist:gid','album',$gid); $arti = Songs::Gid_to_Display('album_artist',$$ag[0]); } 
+			else { $arti = Songs::Get($gid,'artist'); }
+			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}  
+			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
+		}
+		$cell->set( markup => $raw ); 
 	}, undef);
 	
 	$Sitem->set_sort_column_id(0);
@@ -228,7 +234,7 @@ sub new
 	$Svalue->set_sort_indicator(::FALSE);
 	$Streeview->append_column($Svalue);
 	$Streeview->set_rules_hint(1);
-	$Streeview->signal_connect(button_press_event => \&STVContext);
+	$Streeview->signal_connect(button_press_event => \&STVContextPress);
 	$Streeview->{store}=$Sstore;
 
 
@@ -375,17 +381,21 @@ sub Updatestatistics
 		($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
-		$self->{sstore}->set($self->{sstore}->prepend,0,Songs::Gid_to_Display($field,$_),1, sprintf ("%.3f", $dh->{$_}),2,$_,3,$field) for reverse @list;
+		for (0..$#list)
+		{
+			my $value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};
+			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".Songs::Gid_to_Display($field,$list[$_]),1,$value,2,$list[$_],3,$field);
+		}
 	}
 	else
 	{
 		Songs::SortList($source,$sorttype);
 		@list = ($self->{butinvert}->get_active)? @$source : reverse @$source;
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? $::Options{OPT.'AmountOfStatItems'} : (scalar@list);
-		for ((@list)[0..($max-1)])
+		for (0..($max-1))
 		{
-			my ($title,$value) = Songs::Get($_,'title',$sorttype);
-			$self->{sstore}->set($self->{sstore}->append,0,$title,1, sprintf ("%.3f", $value),2,$_,3,$field);
+			my ($title,$value) = Songs::Get($list[$_],'title',$sorttype);
+			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".$title,1, sprintf ("%.3f", $value),2,$list[$_],3,$field);
 		}
 	}
 
@@ -396,7 +406,8 @@ sub Updateoverview
 {
 	my $self = shift;
 	my $buffer = $self->{buffer};
-	
+	my $fontsize = $self->{fontsize};
+		
 	$buffer->delete($buffer->get_bounds);
 	my $iter=$buffer->get_start_iter;
 
@@ -407,13 +418,54 @@ sub Updateoverview
 				: int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).' min '.int($globalstats{playtime}%60).'s';
 	}
 
-	my $text = "Statistics started at ".FormatRealtime($globalstats{starttime})."\n";
-	$text .= "Since then played total of ".$globalstats{playtrack}." tracks";
-	$text .= " in ".$totalplaytime if (defined $totalplaytime);
+	my $ago = (time-$globalstats{starttime})/86400;
+
+	my $text = "Statistics started at ".FormatRealtime($globalstats{starttime})." (".(int(0.5+(10*$ago))/10)." days ago)\n";
+	if ($ago)
+	{
+		$text .= "Since then you have played ".$globalstats{playtrack}." tracks";
+		$text .= " in ".$totalplaytime if (defined $totalplaytime);
+		$text .= "\nThat's about ".int(0.5+($globalstats{playtrack}/$ago))." tracks per day";
+		$text .= "\n\nYou have listened music for ".int(0.5+(($globalstats{playtime}*100)/(time-$globalstats{starttime})))."% of time";
+		$text .= "\n\n";
+
+		$buffer->insert($iter,$text);
+	}
+
+	my $top=4; 
+	my $tag_header = $buffer->create_tag(undef,justification=>'left',font=>$fontsize+1,weight=>Gtk2::Pango::PANGO_WEIGHT_BOLD);
+
+	for my $field (qw/genre artists album/)
+	{
+		$iter=$buffer->get_end_iter;	
+		my ($plays)= Songs::BuildHash($field, $::Library, undef, 'playcount:sum');
+		$top = (keys %$plays) if ($top > (keys %$plays));
+		$text = ($field =~ /s$/)? "Top ".$field : "Top ".$field."s";	
+		$buffer->insert_with_tags($iter,$text,$tag_header);
+		my $i=0;
+		for ((sort { $plays->{$b} <=> $plays->{$a} } keys %$plays)[0..$top-1])
+		{
+			$i++; my $arti='';
+			if ($field eq 'album'){
+				my $ag = AA::Get('album_artist:gid','album',$_); 
+				$arti = " (".Songs::Gid_to_Display('album_artist',$$ag[0]).")";
+			}
+			my $tag_item = $buffer->create_tag(undef,font=>$fontsize);
+			$tag_item->{gid} = $_;
+			$tag_item->{field} = $field;
+			$buffer->insert($iter,"\n".$i.".  ");
+			$buffer->insert_with_tags($iter,Songs::Gid_to_Display($field,$_).$arti,$tag_item);
+		}
+		$buffer->insert($iter,"\n\n");
+	}
+
+	# then top titles
+	$buffer->insert_with_tags($iter,"Top tracks",$tag_header);
+	my $list = $::Library;
+	Songs::SortList($list,'playcount');
+	$buffer->insert($iter,"\n".($_+1).".  ".(join " (", Songs::Get($$list[$_],qw/title artist/)).")") for (0..($top-1));
 
 	
-	$buffer->insert($iter,$text);
-
 	return 1;
 }
 
@@ -427,17 +479,25 @@ sub Updatehistory
 
 	CreateHistory($source) if (!scalar keys %HistoryHash);
 
-	my $amount = ((scalar keys(%HistoryHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%HistoryHash) : $::Options{OPT.'AmountOfHistoryItems'};
+	my $amount; my $lasttime = 0;
+	if ($::Options{OPT.'HistoryLimitMode'} eq 'days') {
+		$lasttime = time-(($::Options{OPT.'AmountOfHistoryItems'})*86400);
+		my ($sec, $min, $hour) = (localtime(time))[0,1,2];
+		$lasttime -= ($sec+(60*$min)+(3600*$hour));
+	}
+	else{$amount = ((scalar keys(%HistoryHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%HistoryHash) : $::Options{OPT.'AmountOfHistoryItems'};}
+
 	my %final;
 	
-	#we test from biggest to smallest playtime until find $amount songs that are in source
+	#we test from biggest to smallest playtime (keys are 'pt'.$playtime) until find $amount songs that are in source
 	for my $hk (reverse sort keys %HistoryHash) 
 	{
+		if ($hk =~ /^pt(\d+)$/) {last unless ($1 > $lasttime);}
 		if (defined $sourcehash{$HistoryHash{$hk}->{ID}}) {
 			$final{$hk} = $HistoryHash{$hk};
-			$amount--;
+			$amount-- if (defined $amount);
 		}
-		last unless ($amount > 0);
+		last if ((defined $amount) and ($amount <= 0));
 	}
 
 	#then re-populate the hstore
@@ -445,7 +505,7 @@ sub Updatehistory
 	for (reverse sort keys %final)	{
 		my $key = $_;
 		$key =~ s/^pt//;
-		$self->{hstore}->set($self->{hstore}->append,0,$key,1,$final{$_}->{label},2,$final{$_}->{ID});
+		$self->{hstore}->set($self->{hstore}->append,0,FormatRealtime($key),1,$final{$_}->{label},2,$final{$_}->{ID});
 	}
 		
 	return 1;	
@@ -479,32 +539,52 @@ sub CreateHistory
 
 sub FormatRealtime
 {
-	my ($realtime,$want) = @_;
+	my $realtime = shift;
 	return 'n/a' unless ($realtime);
 	
 	my @months = ("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec");
 	my ($sec, $min, $hour, $day,$month,$year) = (localtime($realtime))[0,1,2,3,4,5]; 	
 	my $default = join ".", $day,($month+1),($year+1900).' '.sprintf("%02d",$hour).':'.sprintf("%02d",$min).':'.sprintf("%02d",$sec);
 
-	if (($want) and ($want eq 'lp')) { $default = 16; }
-
 	return $default.'  ';
-}
-sub button_release_cb
-{	
-	return 1;
-}
-
-sub url_at_coords
-{
-	return 1;
 }
 
 sub UpdateCursorCb
-{
-	return 1;
+{	
+	my $textview = shift;
+	my (undef,$wx,$wy,undef)=$textview->window->get_pointer;
+	my ($x,$y)=$textview->window_to_buffer_coords('widget',$wx,$wy);
+	my $iter=$textview->get_iter_at_location($x,$y);
+	my $cursor='xterm';
+	for my $tag ($iter->get_tags)
+	{	next unless $tag->{gid};
+		$cursor='hand2';
+		last;
+	}
+	return if ($textview->{cursor}||'') eq $cursor;
+	$textview->{cursor}=$cursor;
+	$textview->get_window('text')->set_cursor(Gtk2::Gdk::Cursor->new($cursor));
 }
 
+sub ButtonReleaseCb
+{
+	my ($textview,$event) = @_;
+	
+	my $self=::find_ancestor($textview,__PACKAGE__);
+	my ($x,$y)=$textview->window_to_buffer_coords('widget',$event->x, $event->y);
+	my $iter=$textview->get_iter_at_location($x,$y);
+	for my $tag ($iter->get_tags) {	
+		my $gid = $tag->{gid}; my $field = $tag->{field};
+		if ($field ne 'title') {
+			::PopupAAContextMenu({gid=>$gid,self=>$textview,field=>$field,mode=>'S'});
+		}
+		else{
+			::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $textview, IDs => [$gid]});
+		}
+	}
+
+	return ::TRUE; #don't want any default popups
+}
 
 sub HTVContext 
 {
@@ -526,7 +606,7 @@ sub HTVContext
 	return 0;
 }
 
-sub STVContext
+sub STVContextPress
 {
 	my ($treeview, $event) = @_;
 	return 0 unless $treeview;
@@ -536,18 +616,14 @@ sub STVContext
 	my $iter=$store->get_iter($path);
 	my $value=$store->get( $store->get_iter($path),2);
 	my $field=$store->get( $store->get_iter($path),3);
-
-	if ($field ne 'title')
+	if ($event->button == 3)
 	{
-		if ($event->button == 3){
+		if ($field ne 'title'){
 			::PopupAAContextMenu({gid=>$value,self=>$treeview,field=>$field,mode=>'S'});
-			return 0;
 		}
-		
-	}
-	else
-	{
-		
+		else {
+			::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => [$value]});
+		}
 	}
 	return 0;
 }
