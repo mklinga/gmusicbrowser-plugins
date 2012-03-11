@@ -464,10 +464,9 @@ sub Updateoverview
 	# then top titles
 	$buffer->insert_with_tags($iter,"Top tracks",$tag_header);
 	my $list = $::Library;
-	Songs::SortList($list,'playcount');
-	$buffer->insert($iter,"\n".($_+1).".  ".(join " (", Songs::Get($$list[$_],qw/title artist/)).")") for (0..($top-1));
+	Songs::SortList($list,'-playcount');
+	$buffer->insert($iter,"\n".($_+1).".  ".(join " (", Songs::Get($$list[$_],qw/title artist/)).")") for (0..($top-1));	
 
-	
 	return 1;
 }
 
