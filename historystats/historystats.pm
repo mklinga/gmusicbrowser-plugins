@@ -10,8 +10,6 @@
 # - limit history by time instead of count
 # - itemnumbers to history
 # - time-based stats (only for playcount?) 
-# - follow filterbox selection?
-# - allow only one instance?
 #
 # BUGS:
 #
@@ -38,7 +36,7 @@ use base 'Gtk2::Box';
 use base 'Gtk2::Dialog';
 
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1,AmountOfHistoryItems => 10, AmountOfStatItems => 50, 
-	UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, TotalPlayTime => 0);
+	UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, TotalPlayTracks => 0);
 
 my %sites =
 (
@@ -48,9 +46,12 @@ my %sites =
 );
 
 my %StatTypes = (
- album_artists => { label => 'Album Artists', field => 'album_artist'}, 
+ #album_artists => { label => 'Album Artists', field => 'album_artist'}, 
  artists => { label => 'Artists', field => 'artist'}, 
  albums => { label => 'Albums', field => 'album'}, 
+ labels => { label => 'Labels', field => 'label'}, 
+ genres => { label => 'Genres', field => 'genre'}, 
+ year => { label => 'Years', field => 'year'}, 
  titles => { label => 'Tracks', field => 'title'} 
 );
 
@@ -74,13 +75,16 @@ my %AdditionalData; #holds additional playcounts, key is 'pt' + (last playcount 
 my %HistoryHash;# last play of every track, key = 'pt'.Playtime
 my $lastID = -1; my $lastAdded = -1;
 my $lastPlaytime;
-
+my %globalstats;
 
 sub Start {
 	Layout::RegisterWidget(HistoryStats => $statswidget);
 	if (not defined $::Options{OPT.'StatisticsStartTime'}) {
 		$::Options{OPT.'StatisticsStartTime'} = time;
 	}
+	$globalstats{starttime} = $::Options{OPT.'StatisticsStartTime'}; 
+	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
+	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
 }
 
 sub Stop {
@@ -121,7 +125,6 @@ sub new
 	my $fontsize=$self->style->font_desc;
 	$self->{fontsize} = $fontsize->get_size / Gtk2::Pango->scale;
 	$self->{site} = 'history';
-
 	my $group= $options->{group};
 
 	## Textview for 'overview'-page
@@ -132,7 +135,7 @@ sub new
 	$textview->set_pixels_above_lines(2);
 	$textview->set_editable(0);
 	$textview->set_left_margin(5);
-	$textview->set_has_tooltip(1);
+	$textview->set_has_tooltip(0);
 	#$textview->signal_connect(button_release_event	=> \&button_release_cb);
 	$textview->signal_connect(motion_notify_event 	=> \&UpdateCursorCb);
 	$textview->signal_connect(visibility_notify_event=>\&UpdateCursorCb);
@@ -342,7 +345,7 @@ sub UpdateSite
 	return unless ((($self->{needsupdate}) or ($force)) and (defined $site));
 
 	eval('Update'.$site.'($self);');
-	if ($@) { warn "Bad eval in Historystats::UpdateSite()! ERROR: ".$@;}
+	if ($@) { warn "Bad eval in Historystats::UpdateSite()! Site: ".$site.", ERROR: ".$@;}
 
 	$self->{needsupdate} = 0;
 
@@ -362,13 +365,13 @@ sub Updatestatistics
 
 	my $source = (defined $::SelectedFilter)? $::SelectedFilter->filter : $::Library;
 	
-	my $href = Songs::BuildHash($field,$source,'gid');
 	my @list; my $dh;
 
 	$self->{sstore}->clear;
 	
 	if ($field ne 'title')
 	{
+		my $href = Songs::BuildHash($field,$source,'gid');
 		($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
@@ -391,23 +394,26 @@ sub Updatestatistics
 
 sub Updateoverview
 {
-	warn "OV";
+	my $self = shift;
+	my $buffer = $self->{buffer};
+	
+	$buffer->delete($buffer->get_bounds);
+	my $iter=$buffer->get_start_iter;
 
-	my $top=5; 
-	my @fields = ('artist','album');
-
-	for my $f (@fields)
-	{
-		my ($plays,$songs)= Songs::BuildHash($f, $::Library, undef, 'playcount:sum', 'count');
-		warn "top $top $f by playcount\n";
-		warn $_." : $plays->{$_}\n" for (sort { $plays->{$b} <=> $plays->{$a} } keys %$plays)[0..$top-1];
-		warn "top $top $f by number of songs\n";
-		warn Songs::Gid_to_Display($f,$_)." : $songs->{$_}\n" for (sort { $songs->{$b} <=> $songs->{$a} } keys %$songs)[0..$top-1];
-		warn "\n";
+	my $totalplaytime = undef;
+	if ($globalstats{playtime})	{
+			$totalplaytime = ($globalstats{playtime} > 86400)? 
+				int($globalstats{playtime}/86400).'d '.int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).'min '.int($globalstats{playtime}%60).'s' 
+				: int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).' min '.int($globalstats{playtime}%60).'s';
 	}
 
-	#my ($plays,$songs,$rating,$playavrg)= Songs::BuildHash($field, $::Library, undef, 'playcount:sum', 'count', 'rating:average', 'playcount:average');
+	my $text = "Statistics started at ".FormatRealtime($globalstats{starttime})."\n";
+	$text .= "Since then played total of ".$globalstats{playtrack}." tracks";
+	$text .= " in ".$totalplaytime if (defined $totalplaytime);
+
 	
+	$buffer->insert($iter,$text);
+
 	return 1;
 }
 
@@ -563,8 +569,10 @@ sub SongPlayed
 	my ($self,$ID, $playedEnough, $StartTime, $seconds, $coverage_ratio, $Played_segments) = @_;
 
 	AddToHistory($self,$ID,$StartTime) if ($playedEnough) or (!$::Options{OPT.'RequirePlayConditions'});
-	$::Options{OPT.'TotalPlayTime'} += $seconds; 
-	$::Options{OPT.'TotalPlayTracks'} += 1 if ($playedEnough);
+	$::Options{OPT.'TotalPlayTime'} = $globalstats{playtime}+$seconds; 
+	$::Options{OPT.'TotalPlayTracks'} = ($globalstats{playtrack}+1) if ($playedEnough);
+	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
+	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
 	
 	return 1;
 }
