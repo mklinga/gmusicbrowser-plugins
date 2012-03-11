@@ -39,7 +39,7 @@ use base 'Gtk2::Dialog';
 
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
-	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1);
+	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S');
 
 my %sites =
 (
@@ -101,10 +101,10 @@ sub prefbox {
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', toolitem => 'You can set treshold for these conditions in Preferences->Misc');
 	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter');
-
 	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "));
 	my @historylimits = ('items','days');
 	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits);
+	my $hEntry = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "), cb => sub{ %HistoryHash = undef;});
@@ -113,7 +113,7 @@ sub prefbox {
 	
 	my @vbox = ( 
 		::Vpack(), 
-		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo]), 
+		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo],$hEntry), 
 		::Vpack($sCheck1,$sAmount), 
 		::Vpack()
 	
@@ -465,7 +465,13 @@ sub Updateoverview
 	$buffer->insert_with_tags($iter,"Top tracks",$tag_header);
 	my $list = $::Library;
 	Songs::SortList($list,'-playcount');
-	$buffer->insert($iter,"\n".($_+1).".  ".(join " (", Songs::Get($$list[$_],qw/title artist/)).")") for (0..($top-1));	
+	for (0..($top-1))
+	{
+		my $tag_item = $buffer->create_tag(undef,font=>$fontsize);
+		$tag_item->{gid} = $$list[$_];
+		$tag_item->{field} = 'title';
+		$buffer->insert_with_tags($iter,"\n".($_+1).".  ".(join " (", Songs::Get($$list[$_],qw/title artist/)).")",$tag_item);
+	}	
 
 	return 1;
 }
@@ -542,12 +548,30 @@ sub FormatRealtime
 {
 	my $realtime = shift;
 	return 'n/a' unless ($realtime);
-	
 	my @months = ("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec");
 	my ($sec, $min, $hour, $day,$month,$year) = (localtime($realtime))[0,1,2,3,4,5]; 	
-	my $default = join ".", $day,($month+1),($year+1900).' '.sprintf("%02d",$hour).':'.sprintf("%02d",$min).':'.sprintf("%02d",$sec);
+	$month += 1; $year += 1900;
+	my $h12 = ($hour > 11)? $hour-12 : $hour;
+	my $ind = ($hour > 11)? 'pm' : 'am';
+	$hour = sprintf("%02d",$hour);
+	$min = sprintf("%02d",$min);
+	$sec = sprintf("%02d",$sec);
+	
+	my $formatted;
+	if (defined $::Options{OPT.'HistoryTimeFormat'})
+	{
+		$formatted = $::Options{OPT.'HistoryTimeFormat'};
+		while ($formatted =~ /\%(\S)/)
+		{
+			$formatted =~ s/\%d/$day/; $formatted =~ s/\%m/$month/;	
+			$formatted =~ s/\%y/$year/;	$formatted =~ s/\%H/$hour/;	
+			$formatted =~ s/\%h/$h12/; $formatted =~ s/\%M/$min/;	
+			$formatted =~ s/\%S/$sec/; $formatted =~ s/\%p/$ind/;	
+		}		
+	}
+	else {$formatted = "".localtime($realtime);}
 
-	return $default.'  ';
+	return $formatted;
 }
 
 sub UpdateCursorCb
