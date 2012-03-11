@@ -11,6 +11,7 @@
 # - log history to file
 # - multiselect
 # - let user select the fields for 'overview'??
+# - let user custom historysite: both timeformat & title should be easy to give for custom
 #
 # BUGS:
 #
@@ -438,7 +439,8 @@ sub Updateoverview
 	for my $field (qw/genre artists album/)
 	{
 		$iter=$buffer->get_end_iter;	
-		my ($plays)= Songs::BuildHash($field, $::Library, undef, 'playcount:sum');
+		my $suffix = ($field eq 'album')? 'average' : 'sum';
+		my ($plays)= Songs::BuildHash($field, $::Library, undef, 'playcount:'.$suffix);
 		$top = (keys %$plays) if ($top > (keys %$plays));
 		$text = ($field =~ /s$/)? "Top ".$field : "Top ".$field."s";	
 		$buffer->insert_with_tags($iter,$text,$tag_header);
