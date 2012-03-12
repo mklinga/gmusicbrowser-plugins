@@ -75,7 +75,8 @@ my $statswidget =
 
 my $HistoryFile = $::HomeDir.'playhistory_data';
 my %AdditionalData; #holds additional playcounts, key is 'pt' + (last playcount of track), value is array
-my %HistoryHash;# last play of every track, key = 'pt'.Playtime
+my %HistoryHash = ( needupdate => 1);# last play of every track, key = 'pt'.Playtime
+my %sourcehash;
 my $lastID = -1; 
 my %lastAdded = ( ID => -1, playtime => -1);
 my $lastPlaytime;
@@ -319,6 +320,7 @@ sub new
 			my $force;
 			$force = 1 unless (($self->{site} eq 'history') and (!$::Options{OPT.'UseHistoryFilter'}));
 			SongChanged($self,$force);
+			$HistoryHash{needupdate} = 1;
 		});
 	
 	UpdateSite($self,$self->{site});
@@ -481,11 +483,15 @@ sub Updatehistory
 {
 	my $self = shift;
 	
-	my $source = (($::Options{OPT.'UseHistoryFilter'}) and (defined $::SelectedFilter))? $::SelectedFilter->filter : $::Library; 
-	my %sourcehash;
-	$sourcehash{$$source[$_]} = $_ for (0..$#$source);
+	if ($HistoryHash{needupdate})
+	{
+		delete $sourcehash{$_} for (keys %sourcehash);
+		my $source = (($::Options{OPT.'UseHistoryFilter'}) and (defined $::SelectedFilter))? $::SelectedFilter->filter : $::Library; 
+		$sourcehash{$$source[$_]} = $_ for (0..$#$source);
+		delete $HistoryHash{needupdate};
+	}
 
-	CreateHistory($source) if ((!scalar keys %HistoryHash) or ($HistoryHash{needupdate}));
+	CreateHistory() if (!scalar keys %HistoryHash);
 
 	my $amount; my $lasttime = 0;
 	if ($::Options{OPT.'HistoryLimitMode'} eq 'days') {
@@ -541,7 +547,7 @@ sub CreateHistory
 		$HistoryHash{'pt'.$pt}{ID} = $ID;
 		$HistoryHash{'pt'.$pt}{label} = join " - ", Songs::Get($ID,qw/artist album title/);
 	}
- 	delete $HistoryHash{needupdate};	
+
 	return 1;
 }
 
