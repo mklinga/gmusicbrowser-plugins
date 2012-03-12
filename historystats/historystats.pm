@@ -76,7 +76,8 @@ my $statswidget =
 my $HistoryFile = $::HomeDir.'playhistory_data';
 my %AdditionalData; #holds additional playcounts, key is 'pt' + (last playcount of track), value is array
 my %HistoryHash;# last play of every track, key = 'pt'.Playtime
-my $lastID = -1; my $lastAdded = -1;
+my $lastID = -1; 
+my %lastAdded = ( ID => -1, playtime => -1);
 my $lastPlaytime;
 my %globalstats;
 
@@ -99,16 +100,16 @@ sub prefbox {
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Statistics "),Gtk2::Frame->new(" Overview "));
 	
 	# History
-	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', toolitem => 'You can set treshold for these conditions in Preferences->Misc');
-	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter');
-	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "));
+	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', toolitem => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
+	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter', cb => sub{ $HistoryHash{needupdate} = 1;});
+	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "), cb => sub{  $HistoryHash{needupdate} = 1;});
 	my @historylimits = ('items','days');
-	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits);
+	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits, cb => sub{ $HistoryHash{needupdate} = 1;});
 	my $hEntry = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
 	
 	# Statistics
-	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "), cb => sub{ %HistoryHash = undef;});
-	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list', cb => sub{ %HistoryHash = undef;});
+	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
+	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
 	
 	
 	my @vbox = ( 
@@ -416,7 +417,7 @@ sub Updateoverview
 	if ($globalstats{playtime})	{
 			$totalplaytime = ($globalstats{playtime} > 86400)? 
 				int($globalstats{playtime}/86400).'d '.int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).'min '.int($globalstats{playtime}%60).'s' 
-				: int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).' min '.int($globalstats{playtime}%60).'s';
+				: int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).'min '.int($globalstats{playtime}%60).'s';
 	}
 
 	my $ago = (time-$globalstats{starttime})/86400;
@@ -484,7 +485,7 @@ sub Updatehistory
 	my %sourcehash;
 	$sourcehash{$$source[$_]} = $_ for (0..$#$source);
 
-	CreateHistory($source) if (!scalar keys %HistoryHash);
+	CreateHistory($source) if ((!scalar keys %HistoryHash) or ($HistoryHash{needupdate}));
 
 	my $amount; my $lasttime = 0;
 	if ($::Options{OPT.'HistoryLimitMode'} eq 'days') {
@@ -540,7 +541,7 @@ sub CreateHistory
 		$HistoryHash{'pt'.$pt}{ID} = $ID;
 		$HistoryHash{'pt'.$pt}{label} = join " - ", Songs::Get($ID,qw/artist album title/);
 	}
-	
+ 	delete $HistoryHash{needupdate};	
 	return 1;
 }
 
@@ -669,7 +670,8 @@ sub SongPlayed
 {
 	my ($self,$ID, $playedEnough, $StartTime, $seconds, $coverage_ratio, $Played_segments) = @_;
 
-	AddToHistory($self,$ID,$StartTime) if ($playedEnough) or (!$::Options{OPT.'RequirePlayConditions'});
+	AddToHistory($self,$ID,$StartTime) if (($playedEnough) or ((!$::Options{OPT.'RequirePlayConditions'}) and ($lastAdded{ID} != $ID))); 
+
 	$::Options{OPT.'TotalPlayTime'} = $globalstats{playtime}+$seconds; 
 	$::Options{OPT.'TotalPlayTracks'} = ($globalstats{playtrack}+1) if ($playedEnough);
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
@@ -682,6 +684,9 @@ sub AddToHistory
 {
 	my ($self,$ID,$playtime) = @_;	
 
+	$lastAdded{ID} = $ID;
+	$lastAdded{playtime} = $playtime;
+	
 	$HistoryHash{'pt'.$playtime}{ID} = $ID;
 	$HistoryHash{'pt'.$playtime}{label} = join " - ", Songs::Get($ID,qw/artist album title/);
 
