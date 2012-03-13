@@ -9,7 +9,7 @@
 # TODO:
 # - time-based stats (only for playcount?) 
 # - multiselect
-# - better overview
+# - better overview (weekly/monthly playcounts, suggestion for album)
 #
 # BUGS:
 #
@@ -160,14 +160,14 @@ sub new
 	$Hplaytime->set_resizable(1);
 	$Hplaytime->set_alignment(0);
 	$Hplaytime->set_min_width(10);
-	$Htreeview->append_column($Hplaytime);
-
 	my $Htrack=Gtk2::TreeViewColumn->new_with_attributes( _"Track",Gtk2::CellRendererText->new,text=>1);
 	$Htrack->set_sort_column_id(1);
 	$Htrack->set_expand(1);
 	$Htrack->set_resizable(1);
+	$Htreeview->append_column($Hplaytime);
 	$Htreeview->append_column($Htrack);
 
+	$Htreeview->get_selection->set_mode('multiple');
 	$Htreeview->set_rules_hint(1);
 	$Htreeview->signal_connect(button_press_event => \&HTVContext);
 	$Htreeview->{store}=$Hstore;
@@ -205,16 +205,18 @@ sub new
 	$Sitem->set_cell_data_func($Sitemrenderer, sub 
 	{ 
 		my ($column, $cell, $model, $iter, $func_data) = @_; 
-		my $raw = ::PangoEsc($model->get($iter,0));
+		my $raw = $model->get($iter,0);
 		my $field = $model->get($iter,3);
 		if (($::Options{OPT.'ShowArtistForAlbumsAndTracks'}) and ($field =~ /album|title/)) {
 			my $arti; my $num = ''; 
 			my $gid = $model->get($iter,2);
 			if ($field eq 'album') { my $ag = AA::Get('album_artist:gid','album',$gid); $arti = Songs::Gid_to_Display('album_artist',$$ag[0]); } 
 			else { $arti = Songs::Get($gid,'artist'); }
-			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}  
-			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
+			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}
+			$arti = ::PangoEsc($arti);  
+			$raw = $num.$raw.'<small>  by  '.$arti.'</small>;';
 		}
+
 		$cell->set( markup => $raw ); 
 	}, undef);
 	
@@ -241,6 +243,7 @@ sub new
 	$Svalue->set_sort_indicator(::FALSE);
 	$Streeview->append_column($Svalue);
 	$Streeview->set_rules_hint(1);
+	$Streeview->get_selection->set_mode('multiple');
 	$Streeview->signal_connect(button_press_event => \&STVContextPress);
 	$Streeview->{store}=$Sstore;
 
@@ -392,7 +395,7 @@ sub Updatestatistics
 		for (0..$#list)
 		{
 			my $value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};
-			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".Songs::Gid_to_Display($field,$list[$_]),1,$value,2,$list[$_],3,$field);
+			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
 		}
 	}
 	else
@@ -562,6 +565,7 @@ sub FormatRealtime
 	if (defined $::Options{OPT.'HistoryTimeFormat'})
 	{
 		$formatted = $::Options{OPT.'HistoryTimeFormat'};
+		$formatted =~ s/\%[^dmyHhMSp]//g;
 		while ($formatted =~ /\%(\S)/)
 		{
 			$formatted =~ s/\%d/$day/; $formatted =~ s/\%m/$month/;	
@@ -616,55 +620,81 @@ sub HTVContext
 {
 	my ($treeview, $event) = @_;
 	return 0 unless $treeview;
-	my ($path, $column) = $treeview->get_cursor;
-	return unless defined $path;
+
+	my @paths = $treeview->get_selection->get_selected_rows;
+	return unless (scalar@paths);
+
 	my $store=$treeview->{store};
-	my $iter=$store->get_iter($path);
-	my $ID=$store->get( $store->get_iter($path),2);
+	my @IDs;
+	
+	for (@paths)
+	{
+		my $iter=$store->get_iter($_);
+		my $ID=$store->get( $store->get_iter($_),2);
+		push @IDs,$ID;
+	}
 
 	if ($event->button == 2) { 
-		::Enqueue($ID); 
+		::Enqueue(\@IDs); 
 	}
 	elsif ($event->button == 3) {
-		::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => [$ID]});			
+		::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@IDs});			
 	}
-	elsif (($event->button == 1) and ($event->type  eq '2button-press')) {
-		::Select(song => $ID, play => 1);
+	elsif (($event->button == 1) and ($event->type  eq '2button-press') and (scalar@IDs == 1)) {
+		::Select(song => $IDs[0], play => 1);
 	}
+	else {return 0;}
 	
-	return 0;
+	return 1;
 }
 
 sub STVContextPress
 {
 	my ($treeview, $event) = @_;
 	return 0 unless $treeview;
-	my ($path, $column) = $treeview->get_cursor;
-	return unless defined $path;
+
+	my @paths = $treeview->get_selection->get_selected_rows;
+	return unless (scalar@paths);
+
 	my $store=$treeview->{store};
-	my $iter=$store->get_iter($path);
-	my $value=$store->get( $store->get_iter($path),2);
-	my $field=$store->get( $store->get_iter($path),3);
+	my @IDs; my $field;
+	
+	for (@paths)
+	{
+		my $iter=$store->get_iter($_);
+		my $ID=$store->get( $store->get_iter($_),2);
+		$field=$store->get( $store->get_iter($_),3);
+		push @IDs,$ID;
+	}
+
 	if ($event->button == 3)
 	{
+		::SetFilter($treeview, Songs::MakeFilterFromGID($field,$IDs[0]), 1);
+		return 1;
 		if ($field ne 'title'){
-			::PopupAAContextMenu({gid=>$value,self=>$treeview,field=>$field,mode=>'S'});
+			if (scalar@IDs == 1) {::PopupAAContextMenu({gid=>$IDs[0],self=>$treeview,field=>$field,mode=>'S'});}
+			else {
+				my @idlist;
+				for (@IDs) {push @idlist , @{AA::Get('idlist',$field,$_)};}
+				::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@idlist});
+			}
 		}
 		else {
-			::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => [$value]});
+			::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@IDs});
 		}
 	}
-	elsif (($event->button == 1) and ($event->type  eq '2button-press')) {
+	elsif (($event->button == 1) and ($event->type  eq '2button-press') and (scalar@IDs == 1)) {
 		if ($field ne 'title'){
-			my $aalist = AA::Get('idlist',$field,$value);
+			my $aalist = AA::Get('idlist',$field,$IDs[0]);
 			Songs::SortList($aalist,$::Options{Sort} || $::Options{Sort_LastOrdered});
-			::Select( filter => Songs::MakeFilterFromGID($field,$value)) if ($::Options{OPT.'FilterOnDblClick'});
+			::Select( filter => Songs::MakeFilterFromGID($field,$IDs[0])) if ($::Options{OPT.'FilterOnDblClick'});
 			::Select( song => $$aalist[0], play => 1);
 		}
-		else { ::Select(song => $value, play => 1);}
+		else { ::Select(song => $IDs[0], play => 1);}
 	}
+	else {return 0;}
 	
-	return 0;
+	return 1;
 }
 
 sub SongChanged 
