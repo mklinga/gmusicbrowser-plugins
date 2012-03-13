@@ -8,7 +8,6 @@
 
 # TODO:
 # - time-based stats (only for playcount?) 
-# - multiselect
 # - better overview (weekly/monthly playcounts, suggestion for album)
 #
 # BUGS:
@@ -38,7 +37,7 @@ use base 'Gtk2::Dialog';
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
-	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0);
+	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1);
 
 my %sites =
 (
@@ -67,8 +66,8 @@ my $statswidget =
 {	class		=> __PACKAGE__,
 	tabicon		=> 'plugin-historystats',
 	tabtitle	=> _"History/Stats",
-	schange		=> \&SongChanged,
-	group		=> 'Play',
+	#schange		=> \&SongChanged,
+	#group		=> 'Play',
 	autoadd_type	=> 'context page text',
 };
 
@@ -100,7 +99,6 @@ sub prefbox {
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Statistics "),Gtk2::Frame->new(" Overview "));
 	
 	#General
-	my $gCheck1 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing with double-click', tip => 'This option doesn\'t apply to single tracks');
 	
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
@@ -115,12 +113,14 @@ sub prefbox {
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
 	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
+	my $sCheck2 = ::NewPrefCheckButton(OPT.'SetFilterOnLeftClick','Show items selected with left-click');
+	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
 	
 	
 	my @vbox = ( 
-		::Vpack($gCheck1), 
+		::Vpack(), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($sCheck1,$sAmount), 
+		::Vpack($sCheck1,[$sCheck2,$sCheck3],$sAmount), 
 		::Vpack()
 	
 	);
@@ -243,8 +243,11 @@ sub new
 	$Svalue->set_sort_indicator(::FALSE);
 	$Streeview->append_column($Svalue);
 	$Streeview->set_rules_hint(1);
-	$Streeview->get_selection->set_mode('multiple');
-	$Streeview->signal_connect(button_press_event => \&STVContextPress);
+	my $Sselection = $Streeview->get_selection;
+	$Sselection->set_mode('multiple');
+	$Sselection->signal_connect(changed => \&STVChanged);
+	
+	#$Streeview->signal_connect(button_press_event => \&STVContextPress);
 	$Streeview->{store}=$Sstore;
 
 
@@ -653,10 +656,10 @@ sub STVContextPress
 	my ($treeview, $event) = @_;
 	return 0 unless $treeview;
 
-	my @paths = $treeview->get_selection->get_selected_rows;
-	return unless (scalar@paths);
-
 	my $store=$treeview->{store};
+	my @paths = $treeview->get_selection->get_selected_rows;
+
+	#return unless (scalar@paths);
 	my @IDs; my $field;
 	
 	for (@paths)
@@ -669,8 +672,6 @@ sub STVContextPress
 
 	if ($event->button == 3)
 	{
-		::SetFilter($treeview, Songs::MakeFilterFromGID($field,$IDs[0]), 1);
-		return 1;
 		if ($field ne 'title'){
 			if (scalar@IDs == 1) {::PopupAAContextMenu({gid=>$IDs[0],self=>$treeview,field=>$field,mode=>'S'});}
 			else {
@@ -692,7 +693,32 @@ sub STVContextPress
 		}
 		else { ::Select(song => $IDs[0], play => 1);}
 	}
-	else {return 0;}
+	else { return 0;}
+	
+	return 1;
+}
+
+sub STVChanged
+{
+	my $treeselection = shift;
+	my $treeview = $treeselection->get_tree_view;	
+	my $store=$treeview->{store};
+	my @paths = $treeview->get_selection->get_selected_rows;
+	
+	return unless (scalar@paths);
+	my @Filters; my $field;
+	
+	for (@paths)
+	{
+		my $iter=$store->get_iter($_);
+		my $GID=$store->get( $store->get_iter($_),2);
+		$field=$store->get( $store->get_iter($_),3);
+		next if ($field eq 'title');
+		push @Filters, Songs::MakeFilterFromGID($field,$GID);
+	}
+	
+	my $filt = Filter->newadd(0, @Filters);
+	::SetFilter($treeview,$filt,1);
 	
 	return 1;
 }
