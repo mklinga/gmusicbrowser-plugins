@@ -8,7 +8,6 @@
 
 # TODO:
 # - time-based stats (only for playcount?) 
-# - log history to file
 # - multiselect
 # - better overview
 #
@@ -39,7 +38,7 @@ use base 'Gtk2::Dialog';
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
-	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0);
+	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0);
 
 my %sites =
 (
@@ -73,7 +72,7 @@ my $statswidget =
 	autoadd_type	=> 'context page text',
 };
 
-my $HistoryFile = $::HomeDir.'playhistory_data';
+my $LogFile = $::HomeDir.'playhistory.log';
 my %AdditionalData; #holds additional playcounts, key is 'pt' + (last playcount of track), value is array
 my %HistoryHash = ( needupdate => 1);# last play of every track, key = 'pt'.Playtime
 my %sourcehash;
@@ -101,16 +100,17 @@ sub prefbox {
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Statistics "),Gtk2::Frame->new(" Overview "));
 	
 	#General
-	my $gCheck1 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Filter when playing with double-click', tip => 'This option doesn\'t apply to single tracks');
+	my $gCheck1 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing with double-click', tip => 'This option doesn\'t apply to single tracks');
 	
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
 	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter', cb => sub{ $HistoryHash{needupdate} = 1;});
+	my $hCheck3 = ::NewPrefCheckButton(OPT.'LogHistoryToFile','Log playhistory to file');
 	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "), cb => sub{  $HistoryHash{needupdate} = 1;});
 	my @historylimits = ('items','days');
 	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits, cb => sub{ $HistoryHash{needupdate} = 1;});
 	my $hEntry1 = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
-	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for songs: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
+	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -119,7 +119,7 @@ sub prefbox {
 	
 	my @vbox = ( 
 		::Vpack($gCheck1), 
-		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo],$hEntry1,$hEntry2), 
+		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
 		::Vpack($sCheck1,$sAmount), 
 		::Vpack()
 	
@@ -528,18 +528,6 @@ sub Updatehistory
 		
 	return 1;	
 }
-sub SaveHistory
-{
-	return 1; #until implemented properly
-	
-	return 'no datafile' unless defined $HistoryFile;
-
-	my $content = '';
-
-	open my $fh,'>',$HistoryFile or warn "Error opening '$HistoryFile' for writing : $!\n";
-	print $fh $content or warn "Error writing to '$HistoryFile' : $!\n";
-	close $fh;
-}
 
 sub CreateHistory
 {
@@ -549,7 +537,7 @@ sub CreateHistory
 		next unless ($pt);#we use playtime as hash key, so it must exist
 
 		$HistoryHash{'pt'.$pt}{ID} = $ID;
-		$HistoryHash{'pt'.$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %t');
+		$HistoryHash{'pt'.$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 	}
 
 	delete $HistoryHash{needrecreate} if ($HistoryHash{needrecreate});
@@ -713,12 +701,28 @@ sub AddToHistory
 	$lastAdded{playtime} = $playtime;
 	
 	$HistoryHash{'pt'.$playtime}{ID} = $ID;
-	$HistoryHash{'pt'.$playtime}{label} = join " - ", Songs::Get($ID,qw/artist album title/);
+	$HistoryHash{'pt'.$playtime}{label} = join " - ", ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 
 	$self->{needsupdate} = ($self->{site} eq 'history')? 1 : 0;
 	UpdateSite($self,'history');
+
+	LogHistory($ID,$playtime) if ($::Options{OPT.'LogHistoryToFile'});
 	
 	return 1;
+}
+
+sub LogHistory
+{
+	my ($ID,$playtime) = @_;
+	return unless (($ID) and ($playtime));
+	
+	my $content = FormatRealtime($playtime)."\t".::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
+		
+	open my $fh,'>>',$LogFile or warn "Error opening '$LogFile' for writing : $!\n";
+	print $fh $content   or warn "Error writing to '$LogFile' : $!\n";
+	close $fh;
+
+	return 1;	
 }
 
 
