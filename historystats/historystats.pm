@@ -39,7 +39,8 @@ use base 'Gtk2::Dialog';
 
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
-	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S');
+	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
+	FilterOnDblClick => 0);
 
 my %sites =
 (
@@ -100,8 +101,11 @@ sub prefbox {
 	
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Statistics "),Gtk2::Frame->new(" Overview "));
 	
+	#General
+	my $gCheck1 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Filter when playing with double-click', tip => 'This option doesn\'t apply to single tracks');
+	
 	# History
-	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', toolitem => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
+	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
 	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter', cb => sub{ $HistoryHash{needupdate} = 1;});
 	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "), cb => sub{  $HistoryHash{needupdate} = 1;});
 	my @historylimits = ('items','days');
@@ -114,7 +118,7 @@ sub prefbox {
 	
 	
 	my @vbox = ( 
-		::Vpack(), 
+		::Vpack($gCheck1), 
 		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo],$hEntry), 
 		::Vpack($sCheck1,$sAmount), 
 		::Vpack()
@@ -634,6 +638,9 @@ sub HTVContext
 	elsif ($event->button == 3) {
 		::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => [$ID]});			
 	}
+	elsif (($event->button == 1) and ($event->type  eq '2button-press')) {
+		::Select(song => $ID, play => 1);
+	}
 	
 	return 0;
 }
@@ -657,6 +664,16 @@ sub STVContextPress
 			::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => [$value]});
 		}
 	}
+	elsif (($event->button == 1) and ($event->type  eq '2button-press')) {
+		if ($field ne 'title'){
+			my $aalist = AA::Get('idlist',$field,$value);
+			Songs::SortList($aalist,$::Options{Sort} || $::Options{Sort_LastOrdered});
+			::Select( filter => Songs::MakeFilterFromGID($field,$value)) if ($::Options{OPT.'FilterOnDblClick'});
+			::Select( song => $$aalist[0], play => 1);
+		}
+		else { ::Select(song => $value, play => 1);}
+	}
+	
 	return 0;
 }
 
