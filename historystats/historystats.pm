@@ -10,8 +10,7 @@
 # - time-based stats (only for playcount?) 
 # - log history to file
 # - multiselect
-# - let user select the fields for 'overview'??
-# - let user custom historysite: both timeformat & title should be easy to give for custom
+# - better overview
 #
 # BUGS:
 #
@@ -40,7 +39,7 @@ use base 'Gtk2::Dialog';
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
-	FilterOnDblClick => 0);
+	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0);
 
 my %sites =
 (
@@ -110,7 +109,8 @@ sub prefbox {
 	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "), cb => sub{  $HistoryHash{needupdate} = 1;});
 	my @historylimits = ('items','days');
 	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits, cb => sub{ $HistoryHash{needupdate} = 1;});
-	my $hEntry = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
+	my $hEntry1 = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
+	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for songs: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -119,7 +119,7 @@ sub prefbox {
 	
 	my @vbox = ( 
 		::Vpack($gCheck1), 
-		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo],$hEntry), 
+		::Vpack([$hCheck1,$hCheck2],[$hAmount,$hCombo],$hEntry1,$hEntry2), 
 		::Vpack($sCheck1,$sAmount), 
 		::Vpack()
 	
@@ -495,7 +495,7 @@ sub Updatehistory
 		delete $HistoryHash{needupdate};
 	}
 
-	CreateHistory() if (!scalar keys %HistoryHash);
+	CreateHistory() if ((!scalar keys %HistoryHash) or ($HistoryHash{needrecreate}));
 
 	my $amount; my $lasttime = 0;
 	if ($::Options{OPT.'HistoryLimitMode'} eq 'days') {
@@ -549,8 +549,10 @@ sub CreateHistory
 		next unless ($pt);#we use playtime as hash key, so it must exist
 
 		$HistoryHash{'pt'.$pt}{ID} = $ID;
-		$HistoryHash{'pt'.$pt}{label} = join " - ", Songs::Get($ID,qw/artist album title/);
+		$HistoryHash{'pt'.$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %t');
 	}
+
+	delete $HistoryHash{needrecreate} if ($HistoryHash{needrecreate});
 
 	return 1;
 }
