@@ -7,8 +7,10 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - time-based stats (only for playcount?) 
-# - better overview (weekly/monthly playcounts, suggestion for album)
+# - time-based (as in weekly/monthly etc.) stats (only for playcount?) 
+# - better overview (weekly/monthly playcounts, suggestion for album?)
+# - Weekly topNN! Show place or (-) from last week next to item
+# - playtime-sorting
 #
 # BUGS:
 #
@@ -37,7 +39,8 @@ use base 'Gtk2::Dialog';
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
-	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1);
+	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
+	PerAlbumInsteadOfTrack => 0);
 
 my %sites =
 (
@@ -115,12 +118,13 @@ sub prefbox {
 	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
 	my $sCheck2 = ::NewPrefCheckButton(OPT.'SetFilterOnLeftClick','Show items selected with left-click');
 	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
+	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
 	
 	
 	my @vbox = ( 
 		::Vpack(), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($sCheck1,[$sCheck2,$sCheck3],$sAmount), 
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],$sAmount), 
 		::Vpack()
 	
 	);
@@ -382,9 +386,7 @@ sub Updatestatistics
 	my $suffix = $SortTypes{$sorttype}->{suffix};
 	$field = $StatTypes{$field}->{field};
 	$sorttype = $SortTypes{$sorttype}->{typecode};
-
 	my $source = (defined $::SelectedFilter)? $::SelectedFilter->filter : $::Library;
-	
 	my @list; my $dh;
 
 	$self->{sstore}->clear;
@@ -392,7 +394,22 @@ sub Updatestatistics
 	if ($field ne 'title')
 	{
 		my $href = Songs::BuildHash($field,$source,'gid');
-		($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);
+
+		#calculate album-based stats if so wanted
+		if (($field ne 'album') and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average'))
+		{
+			($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
+			my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
+			for my $gid (keys %$dh) {
+				my $albums = AA::Get('album:gid',$field,$gid);
+				next unless (scalar@$albums);
+				$$dh{$gid} = 0;
+				$$dh{$gid} += $$ah{$_} for (@$albums);
+				$$dh{$gid} /= scalar@$albums;
+			}
+		}
+		else { ($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix); }
+		
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
 		for (0..$#list)
