@@ -62,8 +62,7 @@ my %SortTypes = (
  playcount => { label => 'Playcount (Average)', typecode => 'playcount', suffix => ':average'}, 
  playcount_total => { label => 'Playcount (Total)', typecode => 'playcount', suffix => ':sum'}, 
  rating => { label => 'Rating', typecode => 'rating', suffix => ':average'},
- timecount => { label => 'Playtime (Average)', typecode => 'playedlength', suffix => ':average'}, 
- timecount_total => { label => 'Playtime (Total)', typecode => 'playedlength', suffix => ':sum'}, 
+ timecount_total => { label => 'Time played', typecode => 'playedlength', suffix => ':sum'}, 
 );
 
 my $statswidget =
@@ -140,24 +139,80 @@ sub new
 {
 	my ($class,$options)=@_;
 	my $self = bless Gtk2::VBox->new(0,0), $class;
+	my $group= $options->{group};
 	my $fontsize=$self->style->font_desc;
 	$self->{fontsize} = $fontsize->get_size / Gtk2::Pango->scale;
 	$self->{site} = 'history';
-	my $group= $options->{group};
-
-	## Textview for 'overview'-page
-	my $textview=Gtk2::TextView->new;
 	$self->signal_connect(map => \&SongChanged);
-	$textview->set_cursor_visible(0);
-	$textview->set_wrap_mode('word');
-	$textview->set_pixels_above_lines(2);
-	$textview->set_editable(0);
-	$textview->set_left_margin(5);
-	$textview->set_has_tooltip(0);
-	$textview->signal_connect(button_press_event	=> \&ButtonReleaseCb);
-	$textview->signal_connect(motion_notify_event 	=> \&UpdateCursorCb);
-	$textview->signal_connect(visibility_notify_event=>\&UpdateCursorCb);
+
+	my ($Htreeview, $Hstore) = CreateHistorySite($self);
+	my ($Ovbox,$Olabel,@Oimgs) = CreateOverviewSite($self,$options);	
+	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels) = CreateStatisticsSite($self);
+	my $toolbar = CreateToolbar($self,$options);
+
+	$self->{hstore}=$Hstore;
+	$self->{sstore}=$Sstore;
+	$self->{butinvert} = $Sinvert;
+	$self->{stattypecombo} = $combos[1];
+	$self->{Ovbox} = $Ovbox;
+	@{$self->{img}} = @Oimgs;
+
+	my $infobox = Gtk2::HBox->new; 	$infobox->set_spacing(0);
+	my $site_history=Gtk2::ScrolledWindow->new;
+	my $sh = Gtk2::ScrolledWindow->new;
+	my $site_overview = $Ovbox;
+
+	$site_history->add($Htreeview); 
+	$sh->add($Streeview);
+	$sh->set_shadow_type('none');
+	$sh->set_policy('automatic','automatic');
+
+	my $site_statistics = Gtk2::VBox->new(); 
+	$site_statistics->pack_start($stat_hbox1,0,0,0);
+	$site_statistics->pack_start($sh,1,1,0);
+
+	$site_history->set_shadow_type('none');
+	$site_history->set_policy('automatic','automatic');
+	$infobox->pack_start($site_history,1,1,0);
+	$infobox->pack_start($site_overview,1,1,0);
+	$infobox->pack_start($site_statistics,1,1,0);
+
+	#show everything from hidden pages
+	$Streeview->show; $stat_hbox1->show; $sh->show;
+	$_->show for (@combos); $_->show for (@labels);
+	$Sinvert->show; $iw->show;
+	$Olabel->show; $_->show for (@Oimgs);
 	
+	#starting site is always 'history'
+	$site_overview->set_no_show_all(1);
+	$site_statistics->set_no_show_all(1);
+
+	$self->{site_overview} = $site_overview; 
+	$self->{site_history} = $site_history; 
+	$self->{site_statistics} = $site_statistics;
+
+	$self->pack_start($toolbar,0,0,0);
+	$self->pack_start($infobox,1,1,0);
+	
+	$self->{needsupdate} = 1;
+
+	$self->signal_connect(destroy => \&DestroyCb);
+	::Watch($self, PlayingSong => \&SongChanged);
+	::Watch($self, Played => \&SongPlayed);
+	::Watch($self, Filter => sub 
+		{
+			my $force;
+			$force = 1 unless (($self->{site} eq 'history') and (!$::Options{OPT.'UseHistoryFilter'}));
+			SongChanged($self,$force);
+			$HistoryHash{needupdate} = 1;
+		});
+	
+	UpdateSite($self,$self->{site});
+	return $self;
+}
+
+sub CreateHistorySite
+{
 	## TreeView for history
 	my $Hstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt');
 	my $Htreeview=Gtk2::TreeView->new($Hstore);
@@ -177,6 +232,32 @@ sub new
 	$Htreeview->set_rules_hint(1);
 	$Htreeview->signal_connect(button_press_event => \&HTVContext);
 	$Htreeview->{store}=$Hstore;
+
+	return ($Htreeview,$Hstore);	
+}
+
+sub CreateOverviewSite
+{
+	my ($self,$options) = @_;
+	my $vbox = Gtk2::VBox->new;
+		
+	my @img;
+	push @img, Layout::NewWidget("Cover", {group=>$options->{group}, forceratio=>1, maxsize=>128, xalign=>0,}) for (0..2);
+	my $label = Gtk2::Label->new('This is important.');
+	
+	$vbox->pack_start($label,0,0,0);
+	
+	my $hb = Gtk2::HBox->new;
+	$hb->pack_start($_,1,0,0) for (@img);
+	$hb->show;
+	
+	$vbox->pack_start($hb,1,1,0);
+	
+	return ($vbox,$label,@img);
+}
+sub CreateStatisticsSite
+{
+	my $self = shift;
 	
 	## Treeview and little else for statistics
 	my $stat_hbox1 = Gtk2::HBox->new;
@@ -255,7 +336,14 @@ sub new
 	
 	$Streeview->signal_connect(button_press_event => \&STVContextPress);
 	$Streeview->{store}=$Sstore;
+	
+	return ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels);	
+}
 
+sub CreateToolbar
+{
+	my ($self,$options) = @_;
+	
 	## Toolbar buttons on top of widget
 	my $toolbar=Gtk2::Toolbar->new;
 	$toolbar->set_style( $options->{ToolbarStyle}||'both-horiz' );
@@ -269,7 +357,7 @@ sub new
 		$item -> set_relief("none");
 		$item -> set_tooltip_text($sites{$key}[2]);
 		$item->set_active( $key eq $self->{site} );
-		$item->signal_connect(toggled => sub { my $self=::find_ancestor($_[0],__PACKAGE__); ToggleCb($self,$item,$textview); } );
+		$item->signal_connect(toggled => sub { my $self=::find_ancestor($_[0],__PACKAGE__); ToggleCb($self,$item); } );
 		$radiogroup = $item -> get_group;
 		my $toolitem=Gtk2::ToolItem->new;
 		$toolitem->add( $item );
@@ -277,70 +365,8 @@ sub new
 		$toolbar->insert($toolitem,-1);
 
 	}
-
-	$self->{buffer}=$textview->get_buffer;
-	$self->{hstore}=$Hstore;
-	$self->{sstore}=$Sstore;
-	$self->{butinvert} = $Sinvert;
-	$self->{stattypecombo} = $combos[1];
-
-	my $infobox = Gtk2::HBox->new;
-	$infobox->set_spacing(0);
 	
-	my $site_overview=Gtk2::ScrolledWindow->new; 
-	my $site_history=Gtk2::ScrolledWindow->new;
-	my $sh = Gtk2::ScrolledWindow->new;
-
-	$site_overview->add($textview); 
-	$site_history->add($Htreeview); 
-	$sh->add($Streeview);
-	$sh->set_shadow_type('none');
-	$sh->set_policy('automatic','automatic');
-
-	my $site_statistics = Gtk2::VBox->new(); 
-	$site_statistics->pack_start($stat_hbox1,0,0,0);
-	$site_statistics->pack_start($sh,1,1,0);
-
-	for ($site_history,$site_overview) {
-		$_->set_shadow_type('none');
-		$_->set_policy('automatic','automatic');
-		$infobox->pack_start($_,1,1,0);
-	}
-	$infobox->pack_start($site_statistics,1,1,0);
-
-	#show everything from hidden pages
-	$textview->show; $Streeview->show;
-	$stat_hbox1->show; $sh->show;
-	$_->show for (@combos);
-	$_->show for (@labels);
-	$Sinvert->show; $iw->show;
-	
-	#starting site is always 'history'
-	$site_overview->set_no_show_all(1);
-	$site_statistics->set_no_show_all(1);
-
-	$self->{site_overview} = $site_overview; 
-	$self->{site_history} = $site_history; 
-	$self->{site_statistics} = $site_statistics;
-
-	$self->pack_start($toolbar,0,0,0);
-	$self->pack_start($infobox,1,1,0);
-	
-	$self->{needsupdate} = 1;
-
-	$self->signal_connect(destroy => \&DestroyCb);
-	::Watch($self, PlayingSong => \&SongChanged);
-	::Watch($self, Played => \&SongPlayed);
-	::Watch($self, Filter => sub 
-		{
-			my $force;
-			$force = 1 unless (($self->{site} eq 'history') and (!$::Options{OPT.'UseHistoryFilter'}));
-			SongChanged($self,$force);
-			$HistoryHash{needupdate} = 1;
-		});
-	
-	UpdateSite($self,$self->{site});
-	return $self;
+	return $toolbar;
 }
 
 sub DestroyCb
@@ -350,7 +376,7 @@ sub DestroyCb
 
 sub ToggleCb
 {	
-	my ($self, $togglebutton,$textview) = @_;
+	my ($self, $togglebutton) = @_;
 	return unless ($self->{site} ne $togglebutton->{key});
 
 	$self->{needsupdate} = 1;
@@ -445,69 +471,14 @@ sub Updatestatistics
 sub Updateoverview
 {
 	my $self = shift;
-	my $buffer = $self->{buffer};
-	my $fontsize = $self->{fontsize};
-		
-	$buffer->delete($buffer->get_bounds);
-	my $iter=$buffer->get_start_iter;
-
-	my $totalplaytime = undef;
-	$totalplaytime = FormatSmalltime($globalstats{playtime}) if ($globalstats{playtime});
+warn scalar@{$self->{img}};	
+	$_->set(3) for (@{$self->{img}});
 	
-	my $ago = (time-$globalstats{starttime})/86400;
+	my $h=$self->size_request->height;
+	my $w=$self->size_request->width;
+warn $w.' - '.$h;	
 
-	my $text = "Statistics started at ".FormatRealtime($globalstats{starttime})." (".(int(0.5+(10*$ago))/10)." days ago)\n";
-	if ($ago)
-	{
-		$text .= "Since then you have played ".$globalstats{playtrack}." tracks";
-		$text .= " in ".$totalplaytime if (defined $totalplaytime);
-		$text .= "\nThat's about ".int(0.5+($globalstats{playtrack}/$ago))." tracks per day";
-		$text .= "\n\nYou have listened music for ".int(0.5+(($globalstats{playtime}*100)/(time-$globalstats{starttime})))."% of time";
-		$text .= "\n\n";
-
-		$buffer->insert($iter,$text);
-	}
-
-	my $top=4; 
-	my $tag_header = $buffer->create_tag(undef,justification=>'left',font=>$fontsize+1,weight=>Gtk2::Pango::PANGO_WEIGHT_BOLD);
-
-	for my $field (qw/genre artists album/)
-	{
-		$iter=$buffer->get_end_iter;	
-		my $suffix = ($field eq 'album')? 'average' : 'sum';
-		my ($plays)= Songs::BuildHash($field, $::Library, undef, 'playcount:'.$suffix);
-		$top = (keys %$plays) if ($top > (keys %$plays));
-		$text = ($field =~ /s$/)? "Top ".$field : "Top ".$field."s";	
-		$buffer->insert_with_tags($iter,$text,$tag_header);
-		my $i=0;
-		for ((sort { $plays->{$b} <=> $plays->{$a} } keys %$plays)[0..$top-1])
-		{
-			$i++; my $arti='';
-			if ($field eq 'album'){
-				my $ag = AA::Get('album_artist:gid','album',$_); 
-				$arti = " (".Songs::Gid_to_Display('album_artist',$$ag[0]).")";
-			}
-			my $tag_item = $buffer->create_tag(undef,font=>$fontsize);
-			$tag_item->{gid} = $_;
-			$tag_item->{field} = $field;
-			$buffer->insert($iter,"\n".$i.".  ");
-			$buffer->insert_with_tags($iter,Songs::Gid_to_Display($field,$_).$arti,$tag_item);
-		}
-		$buffer->insert($iter,"\n\n");
-	}
-
-	# then top titles
-	$buffer->insert_with_tags($iter,"Top tracks",$tag_header);
-	my $list = $::Library;
-	Songs::SortList($list,'-playcount');
-	for (0..($top-1))
-	{
-		my $tag_item = $buffer->create_tag(undef,font=>$fontsize);
-		$tag_item->{gid} = $$list[$_];
-		$tag_item->{field} = 'title';
-		$buffer->insert_with_tags($iter,"\n".($_+1).".  ".(join " (", Songs::Get($$list[$_],qw/title artist/)).")",$tag_item);
-	}	
-
+	
 	return 1;
 }
 
