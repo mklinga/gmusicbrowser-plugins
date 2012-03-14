@@ -62,8 +62,8 @@ my %SortTypes = (
  playcount => { label => 'Playcount (Average)', typecode => 'playcount', suffix => ':average'}, 
  playcount_total => { label => 'Playcount (Total)', typecode => 'playcount', suffix => ':sum'}, 
  rating => { label => 'Rating', typecode => 'rating', suffix => ':average'},
- timecount => { label => 'Playtime (Average)', typecode => 'playtime', suffix => ':average'}, 
- timecount_total => { label => 'Playtime (Total)', typecode => 'playtime', suffix => ':sum'}, 
+ timecount => { label => 'Playtime (Average)', typecode => 'playedlength', suffix => ':average'}, 
+ timecount_total => { label => 'Playtime (Total)', typecode => 'playedlength', suffix => ':sum'}, 
 );
 
 my $statswidget =
@@ -242,8 +242,8 @@ sub new
 		$cell->set( text => $raw ); 
 	}, undef);
 	$Svalue->set_sort_column_id(1);
-	$Svalue->set_resizable(1);
 	$Svalue->set_alignment(0);
+	$Svalue->set_resizable(1);
 	$Svalue->set_min_width(10);
 	$Svalue->set_clickable(::FALSE);
 	$Svalue->set_sort_indicator(::FALSE);
@@ -253,9 +253,8 @@ sub new
 	$Sselection->set_mode('multiple');
 	$Sselection->signal_connect(changed => \&STVChanged);
 	
-	#$Streeview->signal_connect(button_press_event => \&STVContextPress);
+	$Streeview->signal_connect(button_press_event => \&STVContextPress);
 	$Streeview->{store}=$Sstore;
-
 
 	## Toolbar buttons on top of widget
 	my $toolbar=Gtk2::Toolbar->new;
@@ -398,8 +397,6 @@ sub Updatestatistics
 	{
 		my $href = Songs::BuildHash($field,$source,'gid');
 
-		if ($sorttype =~ /playtime/) { $sorttype = 'playcount'; $dotime = 1; }
-
 		#calculate album-based stats if so wanted
 		if (($field ne 'album') and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average'))
 		{
@@ -415,72 +412,29 @@ sub Updatestatistics
 		}
 		else { ($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix); }
 
-		#calculation of playtime here
-		if ($dotime)
-		{
-			my $th;
-			if ($::Options{OPT.'TimeCountMode'} eq 'fast') {
-				($th) = Songs::BuildHash($field, $source, undef, 'length:average');
-				$$dh{$_} = $$dh{$_}*$$th{$_} for (keys %$dh);
-			}
-			else
-			{
-				my %sch; 
-				Songs::SortList($source,'-playcount');
-				for (0..$#$source) { 
-					my ($l,$c) = Songs::Get($$source[$_],'length','playcount'); 
-					$sch{$$source[$_]} = $l*$c;
-					last unless ($c); #songs are sorted by playcount, so when we reach first 'zero' we may quit
-				}
-				
-				my $IDs = Songs::BuildHash($field,$source,undef,'idlist'); 
-				for my $gid (keys %$dh)
-				{
-					$$dh{$gid} = 0;
-					for my $ID (@{$$IDs{$gid}}) { $$dh{$gid} += ($sch{$ID} || 0); }
-					if ($suffix =~ /average/) { $$dh{$gid} /= scalar@{$$IDs{$gid}}; }
-				}
-			}
-		}
-		
+
 		#we got values, send 'em up!
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
 		for (0..$#list)
 		{
 			my $value;
-			if ($dotime) { $value = FormatSmalltime($dh->{$list[$_]});}
+			if ($sorttype eq 'playedlength') { $value = FormatSmalltime($dh->{$list[$_]});}
 			else {$value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
 			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
 		}
 	}
 	else
 	{
-		if ($sorttype !~ /playtime/) {Songs::SortList($source,'-'.$sorttype); @list = @$source;}
-		else { 
-			my %sch; 
-			Songs::SortList($source,'-playcount');
-			for (0..$#$source) { 
-				my ($l,$c) = Songs::Get($$source[$_],'length','playcount'); 
-				$sch{$$source[$_]} = $l*$c;
-				last unless ($c); #songs are sorted by playcount, so when we reach first 'zero' we may quit
-			}
-			@list = sort { ($sch{$b} || 0) <=> ($sch{$a} || 0) } @$source; 
-		}
+		Songs::SortList($source,'-'.$sorttype); @list = @$source;
 		if ($self->{butinvert}->get_active) { @list = reverse @list;}
 		
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? $::Options{OPT.'AmountOfStatItems'} : (scalar@list);
 		for (0..($max-1))
 		{
-			my $title; my $value; my $le;
-			if ($sorttype !~ /playtime/) {
-				($title,$value) = Songs::Get($list[$_],'title',$sorttype);
-				$value = sprintf ("%.3f", $value);
-			}
-			else {
-				($title,$value,$le) = Songs::Get($list[$_],'title','playcount','length'); 
-				$value = FormatSmalltime($le*$value);
-			}
+			my ($title,$value) = Songs::Get($list[$_],'title',$sorttype);
+			if ($sorttype !~ /playedlength/) { $value = sprintf ("%.3f", $value);}
+			else {$value = FormatSmalltime($value);}
 			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc($title),1, $value,2,$list[$_],3,$field);
 		}
 	}
@@ -738,7 +692,7 @@ sub STVContextPress
 	my $store=$treeview->{store};
 	my @paths = $treeview->get_selection->get_selected_rows;
 
-	#return unless (scalar@paths);
+	return unless (scalar@paths);
 	my @IDs; my $field;
 	
 	for (@paths)
