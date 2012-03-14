@@ -10,7 +10,6 @@
 # - time-based (as in weekly/monthly etc.) stats (only for playcount) 
 # - better overview (weekly/monthly playcounts, suggestion for album?)
 # - Weekly topNN! Show place or (-) from last week next to item
-# - exact timemodeCalc
 #
 # BUGS:
 #
@@ -121,7 +120,7 @@ sub prefbox {
 	my $sCheck2 = ::NewPrefCheckButton(OPT.'SetFilterOnLeftClick','Show items selected with left-click');
 	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
 	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
-	my @timecountmodes = ('fast');#('fast','exact');
+	my @timecountmodes = ('fast','exact');
 	my $sCombo = ::NewPrefCombo(OPT.'TimeCountMode',\@timecountmodes, text => 'Calculationmode: ');
 	
 	my @vbox = ( 
@@ -424,9 +423,22 @@ sub Updatestatistics
 				($th) = Songs::BuildHash($field, $source, undef, 'length:average');
 				$$dh{$_} = $$dh{$_}*$$th{$_} for (keys %$dh);
 			}
-			else {
-				for my $gid (keys %$dh){
-					
+			else
+			{
+				my %sch; 
+				Songs::SortList($source,'-playcount');
+				for (0..$#$source) { 
+					my ($l,$c) = Songs::Get($$source[$_],'length','playcount'); 
+					$sch{$$source[$_]} = $l*$c;
+					last unless ($c); #songs are sorted by playcount, so when we reach first 'zero' we may quit
+				}
+				
+				my $IDs = Songs::BuildHash($field,$source,undef,'idlist'); 
+				for my $gid (keys %$dh)
+				{
+					$$dh{$gid} = 0;
+					for my $ID (@{$$IDs{$gid}}) { $$dh{$gid} += ($sch{$ID} || 0); }
+					if ($suffix =~ /average/) { $$dh{$gid} /= scalar@{$$IDs{$gid}}; }
 				}
 			}
 		}
@@ -444,8 +456,18 @@ sub Updatestatistics
 	}
 	else
 	{
-		if ($sorttype !~ /playtime/) {Songs::SortList($source,$sorttype); @list = ($self->{butinvert}->get_active)? @$source : reverse @$source;}
-		else { @list = sort { (Songs::Get($b,'length')*Songs::Get($b,'playcount')) <=> (Songs::Get($a,'length')*Songs::Get($a,'playcount')) } @$source; if ($self->{butinvert}->get_active) { @list = reverse @list;}}
+		if ($sorttype !~ /playtime/) {Songs::SortList($source,'-'.$sorttype); @list = @$source;}
+		else { 
+			my %sch; 
+			Songs::SortList($source,'-playcount');
+			for (0..$#$source) { 
+				my ($l,$c) = Songs::Get($$source[$_],'length','playcount'); 
+				$sch{$$source[$_]} = $l*$c;
+				last unless ($c); #songs are sorted by playcount, so when we reach first 'zero' we may quit
+			}
+			@list = sort { ($sch{$b} || 0) <=> ($sch{$a} || 0) } @$source; 
+		}
+		if ($self->{butinvert}->get_active) { @list = reverse @list;}
 		
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? $::Options{OPT.'AmountOfStatItems'} : (scalar@list);
 		for (0..($max-1))
