@@ -7,10 +7,10 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - time-based (as in weekly/monthly etc.) stats (only for playcount?) 
+# - time-based (as in weekly/monthly etc.) stats (only for playcount) 
 # - better overview (weekly/monthly playcounts, suggestion for album?)
 # - Weekly topNN! Show place or (-) from last week next to item
-# - playtime-sorting
+# - exact timemodeCalc
 #
 # BUGS:
 #
@@ -40,7 +40,7 @@ use base 'Gtk2::Dialog';
 	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
-	PerAlbumInsteadOfTrack => 0);
+	PerAlbumInsteadOfTrack => 0, TimeCountMode => 'fast');
 
 my %sites =
 (
@@ -62,7 +62,9 @@ my %StatTypes = (
 my %SortTypes = (
  playcount => { label => 'Playcount (Average)', typecode => 'playcount', suffix => ':average'}, 
  playcount_total => { label => 'Playcount (Total)', typecode => 'playcount', suffix => ':sum'}, 
- rating => { label => 'Rating', typecode => 'rating', suffix => ':average'}, 
+ rating => { label => 'Rating', typecode => 'rating', suffix => ':average'},
+ timecount => { label => 'Playtime (Average)', typecode => 'playtime', suffix => ':average'}, 
+ timecount_total => { label => 'Playtime (Total)', typecode => 'playtime', suffix => ':sum'}, 
 );
 
 my $statswidget =
@@ -119,12 +121,13 @@ sub prefbox {
 	my $sCheck2 = ::NewPrefCheckButton(OPT.'SetFilterOnLeftClick','Show items selected with left-click');
 	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
 	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
-	
+	my @timecountmodes = ('fast');#('fast','exact');
+	my $sCombo = ::NewPrefCombo(OPT.'TimeCountMode',\@timecountmodes, text => 'Calculationmode: ');
 	
 	my @vbox = ( 
 		::Vpack(), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],$sAmount), 
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],$sAmount,[$sCombo]), 
 		::Vpack()
 	
 	);
@@ -218,7 +221,7 @@ sub new
 			else { $arti = Songs::Get($gid,'artist'); }
 			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}
 			$arti = ::PangoEsc($arti);  
-			$raw = $num.$raw.'<small>  by  '.$arti.'</small>;';
+			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
 		}
 
 		$cell->set( markup => $raw ); 
@@ -281,6 +284,7 @@ sub new
 	$self->{hstore}=$Hstore;
 	$self->{sstore}=$Sstore;
 	$self->{butinvert} = $Sinvert;
+	$self->{stattypecombo} = $combos[1];
 
 	my $infobox = Gtk2::HBox->new;
 	$infobox->set_spacing(0);
@@ -387,13 +391,15 @@ sub Updatestatistics
 	$field = $StatTypes{$field}->{field};
 	$sorttype = $SortTypes{$sorttype}->{typecode};
 	my $source = (defined $::SelectedFilter)? $::SelectedFilter->filter : $::Library;
-	my @list; my $dh;
+	my @list; my $dh; my $dotime;
 
 	$self->{sstore}->clear;
 	
 	if ($field ne 'title')
 	{
 		my $href = Songs::BuildHash($field,$source,'gid');
+
+		if ($sorttype =~ /playtime/) { $sorttype = 'playcount'; $dotime = 1; }
 
 		#calculate album-based stats if so wanted
 		if (($field ne 'album') and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average'))
@@ -409,24 +415,51 @@ sub Updatestatistics
 			}
 		}
 		else { ($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix); }
+
+		#calculation of playtime here
+		if ($dotime)
+		{
+			my $th;
+			if ($::Options{OPT.'TimeCountMode'} eq 'fast') {
+				($th) = Songs::BuildHash($field, $source, undef, 'length:average');
+				$$dh{$_} = $$dh{$_}*$$th{$_} for (keys %$dh);
+			}
+			else {
+				for my $gid (keys %$dh){
+					
+				}
+			}
+		}
 		
+		#we got values, send 'em up!
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
 		for (0..$#list)
 		{
-			my $value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};
+			my $value;
+			if ($dotime) { $value = FormatSmalltime($dh->{$list[$_]});}
+			else {$value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
 			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
 		}
 	}
 	else
 	{
-		Songs::SortList($source,$sorttype);
-		@list = ($self->{butinvert}->get_active)? @$source : reverse @$source;
+		if ($sorttype !~ /playtime/) {Songs::SortList($source,$sorttype); @list = ($self->{butinvert}->get_active)? @$source : reverse @$source;}
+		else { @list = sort { (Songs::Get($b,'length')*Songs::Get($b,'playcount')) <=> (Songs::Get($a,'length')*Songs::Get($a,'playcount')) } @$source; if ($self->{butinvert}->get_active) { @list = reverse @list;}}
+		
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? $::Options{OPT.'AmountOfStatItems'} : (scalar@list);
 		for (0..($max-1))
 		{
-			my ($title,$value) = Songs::Get($list[$_],'title',$sorttype);
-			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".$title,1, sprintf ("%.3f", $value),2,$list[$_],3,$field);
+			my $title; my $value; my $le;
+			if ($sorttype !~ /playtime/) {
+				($title,$value) = Songs::Get($list[$_],'title',$sorttype);
+				$value = sprintf ("%.3f", $value);
+			}
+			else {
+				($title,$value,$le) = Songs::Get($list[$_],'title','playcount','length'); 
+				$value = FormatSmalltime($le*$value);
+			}
+			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc($title),1, $value,2,$list[$_],3,$field);
 		}
 	}
 
@@ -443,12 +476,8 @@ sub Updateoverview
 	my $iter=$buffer->get_start_iter;
 
 	my $totalplaytime = undef;
-	if ($globalstats{playtime})	{
-			$totalplaytime = ($globalstats{playtime} > 86400)? 
-				int($globalstats{playtime}/86400).'d '.int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).'min '.int($globalstats{playtime}%60).'s' 
-				: int(($globalstats{playtime}%86400)/3600).'h '.int(($globalstats{playtime}%3600)/60).'min '.int($globalstats{playtime}%60).'s';
-	}
-
+	$totalplaytime = FormatSmalltime($globalstats{playtime}) if ($globalstats{playtime});
+	
 	my $ago = (time-$globalstats{starttime})/86400;
 
 	my $text = "Statistics started at ".FormatRealtime($globalstats{starttime})." (".(int(0.5+(10*$ago))/10)." days ago)\n";
@@ -568,6 +597,20 @@ sub CreateHistory
 	return 1;
 }
 
+sub FormatSmalltime
+{
+	my $sec = shift;
+
+	my $result = '';
+	
+	if ($sec > 31536000) { $result .= int($sec/31536000).'y '; $sec = $sec%31536000;}
+	if ($sec > 2592000) { $result .= int($sec/2592000).'m '; $sec = $sec%2592000;}
+	if ($sec > 604800) { $result .= int($sec/604800).'wk '; $sec = $sec%604800;}
+	if ($sec > 86400) { $result .= int($sec/86400).'d '; $sec = $sec%86400;}
+	$result .= sprintf("%02d",int(($sec%86400)/3600)).':'.sprintf("%02d",int(($sec%3600)/60)).':'.sprintf("%02d",int($sec%60));
+
+	return $result;
+}
 sub FormatRealtime
 {
 	my $realtime = shift;
@@ -586,13 +629,10 @@ sub FormatRealtime
 	{
 		$formatted = $::Options{OPT.'HistoryTimeFormat'};
 		$formatted =~ s/\%[^dmyHhMSp]//g;
-		while ($formatted =~ /\%(\S)/)
-		{
-			$formatted =~ s/\%d/$day/; $formatted =~ s/\%m/$month/;	
-			$formatted =~ s/\%y/$year/;	$formatted =~ s/\%H/$hour/;	
-			$formatted =~ s/\%h/$h12/; $formatted =~ s/\%M/$min/;	
-			$formatted =~ s/\%S/$sec/; $formatted =~ s/\%p/$ind/;	
-		}		
+		$formatted =~ s/\%d/$day/g; $formatted =~ s/\%m/$month/g;	
+		$formatted =~ s/\%y/$year/g;	$formatted =~ s/\%H/$hour/g;	
+		$formatted =~ s/\%h/$h12/g; $formatted =~ s/\%M/$min/g;	
+		$formatted =~ s/\%S/$sec/g; $formatted =~ s/\%p/$ind/g;	
 	}
 	else {$formatted = "".localtime($realtime);}
 
@@ -797,6 +837,5 @@ sub LogHistory
 
 	return 1;	
 }
-
 
 1
