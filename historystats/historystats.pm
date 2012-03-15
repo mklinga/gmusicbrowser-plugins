@@ -10,6 +10,8 @@
 # - time-based (as in weekly/monthly etc.) stats (only for playcount) 
 # - better overview (weekly/monthly playcounts, suggestion for album?)
 # - Weekly topNN! Show place or (-) from last week next to item
+# - recent additions / most played / top rated, but not played in a long time
+# - bold item in statlist if it's currently playing? possible?  
 #
 # BUGS:
 #
@@ -35,11 +37,11 @@ use Gtk2::Gdk::Keysyms;
 use base 'Gtk2::Box';
 use base 'Gtk2::Dialog';
 
-::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 5, 
-	AmountOfStatItems => 50, UseHistoryFilter => 0, OnlyOneInstanceInHistory => 1, TotalPlayTime => 0, 
+::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 3, 
+	AmountOfStatItems => 50, UseHistoryFilter => 0, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
-	PerAlbumInsteadOfTrack => 0, TimeCountMode => 'fast');
+	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1);
 
 my %sites =
 (
@@ -63,6 +65,12 @@ my %SortTypes = (
  playcount_total => { label => 'Playcount (Total)', typecode => 'playcount', suffix => ':sum'}, 
  rating => { label => 'Rating', typecode => 'rating', suffix => ':average'},
  timecount_total => { label => 'Time played', typecode => 'playedlength', suffix => ':sum'}, 
+);
+
+my %statupdatemodes = ( 
+	songchange => 'On songchange', 
+	albumchange => 'On albumchange', 
+	initial => 'Only initially'
 );
 
 my $statswidget =
@@ -97,7 +105,8 @@ sub Stop {
 	Layout::RegisterWidget(HistoryStats => undef);
 }
 
-sub prefbox {
+sub prefbox 
+{
 	
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Statistics "),Gtk2::Frame->new(" Overview "));
 	
@@ -119,13 +128,14 @@ sub prefbox {
 	my $sCheck2 = ::NewPrefCheckButton(OPT.'SetFilterOnLeftClick','Show items selected with left-click');
 	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
 	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
-	my @timecountmodes = ('fast','exact');
-	my $sCombo = ::NewPrefCombo(OPT.'TimeCountMode',\@timecountmodes, text => 'Calculationmode: ');
+	my $sCheck5 = ::NewPrefCheckButton(OPT.'ShowStatNumbers','Show numbers in list');
+	my @sum = (values %statupdatemodes);
+	my $sCombo = ::NewPrefCombo(OPT.'StatViewUpdateMode',\@sum, text => 'Update Statistics: ');
 	
 	my @vbox = ( 
 		::Vpack(), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],$sAmount,[$sCombo]), 
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5],$sAmount,[$sCombo]), 
 		::Vpack()
 	
 	);
@@ -447,7 +457,11 @@ sub Updatestatistics
 			my $value;
 			if ($sorttype eq 'playedlength') { $value = FormatSmalltime($dh->{$list[$_]});}
 			else {$value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
-			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
+			
+			my $num = ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
+			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
+			 
+			
 		}
 	}
 	else
@@ -461,7 +475,9 @@ sub Updatestatistics
 			my ($title,$value) = Songs::Get($list[$_],'title',$sorttype);
 			if ($sorttype !~ /playedlength/) { $value = sprintf ("%.3f", $value);}
 			else {$value = FormatSmalltime($value);}
-			$self->{sstore}->set($self->{sstore}->append,0,($_+1).".  ".::PangoEsc($title),1, $value,2,$list[$_],3,$field);
+			
+			my $num = ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
+			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc($title),1, $value,2,$list[$_],3,$field);
 		}
 	}
 
@@ -498,7 +514,7 @@ sub Updatehistory
 
 	my $amount; my $lasttime = 0;
 	if ($::Options{OPT.'HistoryLimitMode'} eq 'days') {
-		$lasttime = time-(($::Options{OPT.'AmountOfHistoryItems'})*86400);
+		$lasttime = time-(($::Options{OPT.'AmountOfHistoryItems'}-1)*86400);
 		my ($sec, $min, $hour) = (localtime(time))[0,1,2];
 		$lasttime -= ($sec+(60*$min)+(3600*$hour));
 	}
@@ -705,6 +721,9 @@ sub STVContextPress
 sub STVChanged
 {
 	my $treeselection = shift;
+	
+	return unless ($::Options{OPT.'SetFilterOnLeftClick'});
+	
 	my $treeview = $treeselection->get_tree_view;	
 	my $store=$treeview->{store};
 	my @paths = $treeview->get_selection->get_selected_rows;
@@ -721,7 +740,9 @@ sub STVChanged
 		push @Filters, Songs::MakeFilterFromGID($field,$GID);
 	}
 	
-	my $filt = Filter->newadd(0, @Filters);
+	my $fnew = Filter->newadd(0, @Filters);
+	my $filt = (defined $::SelectedFilter)? Filter->newadd(1,$::SelectedFilter,$fnew) : $fnew; 
+	
 	::SetFilter($treeview,$filt,1);
 	
 	return 1;
@@ -732,9 +753,18 @@ sub SongChanged
 	my ($widget,$force) = @_;
 	
 	return if (($lastID == $::SongID) and (!$force));
+	
+	my $albumhaschanged = (Songs::Get_gid($lastID,'album') != Songs::Get_gid($::SongID,'album'))? 1 : 0; 
+	
 	$lastID = $::SongID;
 	
 	my $self=::find_ancestor($widget,__PACKAGE__);
+	
+	$force = 1 if (($self->{site} eq 'statistics') and 
+				(($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{songchange})
+				or 
+				(($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{albumchange}) and ($albumhaschanged))));
+
 	UpdateSite($self,$self->{site},$force);
 	
 	return 1;
