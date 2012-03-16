@@ -72,6 +72,12 @@ my %statupdatemodes = (
 	initial => 'Only initially'
 );
 
+my %overviewtopgroups = (
+	artist => 'Artists',
+	album => 'Albums',
+	title => 'Tracks',
+);
+
 my $statswidget =
 {	class		=> __PACKAGE__,
 	tabicon		=> 'plugin-historystats',
@@ -98,6 +104,7 @@ sub Start {
 	$globalstats{starttime} = $::Options{OPT.'StatisticsStartTime'}; 
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
 	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
+
 }
 
 sub Stop {
@@ -156,16 +163,17 @@ sub new
 	$self->signal_connect(map => \&SongChanged);
 
 	my ($Htreeview, $Hstore) = CreateHistorySite($self);
-	my ($Ovbox,$Olabel,@Oimgs) = CreateOverviewSite($self,$options);	
+	my ($Ovbox,@Ostore) = CreateOverviewSite($self,$options);	
 	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
 	$self->{hstore}=$Hstore;
+	$self->{ostore_top}=$Ostore[0];
+	$self->{ostore_recent}=$Ostore[1];
 	$self->{sstore}=$Sstore;
 	$self->{butinvert} = $Sinvert;
 	$self->{stattypecombo} = $combos[1];
 	$self->{Ovbox} = $Ovbox;
-	@{$self->{img}} = @Oimgs;
 
 	my $infobox = Gtk2::HBox->new; 	$infobox->set_spacing(0);
 	my $site_history=Gtk2::ScrolledWindow->new;
@@ -191,7 +199,6 @@ sub new
 	$Streeview->show; $stat_hbox1->show; $sh->show;
 	$_->show for (@combos); $_->show for (@labels);
 	$Sinvert->show; $iw->show;
-	$Olabel->show; $_->show for (@Oimgs);
 	
 	#starting site is always 'history'
 	$site_overview->set_no_show_all(1);
@@ -250,20 +257,85 @@ sub CreateOverviewSite
 {
 	my ($self,$options) = @_;
 	my $vbox = Gtk2::VBox->new;
+	my @Ostore; my @Otreeview;
+	
+	my @topHeaders; my @TopItems;
+	my $topHbox=Gtk2::HBox->new;
+	
+	for (keys %overviewtopgroups){ 
+		push @topHeaders, Layout::NewWidget('Text',{text => 'roo', xalign=>.5, ellipsize=>'end'}); 
+	}
+	
+	for my $th (@topHeaders) 
+	{
+		#$th->set_label('bb');
+		$topHbox->pack_start($th,1,0,0);
+		$th->show;
+		my $child = $th->get_child;
+		$child->show;
+	}
+	
+	$vbox->pack_start($topHbox,0,0,0);
+	$topHbox->show;
+
+
+	#treeviews for covers
+	for my $key (0..1)
+	{
+		$Ostore[$key]=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf');
+		$Otreeview[$key]=Gtk2::TreeView->new($Ostore[$key]);
+		for my $c (0..4)
+		{
+			my $Opic=Gtk2::TreeViewColumn->new_with_attributes( "Pic",Gtk2::CellRendererPixbuf->new,pixbuf => $c);
+			$Opic->set_sort_column_id($c);
+			$Opic->set_resizable(0);
+			$Opic->set_fixed_width(80);
+			$Otreeview[$key]->append_column($Opic);
+		}
+
+		$Otreeview[$key]->get_selection->set_mode('none');
+		$Otreeview[$key]->set_rules_hint(1);
+		$Otreeview[$key]->set_headers_visible(0);
+	#	$Otreeview[$key]->signal_connect(button_press_event => \&HTVContext);
+		$Otreeview[$key]->{store}=$Ostore[$key];
+	}
+	
+	my @label = (Gtk2::Label->new,Gtk2::Label->new);
+	$label[0]->set_markup('<b><big>  Top Albums</big></b>');
+	$label[1]->set_markup('<b><big>  Recent Additions</big></b>');
+	
+	my @l2 = (Gtk2::Label->new,Gtk2::Label->new);
+	my @hbox = (Gtk2::HBox->new,Gtk2::HBox->new); 
+
+	for (0..1)
+	{
+		$label[$_]->set_alignment(0,0.5); $label[$_]->show;
+		$vbox->pack_start($label[$_],0,0,0);
 		
-	my @img;
-	push @img, Layout::NewWidget("Cover", {group=>$options->{group}, forceratio=>1, maxsize=>128, xalign=>0,}) for (0..2);
-	my $label = Gtk2::Label->new('This is important.');
+		$hbox[$_]->pack_start($Otreeview[$_],0,0,0);
+		$hbox[$_]->pack_start($l2[$_],1,1,0);
+		$hbox[$_]->show; $l2[$_]->show;
 	
-	$vbox->pack_start($label,0,0,0);
+		$vbox->pack_start($hbox[$_],0,0,0);
+		
+		$Otreeview[$_]->show;
+	}
+
+
+	# statuslabel in the bottom
+	my $ago = (time-$globalstats{starttime})/86400;
+	my $text = "Since ".FormatRealtime($globalstats{starttime},'%d.%m.%y');
+	if ($ago)
+	{
+		$text .= " you have played a total of ".$globalstats{playtrack}." tracks.";
+		$text .= " That's about ".int(0.5+($globalstats{playtrack}/$ago))." per day.";
+	}	
+
+	my $totalstatus_label = Gtk2::Label->new($text);
+	$totalstatus_label->set_alignment(0,0); $totalstatus_label->show;
+	$vbox->pack_end($totalstatus_label,0,0,0);
 	
-	my $hb = Gtk2::HBox->new;
-	$hb->pack_start($_,1,0,0) for (@img);
-	$hb->show;
-	
-	$vbox->pack_start($hb,1,1,0);
-	
-	return ($vbox,$label,@img);
+	return ($vbox,@Ostore);
 }
 sub CreateStatisticsSite
 {
@@ -515,14 +587,24 @@ sub Updatestatistics
 sub Updateoverview
 {
 	my $self = shift;
-warn scalar@{$self->{img}};	
-	$_->set(3) for (@{$self->{img}});
 	
-	my $h=$self->size_request->height;
-	my $w=$self->size_request->width;
-warn $w.' - '.$h;	
+	my @topAlbums;
 
+	my $topref = Songs::BuildHash('album',$::Library,undef,'playcount:average');
+	my @list;
 	
+	my $i = 0;
+	for ((sort { $topref->{$b} <=> $topref->{$a} } keys %$topref)[0..4])
+	{
+		push @list, $i;
+		push @list, AAPicture::pixbuf('album', $_, 80, 1);
+		$i++;	
+	}
+	$self->{ostore_top}->clear; $self->{ostore_recent}->clear;
+	$self->{ostore_top}->set($self->{ostore_top}->append,@list);
+	$self->{ostore_recent}->set($self->{ostore_recent}->append,@list);
+
+
 	return 1;
 }
 
@@ -604,7 +686,7 @@ sub FormatSmalltime
 }
 sub FormatRealtime
 {
-	my $realtime = shift;
+	my ($realtime,$format) = @_;
 	return 'n/a' unless ($realtime);
 	my @months = ("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec");
 	my ($sec, $min, $hour, $day,$month,$year) = (localtime($realtime))[0,1,2,3,4,5]; 	
@@ -616,9 +698,9 @@ sub FormatRealtime
 	$sec = sprintf("%02d",$sec);
 	
 	my $formatted;
-	if (defined $::Options{OPT.'HistoryTimeFormat'})
+	if ((defined $format) or (defined $::Options{OPT.'HistoryTimeFormat'}))
 	{
-		$formatted = $::Options{OPT.'HistoryTimeFormat'};
+		$formatted = $format || $::Options{OPT.'HistoryTimeFormat'};
 		$formatted =~ s/\%[^dmyHhMSp]//g;
 		$formatted =~ s/\%d/$day/g; $formatted =~ s/\%m/$month/g;	
 		$formatted =~ s/\%y/$year/g;	$formatted =~ s/\%H/$hour/g;	
@@ -795,7 +877,6 @@ sub SongChanged
 					  (($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{albumchange}) and ($albumhaschanged)));
 	} 
 
-warn $force;
 	UpdateSite($self,$self->{site},$force);
 	
 	return 1;
