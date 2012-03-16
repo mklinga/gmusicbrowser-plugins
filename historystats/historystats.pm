@@ -788,11 +788,14 @@ sub SongChanged
 	
 	my $self=::find_ancestor($widget,__PACKAGE__);
 	
-	$force = 1 if (($self->{site} eq 'statistics') and 
-				(($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{songchange})
-				or 
-				(($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{albumchange}) and ($albumhaschanged))));
+	if ($self->{site} eq 'statistics')
+	{
+		$force = 1 if (($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{songchange}) 
+						or 
+					  (($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{albumchange}) and ($albumhaschanged)));
+	} 
 
+warn $force;
 	UpdateSite($self,$self->{site},$force);
 	
 	return 1;
