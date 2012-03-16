@@ -128,13 +128,14 @@ sub prefbox
 	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
 	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
 	my $sCheck5 = ::NewPrefCheckButton(OPT.'ShowStatNumbers','Show numbers in list');
+	my $sCheck6 = ::NewPrefCheckButton(OPT.'AddCurrentToStatList','Always show currently playing item in list');
 	my @sum = (values %statupdatemodes);
 	my $sCombo = ::NewPrefCombo(OPT.'StatViewUpdateMode',\@sum, text => 'Update Statistics: ');
 	
 	my @vbox = ( 
 		::Vpack(), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5],$sAmount,[$sCombo]), 
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]), 
 		::Vpack()
 	
 	);
@@ -313,10 +314,10 @@ sub CreateStatisticsSite
 			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
 		}
 		
-		if ($::SongID)
-		{
+		if ($::SongID){
 			my $nowplaying = ($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field);
-			if ($nowplaying == $gid) { $raw = '<b>'.$raw.'</b>';}
+			if (ref($nowplaying) eq 'ARRAY') { for (@$nowplaying) {if ($_ == $gid) {$raw = '<b>'.$raw.'</b>';}}}
+			elsif ($nowplaying == $gid) { $raw = '<b>'.$raw.'</b>';}
 		}
 
 		$cell->set( markup => $raw ); 
@@ -459,8 +460,18 @@ sub Updatestatistics
 		my $currentID = ($::SongID)? Songs::Get_gid($::SongID,$field) : -1; 
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
 		
-		my ($iscurrentIDinlist)= grep { $currentID == $list[$_]} 0..$#list;
-		push @list, $currentID unless ($iscurrentIDinlist);
+		if ($::Options{OPT.'AddCurrentToStatList'})
+		{
+			my @cis;
+			if (ref($currentID) ne 'ARRAY') { push @cis, $currentID;}
+			else {@cis = @$currentID;}
+		
+			for my $ci (@cis){
+				next if ($ci == -1);
+				my ($iscurrentIDinlist)= grep { $ci == $list[$_]} 0..$#list;
+				push @list, $ci unless (defined $iscurrentIDinlist);
+			}
+		}
 		
 		for (0..$#list)
 		{
@@ -478,8 +489,16 @@ sub Updatestatistics
 		Songs::SortList($source,'-'.$sorttype); @list = @$source;
 		if ($self->{butinvert}->get_active) { @list = reverse @list;}
 		
-		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? $::Options{OPT.'AmountOfStatItems'} : (scalar@list);
-		for (0..($max-1))
+		$#list = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}-1) : (scalar@list - 1);
+		
+		if ($::Options{OPT.'AddCurrentToStatList'})
+		{
+			my $currentID = ($::SongID)? $::SongID : -1;
+			my ($iscurrentIDinlist)= grep { $currentID == $list[$_]} 0..$#list;
+			push @list, $currentID unless (defined $iscurrentIDinlist);
+		}
+		
+		for (0..$#list)
 		{
 			my ($title,$value) = Songs::Get($list[$_],'title',$sorttype);
 			if ($sorttype !~ /playedlength/) { $value = sprintf ("%.3f", $value);}
