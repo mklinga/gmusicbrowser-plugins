@@ -11,7 +11,6 @@
 # - better overview (weekly/monthly playcounts, suggestion for album?)
 # - Weekly topNN! Show place or (-) from last week next to item
 # - recent additions / most played / top rated, but not played in a long time
-# - bold item in statlist if it's currently playing? possible?  
 #
 # BUGS:
 #
@@ -41,7 +40,7 @@ use base 'Gtk2::Dialog';
 	AmountOfStatItems => 50, UseHistoryFilter => 0, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
-	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1);
+	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1);
 
 my %sites =
 (
@@ -303,15 +302,21 @@ sub CreateStatisticsSite
 	{ 
 		my ($column, $cell, $model, $iter, $func_data) = @_; 
 		my $raw = $model->get($iter,0);
+		my $gid = $model->get($iter,2);
 		my $field = $model->get($iter,3);
 		if (($::Options{OPT.'ShowArtistForAlbumsAndTracks'}) and ($field =~ /album|title/)) {
 			my $arti; my $num = ''; 
-			my $gid = $model->get($iter,2);
 			if ($field eq 'album') { my $ag = AA::Get('album_artist:gid','album',$gid); $arti = Songs::Gid_to_Display('album_artist',$$ag[0]); } 
 			else { $arti = Songs::Get($gid,'artist'); }
 			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}
 			$arti = ::PangoEsc($arti);  
 			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
+		}
+		
+		if ($::SongID)
+		{
+			my $nowplaying = ($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field);
+			if ($nowplaying == $gid) { $raw = '<b>'.$raw.'</b>';}
 		}
 
 		$cell->set( markup => $raw ); 
@@ -451,17 +456,21 @@ sub Updatestatistics
 
 		#we got values, send 'em up!
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
+		my $currentID = ($::SongID)? Songs::Get_gid($::SongID,$field) : -1; 
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+		
+		my ($iscurrentIDinlist)= grep { $currentID == $list[$_]} 0..$#list;
+		push @list, $currentID unless ($iscurrentIDinlist);
+		
 		for (0..$#list)
 		{
 			my $value;
 			if ($sorttype eq 'playedlength') { $value = FormatSmalltime($dh->{$list[$_]});}
 			else {$value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
 			
-			my $num = ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
+			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
+			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
 			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
-			 
-			
 		}
 	}
 	else
