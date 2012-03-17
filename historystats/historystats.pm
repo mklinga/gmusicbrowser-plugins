@@ -11,8 +11,10 @@
 # - Weekly/Monthly topNN, weeksinlist/last week position etc.
 # - histogram for stats
 # - recent albums / album treshold
+# - do overview setting: track/album
 #
 # BUGS:
+# - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
 #
 
 =gmbplugin HISTORYSTATS
@@ -41,7 +43,8 @@ use base 'Gtk2::Dialog';
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
-	OverViewTopAmount => 5, OverviewCoverSize => 60, OverViewRecentAmount => 5);
+	OverViewTopAmount => 5, OverviewCoverSize => 60, OverViewRecentAmount => 5, StatisticsTypeCombo => 'Artists',
+	StatisticsSortCombo => 'Playcount (Average)');
 
 my %sites =
 (
@@ -162,12 +165,13 @@ sub new
 	$self->{site} = 'history';
 	$self->signal_connect(map => \&SongChanged);
 
-	my ($Htreeview, $Hstore) = CreateHistorySite($self);
+	my ($Hvbox, $Hstore,$Hstore_albums) = CreateHistorySite($self);
 	my ($Ovbox,$Ostore_toplist,$Ostore) = CreateOverviewSite($self,$options);	
 	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
 	$self->{hstore}=$Hstore;
+	$self->{hstore_albums}=$Hstore_albums;
 	$self->{ostore_recent}=$Ostore;
 	$self->{ostore_toplist}=$Ostore_toplist;
 	$self->{sstore}=$Sstore;
@@ -176,11 +180,9 @@ sub new
 	$self->{Ovbox} = $Ovbox;
 
 	my $infobox = Gtk2::HBox->new; 	$infobox->set_spacing(0);
-	my $site_history=Gtk2::ScrolledWindow->new;
-	my $sh = Gtk2::ScrolledWindow->new;
 	my $site_overview = $Ovbox;
-
-	$site_history->add($Htreeview); 
+	my $site_history= $Hvbox;
+	my $sh = Gtk2::ScrolledWindow->new;
 	$sh->add($Streeview);
 	$sh->set_shadow_type('none');
 	$sh->set_policy('automatic','automatic');
@@ -189,8 +191,6 @@ sub new
 	$site_statistics->pack_start($stat_hbox1,0,0,0);
 	$site_statistics->pack_start($sh,1,1,0);
 
-	$site_history->set_shadow_type('none');
-	$site_history->set_policy('automatic','automatic');
 	$infobox->pack_start($site_history,1,1,0);
 	$infobox->pack_start($site_overview,1,1,0);
 	$infobox->pack_start($site_statistics,1,1,0);
@@ -231,7 +231,7 @@ sub new
 sub CreateHistorySite
 {
 	## TreeView for history
-	my $Hstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt');
+	my $Hstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt','Glib::String');
 	my $Htreeview=Gtk2::TreeView->new($Hstore);
 	my $Hplaytime=Gtk2::TreeViewColumn->new_with_attributes( "Playtime",Gtk2::CellRendererText->new,text => 0);
 	$Hplaytime->set_sort_column_id(0);
@@ -250,7 +250,39 @@ sub CreateHistorySite
 	$Htreeview->signal_connect(button_press_event => \&HTVContext);
 	$Htreeview->{store}=$Hstore;
 
-	return ($Htreeview,$Hstore);	
+	my $Hstore_albums=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt','Glib::String');
+	my $Htreeview_albums=Gtk2::TreeView->new($Hstore_albums);
+	my $Hpic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 0);
+	$Hpic->set_sort_column_id(0);
+	$Hpic->set_resizable(1);
+	$Hpic->set_alignment(0);
+	$Hpic->set_min_width(10);
+	my $Halbum=Gtk2::TreeViewColumn->new_with_attributes( _"Album",Gtk2::CellRendererText->new,text=>1);
+	$Halbum->set_sort_column_id(1);
+	$Halbum->set_expand(1);
+	$Halbum->set_resizable(1);
+	$Htreeview_albums->append_column($Hpic);
+	$Htreeview_albums->append_column($Halbum);
+	$Htreeview_albums->get_selection->set_mode('multiple');
+	$Htreeview_albums->set_rules_hint(1);
+	$Htreeview_albums->signal_connect(button_press_event => \&HTVContext);
+	$Htreeview_albums->{store}=$Hstore_albums;
+
+	my $vbox = Gtk2::VBox->new;
+	my $sh = Gtk2::ScrolledWindow->new;	
+	$sh->add($Htreeview);
+	$sh->set_shadow_type('none');
+	$sh->set_policy('automatic','automatic');
+
+	my $sh2 = Gtk2::ScrolledWindow->new;	
+	$sh2->add($Htreeview_albums);
+	$sh2->set_shadow_type('none');
+	$sh2->set_policy('automatic','automatic');
+	
+	$vbox->pack_start($sh,1,1,0);
+	$vbox->pack_start($sh2,1,1,0);
+
+	return ($vbox,$Hstore,$Hstore_albums);	
 }
 
 sub CreateOverviewSite
@@ -322,6 +354,7 @@ sub CreateOverviewSite
 		$text .= " That's about ".int(0.5+($globalstats{playtrack}/$ago))." per day.";
 	}	
 
+	
 	my $totalstatus_label = Gtk2::Label->new($text);
 	$totalstatus_label->set_alignment(0,0); $totalstatus_label->show;
 	$vbox->pack_end($totalstatus_label,0,0,0);
@@ -489,6 +522,8 @@ sub Updatestatistics
 
 	my ($field) = grep { $StatTypes{$_}->{label} eq $::Options{OPT.'StatisticsTypeCombo'}} keys %StatTypes;
 	my ($sorttype) = grep { $SortTypes{$_}->{label} eq $::Options{OPT.'StatisticsSortCombo'}} keys %SortTypes;
+
+	return unless (($field) and ($sorttype));
 
 	my $suffix = $SortTypes{$sorttype}->{suffix};
 	$field = $StatTypes{$field}->{field};
@@ -676,7 +711,7 @@ sub Updatehistory
 	}
 	else{$amount = ((scalar keys(%HistoryHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%HistoryHash) : $::Options{OPT.'AmountOfHistoryItems'};}
 
-	my %final;
+	my %final; my %seen; my @albums;
 	
 	#we test from biggest to smallest playtime (keys are 'pt'.$playtime) until find $amount songs that are in source
 	for my $hk (reverse sort keys %HistoryHash) 
@@ -684,6 +719,13 @@ sub Updatehistory
 		if ($hk =~ /^pt(\d+)$/) {last unless ($1 > $lasttime);}
 		if (defined $sourcehash{$HistoryHash{$hk}->{ID}}) {
 			$final{$hk} = $HistoryHash{$hk};
+			
+			#TODO: Album treshold!
+			my $gid = Songs::Get_gid($final{$hk}->{ID},'album');
+			unless (defined $seen{$gid}){
+				$seen{$gid} = $hk;
+				push @albums, $gid;
+			} 
 			$amount-- if (defined $amount);
 		}
 		last if ((defined $amount) and ($amount <= 0));
@@ -694,8 +736,20 @@ sub Updatehistory
 	for (reverse sort keys %final)	{
 		my $key = $_;
 		$key =~ s/^pt//;
-		$self->{hstore}->set($self->{hstore}->append,0,FormatRealtime($key),1,$final{$_}->{label},2,$final{$_}->{ID});
+		$self->{hstore}->set($self->{hstore}->append,0,FormatRealtime($key),1,$final{$_}->{label},2,$final{$_}->{ID},3,'song');
 	}
+	
+	# then albums
+	$self->{hstore_albums}->clear;
+	
+	for (@albums) {
+		my $xref = AA::Get('album_artist:gid','album',$_);
+		$self->{hstore_albums}->set($self->{hstore_albums}->append,
+			0,AAPicture::pixbuf('album', $_, $::Options{OPT.'OverviewCoverSize'}, 1),
+			1,Songs::Gid_to_Display('album',$_)."\n by ".Songs::Gid_to_Display('artist',$$xref[0]),
+			2,$_,
+			3,'album');
+	}	
 		
 	return 1;	
 }
@@ -804,23 +858,40 @@ sub HTVContext
 	return unless (scalar@paths);
 
 	my $store=$treeview->{store};
-	my @IDs;
+	my @IDs; my $field;# this will be same for all rows, either 'song' or 'album'
 	
 	for (@paths)
 	{
 		my $iter=$store->get_iter($_);
 		my $ID=$store->get( $store->get_iter($_),2);
+		$field=$store->get( $store->get_iter($_),3);
 		push @IDs,$ID;
 	}
 
 	if ($event->button == 2) { 
-		::Enqueue(\@IDs); 
+		if ($field eq 'song') {::Enqueue(\@IDs);}
+		else {}		 
 	}
 	elsif ($event->button == 3) {
-		::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@IDs});			
+		if ($field ne 'song')
+		{
+			if (scalar@IDs == 1) {::PopupAAContextMenu({gid=>$IDs[0],self=>$treeview,field=>$field,mode=>'S'});}
+			else {
+				my @idlist;
+				for (@IDs) {push @idlist , @{AA::Get('idlist',$field,$_)};}
+				::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@idlist});
+			}
+		}
+		else {::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@IDs});}			
 	}
 	elsif (($event->button == 1) and ($event->type  eq '2button-press') and (scalar@IDs == 1)) {
-		::Select(song => $IDs[0], play => 1);
+		if ($field ne 'title'){
+			my $aalist = AA::Get('idlist',$field,$IDs[0]);
+			Songs::SortList($aalist,$::Options{Sort} || $::Options{Sort_LastOrdered});
+			::Select( filter => Songs::MakeFilterFromGID($field,$IDs[0])) if ($::Options{OPT.'FilterOnDblClick'});
+			::Select( song => $$aalist[0], play => 1);
+		}
+		else {::Select(song => $IDs[0], play => 1);}
 	}
 	else {return 0;}
 	
