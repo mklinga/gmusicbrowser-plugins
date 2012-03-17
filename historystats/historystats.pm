@@ -8,9 +8,9 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats (only for playcount) 
-# - better overview (weekly/monthly playcounts, suggestion for album?)
-# - Weekly topNN! Show place or (-) from last week next to item
-# - recent additions / most played / top rated, but not played in a long time
+# - Weekly/Monthly topNN, weeksinlist/last week position etc.
+# - histogram for stats
+# - recent albums / album treshold
 #
 # BUGS:
 #
@@ -40,7 +40,8 @@ use base 'Gtk2::Dialog';
 	AmountOfStatItems => 50, UseHistoryFilter => 0, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
-	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1);
+	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
+	OverViewTopAmount => 5, OverviewCoverSize => 60, OverViewRecentAmount => 5);
 
 my %sites =
 (
@@ -70,12 +71,6 @@ my %statupdatemodes = (
 	songchange => 'On songchange', 
 	albumchange => 'On albumchange', 
 	initial => 'Only initially'
-);
-
-my %overviewtopgroups = (
-	artist => 'Artists',
-	album => 'Albums',
-	title => 'Tracks',
 );
 
 my $statswidget =
@@ -114,7 +109,7 @@ sub Stop {
 sub prefbox 
 {
 	
-	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Statistics "),Gtk2::Frame->new(" Overview "));
+	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Overview "),Gtk2::Frame->new(" Statistics "));
 	
 	#General
 	
@@ -127,6 +122,12 @@ sub prefbox
 	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits, cb => sub{ $HistoryHash{needupdate} = 1;});
 	my $hEntry1 = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
 	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
+
+	# Overview
+	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,20, step=>1, page=>2, text =>_("Number of top-items in Overview: "));
+	my $oAmount2 = ::NewPrefSpinButton(OPT.'OverViewRecentAmount',1,20, step=>1, page=>2, text =>_("Number of recent items in Overview: "));
+	my $oAmount3 = ::NewPrefSpinButton(OPT.'OverviewCoverSize',50,200, step=>10, page=>25, text =>_("Album cover size in Recent items: "));
+	
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -142,9 +143,8 @@ sub prefbox
 	my @vbox = ( 
 		::Vpack(), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]), 
-		::Vpack()
-	
+		::Vpack($oAmount,$oAmount2,$oAmount3),
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]) 
 	);
 	
 	$frame[$_]->add($vbox[$_]) for (0..$#frame);
@@ -163,13 +163,13 @@ sub new
 	$self->signal_connect(map => \&SongChanged);
 
 	my ($Htreeview, $Hstore) = CreateHistorySite($self);
-	my ($Ovbox,@Ostore) = CreateOverviewSite($self,$options);	
+	my ($Ovbox,$Ostore_toplist,$Ostore) = CreateOverviewSite($self,$options);	
 	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
 	$self->{hstore}=$Hstore;
-	$self->{ostore_top}=$Ostore[0];
-	$self->{ostore_recent}=$Ostore[1];
+	$self->{ostore_recent}=$Ostore;
+	$self->{ostore_toplist}=$Ostore_toplist;
 	$self->{sstore}=$Sstore;
 	$self->{butinvert} = $Sinvert;
 	$self->{stattypecombo} = $combos[1];
@@ -257,70 +257,61 @@ sub CreateOverviewSite
 {
 	my ($self,$options) = @_;
 	my $vbox = Gtk2::VBox->new;
-	my @Ostore; my @Otreeview;
+
+	# top-lists
+	my @topheads = ('Top Artists','Top Albums','Top Tracks');
+	my $Ostore_toplist=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::String','Glib::UInt','Glib::UInt','Glib::UInt');
+	my $Otoptreeview=Gtk2::TreeView->new($Ostore_toplist);
 	
-	my @topHeaders; my @TopItems;
-	my $topHbox=Gtk2::HBox->new;
-	
-	for (keys %overviewtopgroups){ 
-		push @topHeaders, Layout::NewWidget('Text',{text => 'roo', xalign=>.5, ellipsize=>'end'}); 
-	}
-	
-	for my $th (@topHeaders) 
+	for (0..$#topheads)
 	{
-		#$th->set_label('bb');
-		$topHbox->pack_start($th,1,0,0);
-		$th->show;
-		my $child = $th->get_child;
-		$child->show;
+		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],Gtk2::CellRendererText->new,text => $_);
+		$Oc->set_expand(1);
+		$Otoptreeview->append_column($Oc);
 	}
-	
-	$vbox->pack_start($topHbox,0,0,0);
-	$topHbox->show;
 
+	$Otoptreeview->get_selection->set_mode('none');
+	$Otoptreeview->set_rules_hint(1);
+	$Otoptreeview->set_headers_visible(1);
+#	$Otoptreeview->signal_connect(button_press_event => \&HTVContext);
+	$Otoptreeview->{store}=$Ostore_toplist;
+	$Otoptreeview->show;
 
-	#treeviews for covers
-	for my $key (0..1)
-	{
-		$Ostore[$key]=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf','Gtk2::Gdk::Pixbuf');
-		$Otreeview[$key]=Gtk2::TreeView->new($Ostore[$key]);
-		for my $c (0..4)
-		{
-			my $Opic=Gtk2::TreeViewColumn->new_with_attributes( "Pic",Gtk2::CellRendererPixbuf->new,pixbuf => $c);
-			$Opic->set_sort_column_id($c);
-			$Opic->set_resizable(0);
-			$Opic->set_fixed_width(80);
-			$Otreeview[$key]->append_column($Opic);
-		}
+	$vbox->pack_start($Otoptreeview,0,0,0);
 
-		$Otreeview[$key]->get_selection->set_mode('none');
-		$Otreeview[$key]->set_rules_hint(1);
-		$Otreeview[$key]->set_headers_visible(0);
-	#	$Otreeview[$key]->signal_connect(button_press_event => \&HTVContext);
-		$Otreeview[$key]->{store}=$Ostore[$key];
-	}
-	
-	my @label = (Gtk2::Label->new,Gtk2::Label->new);
-	$label[0]->set_markup('<b><big>  Top Albums</big></b>');
-	$label[1]->set_markup('<b><big>  Recent Additions</big></b>');
-	
-	my @l2 = (Gtk2::Label->new,Gtk2::Label->new);
-	my @hbox = (Gtk2::HBox->new,Gtk2::HBox->new); 
-
+	#treeview for covers
+	my $Ostore; my $Otreeview;
+	my @coverlabels = ('Recently Added Albums','Recently Played Albums');
+	$Ostore=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt','Glib::UInt');
+	$Otreeview=Gtk2::TreeView->new($Ostore);
 	for (0..1)
 	{
-		$label[$_]->set_alignment(0,0.5); $label[$_]->show;
-		$vbox->pack_start($label[$_],0,0,0);
+		my $Opic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => (2*$_));
+		$Opic->set_sort_column_id(2*$_);
+		$Opic->set_fixed_width($::Options{OPT.'OverviewCoverSize'});
+		$Opic->set_min_width($::Options{OPT.'OverviewCoverSize'});
+		my $Otext=Gtk2::TreeViewColumn->new_with_attributes( $coverlabels[$_],Gtk2::CellRendererText->new,text => (1+2*$_));
+		$Otext->set_sort_column_id(1+2*$_);
+		$Otext->set_expand(1);
 		
-		$hbox[$_]->pack_start($Otreeview[$_],0,0,0);
-		$hbox[$_]->pack_start($l2[$_],1,1,0);
-		$hbox[$_]->show; $l2[$_]->show;
-	
-		$vbox->pack_start($hbox[$_],0,0,0);
-		
-		$Otreeview[$_]->show;
+		$Otreeview->append_column($Opic);
+		$Otreeview->append_column($Otext);
 	}
 
+	$Otreeview->get_selection->set_mode('none');
+	$Otreeview->set_rules_hint(1);
+	$Otreeview->set_headers_visible(1);
+#	$Otreeview->signal_connect(button_press_event => \&HTVContext);
+	$Otreeview->{store}=$Ostore;
+
+	my $sh = Gtk2::ScrolledWindow->new;
+	$sh->add($Otreeview);
+	$sh->set_shadow_type('none');
+	$sh->set_policy('automatic','automatic');
+	$sh->show;
+	$vbox->pack_start($sh,1,1,0);
+		
+	$Otreeview->show;
 
 	# statuslabel in the bottom
 	my $ago = (time-$globalstats{starttime})/86400;
@@ -335,7 +326,7 @@ sub CreateOverviewSite
 	$totalstatus_label->set_alignment(0,0); $totalstatus_label->show;
 	$vbox->pack_end($totalstatus_label,0,0,0);
 	
-	return ($vbox,@Ostore);
+	return ($vbox,$Ostore_toplist,$Ostore);
 }
 sub CreateStatisticsSite
 {
@@ -556,12 +547,13 @@ sub Updatestatistics
 			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
 		}
 	}
-	else
+	else #single tracks
 	{
 		Songs::SortList($source,'-'.$sorttype); @list = @$source;
 		if ($self->{butinvert}->get_active) { @list = reverse @list;}
 		
-		$#list = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}-1) : (scalar@list - 1);
+		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
+		$#list = ($max-1);
 		
 		if ($::Options{OPT.'AddCurrentToStatList'})
 		{
@@ -576,7 +568,8 @@ sub Updatestatistics
 			if ($sorttype !~ /playedlength/) { $value = sprintf ("%.3f", $value);}
 			else {$value = FormatSmalltime($value);}
 			
-			my $num = ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
+			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
+			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
 			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc($title),1, $value,2,$list[$_],3,$field);
 		}
 	}
@@ -587,23 +580,76 @@ sub Updatestatistics
 sub Updateoverview
 {
 	my $self = shift;
-	
-	my @topAlbums;
+	my @topAlbums; my @list;
 
-	my $topref = Songs::BuildHash('album',$::Library,undef,'playcount:average');
-	my @list;
+	$self->{ostore_toplist}->clear;
+	my @topheads = ('artist','album','title');
+	my $numberofitems;
 	
-	my $i = 0;
-	for ((sort { $topref->{$b} <=> $topref->{$a} } keys %$topref)[0..4])
+	for (@topheads)
 	{
-		push @list, $i;
-		push @list, AAPicture::pixbuf('album', $_, 80, 1);
-		$i++;	
+		unless ($_ eq 'title')
+		{
+			my ($topref) = Songs::BuildHash($_,$::Library,undef,$::Options{OPT.'OverviewTopMode'});
+			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (keys %$topref))? (keys %$topref) : $::Options{OPT.'OverViewTopAmount'};
+			my @r = ((sort { $topref->{$b} <=> $topref->{$a} } keys %$topref)[0..($numberofitems-1)]);
+			push @list, \@r;
+		}
+		else
+		{
+			my $lr = $::Library;
+			my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
+			Songs::SortList($lr,'-'.$smode);
+			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (scalar@$lr))? (scalar@$lr) : $::Options{OPT.'OverViewTopAmount'};
+			my @r = @$lr[0..($::Options{OPT.'OverViewTopAmount'})];
+			push @list,\@r;
+		}
 	}
-	$self->{ostore_top}->clear; $self->{ostore_recent}->clear;
-	$self->{ostore_top}->set($self->{ostore_top}->append,@list);
-	$self->{ostore_recent}->set($self->{ostore_recent}->append,@list);
+	
+	for my $row (0..($numberofitems-1))
+	{
+		my @values;
+		for my $key (0..$#topheads)
+		{
+			push @values,$key;
+			unless ($topheads[$key] eq 'title') {push @values, Songs::Gid_to_Display($topheads[$key],${$list[$key]}[$row]);}
+			else {my $r = Songs::Get(${$list[$key]}[$row],'title'); push @values, $r;}
+		}
+		for my $key (0..$#topheads) {
+			push @values,($key+$#topheads+1);
+			push @values, ${$list[$key]}[$row];
+		}
+		$self->{ostore_toplist}->set($self->{ostore_toplist}->append,@values);
+		
+	}
 
+
+	# Recent albums-lists
+	my ($addedref,$playedref) = Songs::BuildHash('album',$::Library,undef,'added:average','lastplay:average');
+
+	#can there be different amount of gids in hashes? Wouldn't think so...
+	$numberofitems = ($::Options{OPT.'OverViewRecentAmount'} > (keys %$addedref))? (keys %$addedref) : $::Options{OPT.'OverViewRecentAmount'};
+	my @added = ((sort { $addedref->{$b} <=> $addedref->{$a} } keys %$addedref)[0..($numberofitems-1)]);
+	my @played = ((sort { $playedref->{$b} <=> $playedref->{$a} } keys %$playedref)[0..($numberofitems-1)]);
+
+	my %a;
+	for (0..$#added)
+	{
+		push @{$a{added}}, AAPicture::pixbuf('album', $added[$_], $::Options{OPT.'OverviewCoverSize'}, 1);
+		my $xref = AA::Get('album_artist:gid','album',$added[$_]);
+		push @{$a{addedtext}}, Songs::Gid_to_Display('album',$added[$_])."\n by ".Songs::Gid_to_Display('artist',$$xref[0]);
+		push @{$a{played}}, AAPicture::pixbuf('album', $played[$_], $::Options{OPT.'OverviewCoverSize'}, 1);
+		$xref = AA::Get('album_artist:gid','album',$played[$_]);
+		push @{$a{playedtext}}, Songs::Gid_to_Display('album',$played[$_])."\n by ".Songs::Gid_to_Display('artist',$$xref[0]);
+	}
+	
+	$self->{ostore_recent}->clear;
+	for (0..$#added)
+	{
+		my @row;
+		push @row, 0, ${$a{added}}[$_], 1, ${$a{addedtext}}[$_], 2, ${$a{played}}[$_], 3, ${$a{playedtext}}[$_],4,$added[$_],5,$played[$_];
+		$self->{ostore_recent}->set($self->{ostore_recent}->append,@row);
+	}
 
 	return 1;
 }
