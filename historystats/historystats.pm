@@ -44,7 +44,7 @@ use base 'Gtk2::Dialog';
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
-	StatisticsSortCombo => 'Playcount (Average)');
+	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40);
 
 my %sites =
 (
@@ -146,6 +146,11 @@ sub prefbox
 	my $oCheck2 = ::NewPrefCheckButton(OPT.'OVTHalbum','Albums');
 	my $oCheck3 = ::NewPrefCheckButton(OPT.'OVTHtitle','Tracks');
 	my $oCheck4 = ::NewPrefCheckButton(OPT.'OVTHgenre','Genres');
+	my $oAmount2 = ::NewPrefSpinButton(OPT.'OverviewTop40Amount',3,100, step=>1, page=>5, text =>_("Items are shown in main charts: "));
+	my @omodes = ('weekly','monthly');
+	my $oCombo = ::NewPrefCombo(OPT.'OverviewTop40Mode',\@omodes, text => 'Update main chart');
+
+	
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -161,7 +166,7 @@ sub prefbox
 	my @vbox = ( 
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount]),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],$oAmount,$oAmount2,$oCombo),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]) 
 	);
 	
@@ -187,7 +192,7 @@ sub new
 
 	$self->{hstore}=$Hstore;
 	$self->{hstore_albums}=$Hstore_albums;
-	$self->{ostore_recent}=$Ostore;
+	$self->{ostore_main}=$Ostore;
 	$self->{ostore_toplist}=$Ostore_toplist;
 	$self->{sstore}=$Sstore;
 	$self->{butinvert} = $Sinvert;
@@ -331,32 +336,49 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
 		$Otoptreeviews[$_]->show;
 		
-		my $sw = Gtk2::ScrolledWindow->new;
-		$sw->add($Otoptreeviews[$_]);
-		$sw->set_shadow_type('none');
-		$sw->set_policy('automatic','automatic');
-		$sw->show;
-		$vbox->pack_start($sw,1,1,0);
+		$vbox->pack_start($Otoptreeviews[$_],0,0,0);
+#		my $sw = Gtk2::ScrolledWindow->new;
+#		$sw->add($Otoptreeviews[$_]);
+#		$sw->set_shadow_type('none');
+#		$sw->set_policy('automatic','automatic');
+#		$sw->show;
+#		$vbox->pack_start($sw,1,1,0);
 	}
 
 	#treeview for top40
 	my $Ostore; my $Otreeview;
-	my @coverlabels = ('Recently Added Albums','Recently Played Albums');
-	$Ostore=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt','Glib::UInt');
+	# up/down/stable/new - icon (32x32?), position + lastweek position (if any), cover, label, playcount, weeks in list, GID
+	$Ostore=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::String','Glib::UInt');
+
 	$Otreeview=Gtk2::TreeView->new($Ostore);
-	for (0..1)
-	{
-		my $Opic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => (2*$_));
-		$Opic->set_sort_column_id(2*$_);
-		$Opic->set_fixed_width($::Options{OPT.'CoverSize'});
-		$Opic->set_min_width($::Options{OPT.'CoverSize'});
-		my $Otext=Gtk2::TreeViewColumn->new_with_attributes( $coverlabels[$_],Gtk2::CellRendererText->new,text => (1+2*$_));
-		$Otext->set_sort_column_id(1+2*$_);
-		$Otext->set_expand(1);
-		
-		$Otreeview->append_column($Opic);
-		$Otreeview->append_column($Otext);
-	}
+	my $Oicon=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 0);
+	$Oicon->set_sort_column_id(0);
+	$Oicon->set_fixed_width(32);
+	$Oicon->set_min_width(32);
+	my $Otext=Gtk2::TreeViewColumn->new_with_attributes( "Pos",Gtk2::CellRendererText->new,text => 1);
+	$Otext->set_sort_column_id(1);
+	$Otext->set_expand(0);
+	my $Ocover=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 2);
+	$Ocover->set_sort_column_id(0);
+	$Ocover->set_fixed_width($::Options{OPT.'CoverSize'});
+	$Ocover->set_min_width($::Options{OPT.'CoverSize'});
+	$Ocover->set_expand(0);
+	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Album",Gtk2::CellRendererText->new,text => 3);
+	$Olabel->set_sort_column_id(1);
+	$Olabel->set_expand(1);
+	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "PC",Gtk2::CellRendererText->new,text => 4);
+	$Opc->set_sort_column_id(1);
+	$Opc->set_expand(0);
+	my $Owil=Gtk2::TreeViewColumn->new_with_attributes( "IL",Gtk2::CellRendererText->new,text => 5);
+	$Owil->set_sort_column_id(1);
+	$Owil->set_expand(0);
+
+	$Otreeview->append_column($Oicon);
+	$Otreeview->append_column($Otext);
+	$Otreeview->append_column($Ocover);
+	$Otreeview->append_column($Olabel);
+	$Otreeview->append_column($Opc);
+	$Otreeview->append_column($Owil);
 
 	$Otreeview->get_selection->set_mode('none');
 	$Otreeview->set_rules_hint(1);
@@ -682,6 +704,28 @@ sub Updateoverview
 			${$self->{ostore_toplist}}[$store]->set(${$self->{ostore_toplist}}[$store]->append,@values);
 		}
 	}
+	
+	
+	# Main Chart
+	#TODO: Handle properly with @playtimes when possible, for now we'll just put TopNN albums here
+		
+	my ($dh) = Songs::BuildHash('album', $::Library, undef, 'playcount:sum');
+	my $max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$dh))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$dh);
+	@list = (sort { $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+	$self->{ostore_main}->clear;
+	my $icon = $self->render_icon("gtk-add","menu");
+	for (0..$#list){
+		$self->{ostore_main}->set($self->{ostore_main}->append,
+			0,$icon,
+			1,$_,
+			2,AAPicture::pixbuf('album', $list[$_], $::Options{OPT.'CoverSize'}, 1),
+			3,Songs::Gid_to_Display('album',$list[$_]),
+			4,$$dh{$list[$_]},
+			5,'-',
+			6,$list[$_]	
+		);
+	}
+	
 	return 1;
 }
 
