@@ -43,7 +43,7 @@ use base 'Gtk2::Dialog';
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
-	OverViewTopAmount => 5, OverviewCoverSize => 60, OverViewRecentAmount => 5, StatisticsTypeCombo => 'Artists',
+	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
 	StatisticsSortCombo => 'Playcount (Average)');
 
 my %sites =
@@ -76,6 +76,13 @@ my %statupdatemodes = (
 	initial => 'Only initially'
 );
 
+my %OverviewTopheads = (
+	artist => {label => 'Top Artists', enabled => 1},
+	album => {label => 'Top Albums', enabled => 0},
+	title => {label => 'Top Tracks', enabled => 0},
+	genre => {label => 'Top Genres', enabled => 0}
+);
+
 my $statswidget =
 {	class		=> __PACKAGE__,
 	tabicon		=> 'plugin-historystats',
@@ -102,7 +109,11 @@ sub Start {
 	$globalstats{starttime} = $::Options{OPT.'StatisticsStartTime'}; 
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
 	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
-
+	
+	for (keys %OverviewTopheads) { 
+		if (defined $::Options{OPT.'OVTH'.$_}) {$OverviewTopheads{$_}->{enabled} = $::Options{OPT.'OVTH'.$_};}
+		else {$::Options{OPT.'OVTH'.$_} = $OverviewTopheads{$_}->{enabled};}
+	}
 }
 
 sub Stop {
@@ -115,7 +126,8 @@ sub prefbox
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Overview "),Gtk2::Frame->new(" Statistics "));
 	
 	#General
-	
+	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>25, text =>_("Album cover size"));	
+
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
 	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter', cb => sub{ $HistoryHash{needupdate} = 1;});
@@ -128,9 +140,12 @@ sub prefbox
 
 	# Overview
 	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,20, step=>1, page=>2, text =>_("Number of top-items in Overview: "));
-	my $oAmount2 = ::NewPrefSpinButton(OPT.'OverViewRecentAmount',1,20, step=>1, page=>2, text =>_("Number of recent items in Overview: "));
-	my $oAmount3 = ::NewPrefSpinButton(OPT.'OverviewCoverSize',50,200, step=>10, page=>25, text =>_("Album cover size in Recent items: "));
-	
+	my $oLabel1 = Gtk2::Label->new('Show toplists for (changing requires restart of plugin):');
+	$oLabel1->set_alignment(0,0.5);
+	my $oCheck1 = ::NewPrefCheckButton(OPT.'OVTHartist','Artists');
+	my $oCheck2 = ::NewPrefCheckButton(OPT.'OVTHalbum','Albums');
+	my $oCheck3 = ::NewPrefCheckButton(OPT.'OVTHtitle','Tracks');
+	my $oCheck4 = ::NewPrefCheckButton(OPT.'OVTHgenre','Genres');
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -144,9 +159,9 @@ sub prefbox
 	my $sCombo = ::NewPrefCombo(OPT.'StatViewUpdateMode',\@sum, text => 'Update Statistics: ');
 	
 	my @vbox = ( 
-		::Vpack(), 
+		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($oAmount,$oAmount2,$oAmount3),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount]),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]) 
 	);
 	
@@ -291,27 +306,40 @@ sub CreateOverviewSite
 	my $vbox = Gtk2::VBox->new;
 
 	# top-lists
-	my @topheads = ('Top Artists','Top Albums','Top Tracks');
-	my $Ostore_toplist=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::String','Glib::UInt','Glib::UInt','Glib::UInt');
-	my $Otoptreeview=Gtk2::TreeView->new($Ostore_toplist);
+	my @topheads;
+	for (keys %OverviewTopheads) { push @topheads, $OverviewTopheads{$_}->{label} if $OverviewTopheads{$_}->{enabled};}
+	
+	my @Ostore_toplists; my @Otoptreeviews;
 	
 	for (0..$#topheads)
 	{
-		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],Gtk2::CellRendererText->new,text => $_);
+		push @Ostore_toplists, Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt','Glib::String');#label, pc, ID, field
+		push @Otoptreeviews, Gtk2::TreeView->new($Ostore_toplists[$_]);
+		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],Gtk2::CellRendererText->new,text => 0);
 		$Oc->set_expand(1);
-		$Otoptreeview->append_column($Oc);
+		$Otoptreeviews[$_]->append_column($Oc);
+		my $render = Gtk2::CellRendererText->new;
+		$render->set_alignment(1,.5);
+		my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",$render,text => 1);
+		$Opc->set_expand(0);
+		$Otoptreeviews[$_]->append_column($Opc);
+
+		$Otoptreeviews[$_]->get_selection->set_mode('single');
+		$Otoptreeviews[$_]->set_rules_hint(1);
+		$Otoptreeviews[$_]->set_headers_visible(1);
+		$Otoptreeviews[$_]->signal_connect(button_press_event => \&HTVContext);
+		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
+		$Otoptreeviews[$_]->show;
+		
+		my $sw = Gtk2::ScrolledWindow->new;
+		$sw->add($Otoptreeviews[$_]);
+		$sw->set_shadow_type('none');
+		$sw->set_policy('automatic','automatic');
+		$sw->show;
+		$vbox->pack_start($sw,1,1,0);
 	}
 
-	$Otoptreeview->get_selection->set_mode('none');
-	$Otoptreeview->set_rules_hint(1);
-	$Otoptreeview->set_headers_visible(1);
-#	$Otoptreeview->signal_connect(button_press_event => \&HTVContext);
-	$Otoptreeview->{store}=$Ostore_toplist;
-	$Otoptreeview->show;
-
-	$vbox->pack_start($Otoptreeview,0,0,0);
-
-	#treeview for covers
+	#treeview for top40
 	my $Ostore; my $Otreeview;
 	my @coverlabels = ('Recently Added Albums','Recently Played Albums');
 	$Ostore=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt','Glib::UInt');
@@ -320,8 +348,8 @@ sub CreateOverviewSite
 	{
 		my $Opic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => (2*$_));
 		$Opic->set_sort_column_id(2*$_);
-		$Opic->set_fixed_width($::Options{OPT.'OverviewCoverSize'});
-		$Opic->set_min_width($::Options{OPT.'OverviewCoverSize'});
+		$Opic->set_fixed_width($::Options{OPT.'CoverSize'});
+		$Opic->set_min_width($::Options{OPT.'CoverSize'});
 		my $Otext=Gtk2::TreeViewColumn->new_with_attributes( $coverlabels[$_],Gtk2::CellRendererText->new,text => (1+2*$_));
 		$Otext->set_sort_column_id(1+2*$_);
 		$Otext->set_expand(1);
@@ -359,7 +387,7 @@ sub CreateOverviewSite
 	$totalstatus_label->set_alignment(0,0); $totalstatus_label->show;
 	$vbox->pack_end($totalstatus_label,0,0,0);
 	
-	return ($vbox,$Ostore_toplist,$Ostore);
+	return ($vbox,\@Ostore_toplists,$Ostore);
 }
 sub CreateStatisticsSite
 {
@@ -615,77 +643,45 @@ sub Updatestatistics
 sub Updateoverview
 {
 	my $self = shift;
-	my @topAlbums; my @list;
+	my @list;
 
-	$self->{ostore_toplist}->clear;
-	my @topheads = ('artist','album','title');
+	$_->clear for (@{$self->{ostore_toplist}});
+	my @topheads; 
+	for (keys %OverviewTopheads) { push @topheads, $_ if ($OverviewTopheads{$_}->{enabled});};
 	my $numberofitems;
 	
-	for (@topheads)
+	for my $store (0..$#topheads)
 	{
-		unless ($_ eq 'title')
-		{
-			my ($topref) = Songs::BuildHash($_,$::Library,undef,$::Options{OPT.'OverviewTopMode'});
-			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (keys %$topref))? (keys %$topref) : $::Options{OPT.'OverViewTopAmount'};
-			my @r = ((sort { $topref->{$b} <=> $topref->{$a} } keys %$topref)[0..($numberofitems-1)]);
-			push @list, \@r;
-		}
-		else
+		my $topref;
+		if ($topheads[$store] eq 'title')
 		{
 			my $lr = $::Library;
 			my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
 			Songs::SortList($lr,'-'.$smode);
 			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (scalar@$lr))? (scalar@$lr) : $::Options{OPT.'OverViewTopAmount'};
-			my @r = @$lr[0..($::Options{OPT.'OverViewTopAmount'})];
-			push @list,\@r;
+			@list = @$lr[0..($::Options{OPT.'OverViewTopAmount'})];
 		}
-	}
-	
-	for my $row (0..($numberofitems-1))
-	{
-		my @values;
-		for my $key (0..$#topheads)
+		else
 		{
-			push @values,$key;
-			unless ($topheads[$key] eq 'title') {push @values, Songs::Gid_to_Display($topheads[$key],${$list[$key]}[$row]);}
-			else {my $r = Songs::Get(${$list[$key]}[$row],'title'); push @values, $r;}
+			($topref) = Songs::BuildHash($topheads[$store],$::Library,undef,$::Options{OPT.'OverviewTopMode'});
+			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (keys %$topref))? (keys %$topref) : $::Options{OPT.'OverViewTopAmount'};
+			@list = ((sort { $topref->{$b} <=> $topref->{$a} } keys %$topref)[0..($numberofitems-1)]);
 		}
-		for my $key (0..$#topheads) {
-			push @values,($key+$#topheads+1);
-			push @values, ${$list[$key]}[$row];
+		for my $row (0..($numberofitems-1))
+		{
+			my @values;
+			if ($topheads[$store] eq 'title') {
+				my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
+				my ($title,$value) = Songs::Get($list[$row],'title',$smode);
+				push @values, 0,$title,1,$value.' plays',2,$list[$row],3,$topheads[$store];
+			}
+			else {
+				push @values, 0,Songs::Gid_to_Display($topheads[$store],$list[$row]),1,$$topref{$list[$row]}.' plays',2,$list[$row],3,$topheads[$store];
+			}
+
+			${$self->{ostore_toplist}}[$store]->set(${$self->{ostore_toplist}}[$store]->append,@values);
 		}
-		$self->{ostore_toplist}->set($self->{ostore_toplist}->append,@values);
-		
 	}
-
-
-	# Recent albums-lists
-	my ($addedref,$playedref) = Songs::BuildHash('album',$::Library,undef,'added:average','lastplay:average');
-
-	#can there be different amount of gids in hashes? Wouldn't think so...
-	$numberofitems = ($::Options{OPT.'OverViewRecentAmount'} > (keys %$addedref))? (keys %$addedref) : $::Options{OPT.'OverViewRecentAmount'};
-	my @added = ((sort { $addedref->{$b} <=> $addedref->{$a} } keys %$addedref)[0..($numberofitems-1)]);
-	my @played = ((sort { $playedref->{$b} <=> $playedref->{$a} } keys %$playedref)[0..($numberofitems-1)]);
-
-	my %a;
-	for (0..$#added)
-	{
-		push @{$a{added}}, AAPicture::pixbuf('album', $added[$_], $::Options{OPT.'OverviewCoverSize'}, 1);
-		my $xref = AA::Get('album_artist:gid','album',$added[$_]);
-		push @{$a{addedtext}}, Songs::Gid_to_Display('album',$added[$_])."\n by ".Songs::Gid_to_Display('artist',$$xref[0]);
-		push @{$a{played}}, AAPicture::pixbuf('album', $played[$_], $::Options{OPT.'OverviewCoverSize'}, 1);
-		$xref = AA::Get('album_artist:gid','album',$played[$_]);
-		push @{$a{playedtext}}, Songs::Gid_to_Display('album',$played[$_])."\n by ".Songs::Gid_to_Display('artist',$$xref[0]);
-	}
-	
-	$self->{ostore_recent}->clear;
-	for (0..$#added)
-	{
-		my @row;
-		push @row, 0, ${$a{added}}[$_], 1, ${$a{addedtext}}[$_], 2, ${$a{played}}[$_], 3, ${$a{playedtext}}[$_],4,$added[$_],5,$played[$_];
-		$self->{ostore_recent}->set($self->{ostore_recent}->append,@row);
-	}
-
 	return 1;
 }
 
@@ -745,7 +741,7 @@ sub Updatehistory
 	for (@albums) {
 		my $xref = AA::Get('album_artist:gid','album',$_);
 		$self->{hstore_albums}->set($self->{hstore_albums}->append,
-			0,AAPicture::pixbuf('album', $_, $::Options{OPT.'OverviewCoverSize'}, 1),
+			0,AAPicture::pixbuf('album', $_, $::Options{OPT.'CoverSize'}, 1),
 			1,Songs::Gid_to_Display('album',$_)."\n by ".Songs::Gid_to_Display('artist',$$xref[0]),
 			2,$_,
 			3,'album');
