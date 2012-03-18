@@ -12,9 +12,11 @@
 # - histogram for stats
 # - recent albums / album treshold
 # - do overview setting: track/album
+# - don't update overview if nothing has changed
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
+# - sorting the playedlength (for now)
 #
 
 =gmbplugin HISTORYSTATS
@@ -44,7 +46,7 @@ use base 'Gtk2::Dialog';
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
-	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40);
+	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 0, WeightedRandomValueType => 1);
 
 my %sites =
 (
@@ -67,7 +69,8 @@ my %SortTypes = (
  playcount => { label => 'Playcount (Average)', typecode => 'playcount', suffix => ':average'}, 
  playcount_total => { label => 'Playcount (Total)', typecode => 'playcount', suffix => ':sum'}, 
  rating => { label => 'Rating', typecode => 'rating', suffix => ':average'},
- timecount_total => { label => 'Time played', typecode => 'playedlength', suffix => ':sum'}, 
+ timecount_total => { label => 'Time played', typecode => 'playedlength', suffix => ':sum'},
+ weighted_random => { label => 'Weighted random', typecode => 'weighted', suffix => ':average'} 
 );
 
 my %statupdatemodes = ( 
@@ -106,6 +109,8 @@ sub Start {
 	if (not defined $::Options{OPT.'StatisticsStartTime'}) {
 		$::Options{OPT.'StatisticsStartTime'} = time;
 	}
+	$::Options{OPT.'StatWeightedRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}});
+
 	$globalstats{starttime} = $::Options{OPT.'StatisticsStartTime'}; 
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
 	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
@@ -162,11 +167,17 @@ sub prefbox
 	my $sCheck6 = ::NewPrefCheckButton(OPT.'AddCurrentToStatList','Always show currently playing item in list');
 	my @sum = (values %statupdatemodes);
 	my $sCombo = ::NewPrefCombo(OPT.'StatViewUpdateMode',\@sum, text => 'Update Statistics: ');
+	my @randoms;
+	push @randoms, $_ for (sort keys %{$::Options{SavedWRandoms}});
+	my $sCombo2 = ::NewPrefCombo( OPT.'StatWeightedRandomMode', \@randoms);
+	my $sCheck7 = ::NewPrefCheckButton(OPT.'WeightedRandomEnabled','Enable sorting by weighted random: ');
+	my $sCheck8 = ::NewPrefCheckButton(OPT.'WeightedRandomValueType','Show scaled value (0-100) of WRandom-item instead of real');
+
 	
 	my @vbox = ( 
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],$oAmount,$oAmount2,$oCombo),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],$oAmount,$oAmount2,$oCombo,[$sCheck7,$sCombo2],$sCheck8),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]) 
 	);
 	
@@ -420,7 +431,10 @@ sub CreateStatisticsSite
 	my @labels = (Gtk2::Label->new('Show'),Gtk2::Label->new('by'));
 	my @lists = (undef,undef,undef); 
 	push @{$lists[0]}, $StatTypes{$_}->{label} for (sort keys %StatTypes);
-	push @{$lists[1]}, $SortTypes{$_}->{label} for (sort keys %SortTypes);
+	for (sort keys %SortTypes){
+		next if (($_ eq 'weighted_random') and (!$::Options{OPT.'WeightedRandomEnabled'})); 		
+		push @{$lists[1]}, $SortTypes{$_}->{label};
+	}
 
 	my @combos; my @coptname = (OPT.'StatisticsTypeCombo',OPT.'StatisticsSortCombo');
 	for (0..1) {
@@ -585,10 +599,8 @@ sub Updatestatistics
 	
 	if ($field ne 'title')
 	{
-		my $href = Songs::BuildHash($field,$source,'gid');
-
 		#calculate album-based stats if so wanted
-		if (($field ne 'album') and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average'))
+		if (($field ne 'album') and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average') and ($sorttype ne 'weighted'))
 		{
 			($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
 			my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
@@ -600,11 +612,36 @@ sub Updatestatistics
 				$$dh{$gid} /= scalar@$albums;
 			}
 		}
-		else { ($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix); }
-
+		else {
+			if ($sorttype eq 'weighted')
+			{
+				my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
+				my $sub = $randommode->MakeGroupScoreFunction($field);
+				($dh)=$sub->($source);
+				
+				#then we'll set scale of values to 0-100
+				my $min;my $max; my $total=0;
+				for (keys %$dh){
+					my $list=AA::GetIDs($field,$_);
+					next unless (scalar@$list);
+					$$dh{$_} /= scalar@$list;
+					if ((not defined $min) or ($$dh{$_} < $min)) {$min = $$dh{$_};}
+					elsif ((not defined $max) or ($$dh{$_} > $max)) {$max = $$dh{$_};}
+					$total += $$dh{$_};
+				}
+				if ($::Options{OPT.'WeightedRandomValueType'}){
+					#calculate scaled value (1-100)
+					for (keys %$dh) {$$dh{$_} = ($$dh{$_}-$min)*(100/($max-$min));}
+				}
+				
+			}
+			else{
+				($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);
+			} 
+		}
 
 		#we got values, send 'em up!
-		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$href))? $::Options{OPT.'AmountOfStatItems'} : (keys %$href);
+		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);
 		my $currentID = ($::SongID)? Songs::Get_gid($::SongID,$field) : -1; 
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
 		
@@ -634,6 +671,7 @@ sub Updatestatistics
 	}
 	else #single tracks
 	{
+		if ($sorttype eq 'weighted') {$sorttype = 'playcount'; $suffix = ':average';}
 		Songs::SortList($source,'-'.$sorttype); @list = @$source;
 		if ($self->{butinvert}->get_active) { @list = reverse @list;}
 		
@@ -818,7 +856,8 @@ sub FormatSmalltime
 	
 	if ($sec > 31536000) { $result .= int($sec/31536000).'y '; $sec = $sec%31536000;}
 	if ($sec > 2592000) { $result .= int($sec/2592000).'m '; $sec = $sec%2592000;}
-	if ($sec > 604800) { $result .= int($sec/604800).'wk '; $sec = $sec%604800;}
+	elsif ($sec > 604800) { $result .= int($sec/604800).'wk ';} #show either weeks or months, not both
+	$sec = $sec%604800;
 	if ($sec > 86400) { $result .= int($sec/86400).'d '; $sec = $sec%86400;}
 	$result .= sprintf("%02d",int(($sec%86400)/3600)).':'.sprintf("%02d",int(($sec%3600)/60)).':'.sprintf("%02d",int($sec%60));
 
