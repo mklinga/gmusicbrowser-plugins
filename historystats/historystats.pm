@@ -13,10 +13,12 @@
 # - recent albums / album treshold
 # - do overview setting: track/album
 # - don't update overview if nothing has changed
+# - randomweight sort for single tracks
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
 # - sorting the playedlength (for now)
+# - update stats on songchange?
 #
 
 =gmbplugin HISTORYSTATS
@@ -119,6 +121,8 @@ sub Start {
 		if (defined $::Options{OPT.'OVTH'.$_}) {$OverviewTopheads{$_}->{enabled} = $::Options{OPT.'OVTH'.$_};}
 		else {$::Options{OPT.'OVTH'.$_} = $OverviewTopheads{$_}->{enabled};}
 	}
+	
+	
 }
 
 sub Stop {
@@ -245,7 +249,7 @@ sub new
 	$self->{needsupdate} = 1;
 
 	$self->signal_connect(destroy => \&DestroyCb);
-	::Watch($self, PlayingSong => \&SongChanged);
+	::Watch($self, CurSong => \&SongChanged);
 	::Watch($self, Played => \&SongPlayed);
 	::Watch($self, Filter => sub 
 		{
@@ -583,7 +587,7 @@ sub UpdateSite
 sub Updatestatistics
 {
 	my $self = shift;
-
+warn "Up!";
 	my ($field) = grep { $StatTypes{$_}->{label} eq $::Options{OPT.'StatisticsTypeCombo'}} keys %StatTypes;
 	my ($sorttype) = grep { $SortTypes{$_}->{label} eq $::Options{OPT.'StatisticsSortCombo'}} keys %SortTypes;
 
@@ -618,20 +622,27 @@ sub Updatestatistics
 				my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
 				my $sub = $randommode->MakeGroupScoreFunction($field);
 				($dh)=$sub->($source);
-				
-				#then we'll set scale of values to 0-100
-				my $min;my $max; my $total=0;
-				for (keys %$dh){
-					my $list=AA::GetIDs($field,$_);
-					next unless (scalar@$list);
-					$$dh{$_} /= scalar@$list;
-					if ((not defined $min) or ($$dh{$_} < $min)) {$min = $$dh{$_};}
-					elsif ((not defined $max) or ($$dh{$_} > $max)) {$max = $$dh{$_};}
-					$total += $$dh{$_};
-				}
-				if ($::Options{OPT.'WeightedRandomValueType'}){
+				if ($::Options{OPT.'WeightedRandomValueType'})
+				{
+					#then we'll set scale of values to 0-100 if wanted
+					my $min;my $max;
+					for (keys %$dh){
+						my $list=AA::GetIDs($field,$_);
+						next unless (scalar@$list);
+						$$dh{$_} /= scalar@$list; #we want only average values
+						if ((not defined $min) or ($$dh{$_} < $min)) {$min = $$dh{$_};}
+						elsif ((not defined $max) or ($$dh{$_} > $max)) {$max = $$dh{$_};}
+					}
 					#calculate scaled value (1-100)
 					for (keys %$dh) {$$dh{$_} = ($$dh{$_}-$min)*(100/($max-$min));}
+				}
+				else
+				{
+					for (keys %$dh){
+						my $list=AA::GetIDs($field,$_);
+						next unless (scalar@$list);
+						$$dh{$_} /= scalar@$list; #we want only average values
+					}
 				}
 				
 			}
@@ -653,6 +664,10 @@ sub Updatestatistics
 		
 			for my $ci (@cis){
 				next if ($ci == -1);
+				if (scalar@$source != scalar@$::Library){
+					my ($isin) = grep { $ci == $$source[$_] } 0..$#$source;
+					next unless (defined $isin);
+				}
 				my ($iscurrentIDinlist)= grep { $ci == $list[$_]} 0..$#list;
 				push @list, $ci unless (defined $iscurrentIDinlist);
 			}
@@ -1057,7 +1072,7 @@ sub STVChanged
 sub SongChanged 
 {
 	my ($widget,$force) = @_;
-	
+warn "Ch!";	
 	return if (($lastID == $::SongID) and (!$force));
 	
 	my $albumhaschanged = (Songs::Get_gid($lastID,'album') != Songs::Get_gid($::SongID,'album'))? 1 : 0; 
