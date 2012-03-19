@@ -13,12 +13,11 @@
 # - recent albums / album treshold
 # - do overview setting: track/album
 # - don't update overview if nothing has changed
-# - randomweight sort for single tracks
+# - overview context-menus (tracks!), other list handling
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
 # - sorting the playedlength (for now)
-# - update stats on songchange?
 #
 
 =gmbplugin HISTORYSTATS
@@ -48,7 +47,7 @@ use base 'Gtk2::Dialog';
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
-	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 0, WeightedRandomValueType => 1);
+	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1);
 
 my %sites =
 (
@@ -317,7 +316,7 @@ sub CreateHistorySite
 	$vbox->pack_start($sh,1,1,0);
 	$vbox->pack_start($sh2,1,1,0);
 
-	return ($vbox,$Hstore,$Hstore_albums);	
+	return ($vbox,$Hstore,$Hstore_albums);
 }
 
 sub CreateOverviewSite
@@ -426,8 +425,10 @@ sub CreateOverviewSite
 	
 	return ($vbox,\@Ostore_toplists,$Ostore);
 }
+
 sub CreateStatisticsSite
 {
+
 	my $self = shift;
 	
 	## Treeview and little else for statistics
@@ -457,35 +458,36 @@ sub CreateStatisticsSite
 
 	$stat_hbox1->pack_start($Sinvert,0,0,0);
 
-	# Treeview for statistics
-	my $Sstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt','Glib::String');
+	# Treeview for statistics: 
+	# fields in Sstore are  GID, markup, (raw)value, field, maxvalue, formattedvalue  
+	my $Sstore=Gtk2::TreeStore->new('Glib::ULong','Glib::String','Glib::String','Glib::String','Glib::UInt','Glib::String');
 	my $Streeview=Gtk2::TreeView->new($Sstore);
+	my $Sitemrenderer=CellRendererLAITE->new;
+	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( _"",$Sitemrenderer);
+	$Sitem->set_cell_data_func($Sitemrenderer, sub
+		{	my (undef,$cell,$store,$iter)=@_;
+			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
+			my $max=$store->get($iter,4); my $depth=$store->iter_depth($iter);
+			my %hash = ($gid => $value); my @type = ($store->get($iter,3));
+			my @markup = ($store->get($iter,1)); my @psize = ($::Options{OPT.'CoverSize'});
+			$cell->set( prop => [\@type,\@markup,\@psize], gid=>$gid, depth=>$depth, hash => \%hash, max => $max);# 'is-expander'=> $depth < $store->{depth});
+		});
 
-	my $Sitemrenderer=Gtk2::CellRendererText->new;
-	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( "Item",$Sitemrenderer,markup => 0);
-	$Sitem->set_cell_data_func($Sitemrenderer, sub 
-	{ 
-		my ($column, $cell, $model, $iter, $func_data) = @_; 
-		my $raw = $model->get($iter,0);
-		my $gid = $model->get($iter,2);
-		my $field = $model->get($iter,3);
-		if (($::Options{OPT.'ShowArtistForAlbumsAndTracks'}) and ($field =~ /album|title/)) {
-			my $arti; my $num = ''; 
-			if ($field eq 'album') { my $ag = AA::Get('album_artist:gid','album',$gid); $arti = Songs::Gid_to_Display('album_artist',$$ag[0]); } 
-			else { $arti = Songs::Get($gid,'artist'); }
-			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}
-			$arti = ::PangoEsc($arti);  
-			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
-		}
-		
-		if ($::SongID){
-			my $nowplaying = ($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field);
-			if (ref($nowplaying) eq 'ARRAY') { for (@$nowplaying) {if ($_ == $gid) {$raw = '<b>'.$raw.'</b>';}}}
-			elsif ($nowplaying == $gid) { $raw = '<b>'.$raw.'</b>';}
-		}
+#		if (($::Options{OPT.'ShowArtistForAlbumsAndTracks'}) and ($field =~ /album|title/)) {
+#			my $arti; my $num = ''; 
+#			if ($field eq 'album') { my $ag = AA::Get('album_artist:gid','album',$gid); $arti = Songs::Gid_to_Display('album_artist',$$ag[0]); } 
+#			else { $arti = Songs::Get($gid,'artist'); }
+#			if ($raw =~ /^(\d+\. )(.+)/) { $num = $1; $raw = $2;}
+#			$arti = ::PangoEsc($arti);  
+#			$raw = $num.$raw.'<small>  by  '.$arti.'</small>';
+#		}
+#		
+#		if ($::SongID){
+#			my $nowplaying = ($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field);
+#			if (ref($nowplaying) eq 'ARRAY') { for (@$nowplaying) {if ($_ == $gid) {$raw = '<b>'.$raw.'</b>';}}}
+#			elsif ($nowplaying == $gid) { $raw = '<b>'.$raw.'</b>';}
+#		}
 
-		$cell->set( markup => $raw ); 
-	}, undef);
 	
 	$Sitem->set_sort_column_id(0);
 	$Sitem->set_expand(1);
@@ -495,11 +497,11 @@ sub CreateStatisticsSite
 	$Streeview->append_column($Sitem);
 
 	my $Svaluerenderer=Gtk2::CellRendererText->new;
-	my $Svalue=Gtk2::TreeViewColumn->new_with_attributes( "Value",$Svaluerenderer,text => 1);
+	my $Svalue=Gtk2::TreeViewColumn->new_with_attributes( "Value",$Svaluerenderer,text => 5);
 	$Svalue->set_cell_data_func($Svaluerenderer, sub 
 	{ 
 		my ($column, $cell, $model, $iter, $func_data) = @_; 
-		my $raw = $model->get($iter,1);
+		my $raw = $model->get($iter,5);
 		$cell->set( text => $raw ); 
 	}, undef);
 	$Svalue->set_sort_column_id(1);
@@ -509,7 +511,7 @@ sub CreateStatisticsSite
 	$Svalue->set_clickable(::FALSE);
 	$Svalue->set_sort_indicator(::FALSE);
 	$Streeview->append_column($Svalue);
-	$Streeview->set_rules_hint(1);
+	$Streeview->set_rules_hint(0);
 	my $Sselection = $Streeview->get_selection;
 	$Sselection->set_mode('multiple');
 	$Sselection->signal_connect(changed => \&STVChanged);
@@ -652,20 +654,22 @@ sub Updatestatistics
 			}
 		}
 		
+		my $maxvalue;
 		for (0..$#list)
 		{
-			my $value;
-			if ($sorttype eq 'playedlength') { $value = FormatSmalltime($dh->{$list[$_]});}
-			else {$value = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
+			my $value = $dh->{$list[$_]}; my $formattedvalue;
+			$maxvalue = $value if ((not defined $maxvalue) or ($value > $maxvalue));
+			if ($sorttype eq 'playedlength') { $formattedvalue = FormatSmalltime($dh->{$list[$_]});}
+			else {$formattedvalue = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
 			
 			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
 			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc(Songs::Gid_to_Display($field,$list[$_])),1,$value,2,$list[$_],3,$field);
+			$self->{sstore}->set($self->{sstore}->append(undef),0,$list[$_],1,"%a",2,$value,3,$field,4,$maxvalue,5,$formattedvalue);
 		}
 	}
 	else #single tracks
 	{
-		my $max;
+		my $max; my $maxvalue;
 		if ($sorttype eq 'weighted') {
 			my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
 			my $sub = $randommode->MakeSingleScoreFunction();
@@ -673,6 +677,7 @@ sub Updatestatistics
 			ScaleWRandom(\%$dh,'title');
 			$max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);	
 			@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+			$maxvalue = ($self->{butinvert}->get_active)? $$dh{$list[$#list]} : $$dh{$list[0]};
 		}
 		else
 		{
@@ -681,6 +686,7 @@ sub Updatestatistics
 			if ($self->{butinvert}->get_active) { @list = reverse @list;}
 			$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
 			$#list = ($max-1);
+			$maxvalue = ($self->{butinvert}->get_active)? Songs::Get($list[$#list],$sorttype) : Songs::Get($list[0],$sorttype);
 		}
 		
 		if ($::Options{OPT.'AddCurrentToStatList'})
@@ -692,15 +698,15 @@ sub Updatestatistics
 		
 		for (0..$#list)
 		{
-			my $title; my $value;
-			if ($sorttype eq 'weighted'){ $title = Songs::Get($list[$_],'title'); $value = $$dh{$list[$_]};}
-			else {($title,$value) = Songs::Get($list[$_],'title',$sorttype);}
-			if ($sorttype !~ /playedlength/) { $value = sprintf ("%.3f", $value);}
-			else {$value = FormatSmalltime($value);}
+			my $value; my $markedvalue;
+			if ($sorttype eq 'weighted'){ $value = $$dh{$list[$_]};}
+			else {$value = Songs::Get($list[$_],$sorttype);}
+			if ($sorttype !~ /playedlength/) { $markedvalue = sprintf ("%.3f", $value);}
+			else {$markedvalue = FormatSmalltime($value);}
 			
 			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
 			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append,0,$num.::PangoEsc($title),1, $value,2,$list[$_],3,$field);
+			$self->{sstore}->set($self->{sstore}->append(undef),0,$list[$_],1,$num."%t by %a",2,$value,3,$field,4,$maxvalue,5,$markedvalue);
 		}
 	}
 
@@ -777,7 +783,7 @@ sub Updateoverview
 sub Updatehistory
 {
 	my $self = shift;
-	
+
 	if ($HistoryHash{needupdate})
 	{
 		delete $sourcehash{$_} for (keys %sourcehash);
@@ -836,7 +842,7 @@ sub Updatehistory
 			3,'album');
 	}	
 		
-	return 1;	
+	return 1;	 
 }
 
 sub CreateHistory
@@ -1163,5 +1169,150 @@ sub ScaleWRandom
 
 	return 1;
 }
+
+package CellRendererLAITE;
+use Glib::Object::Subclass 'Gtk2::CellRenderer',
+properties => [ Glib::ParamSpec->ulong('gid', 'gid', 'group id',		0, 2**32-1, 0,	[qw/readable writable/]),
+		Glib::ParamSpec->ulong('all_count', 'all_count', 'all_count',	0, 2**32-1, 0,	[qw/readable writable/]),
+		Glib::ParamSpec->ulong('max', 'max', 'max number of songs',	0, 2**32-1, 0,	[qw/readable writable/]),
+		Glib::ParamSpec->scalar('prop', 'prop', '[[field],[markup],[picsize]]',		[qw/readable writable/]),
+		Glib::ParamSpec->scalar('hash', 'hash', 'gid to song count',			[qw/readable writable/]),
+		Glib::ParamSpec->int('depth', 'depth', 'depth',			0, 20, 0,	[qw/readable writable/]),
+		];
+use constant { PAD => 2, XPAD => 2, YPAD => 2,		P_FIELD => 0, P_MARKUP =>1, P_PSIZE=>2, P_ICON =>3, P_HORIZON=>4 };
+
+#sub INIT_INSTANCE
+#{	#$_[0]->set(xpad=>2,ypad=>2); #Gtk2::CellRendererText has these padding values as default
+#}
+sub makelayout
+{	my ($cell,$widget)=@_;
+	my ($prop,$gid,$depth)=$cell->get(qw/prop gid depth/);
+	my $layout=Gtk2::Pango::Layout->new( $widget->create_pango_context );
+	my $field=$prop->[P_FIELD][$depth];
+	my $markup=$prop->[P_MARKUP][$depth];
+	$markup= !$markup ? "%a" : $markup eq 1 ? "<b>%a</b>%Y\n<small>%s <small>%l</small></small>" : $markup;
+	if ($field eq 'title') { $markup = ::ReplaceFields($gid,$markup,::TRUE);}
+	else { $markup=AA::ReplaceFields( $gid,$markup,$field,::TRUE ); }
+	$layout->set_markup($markup);
+	return $layout;
+}
+
+sub GET_SIZE
+{	my ($cell, $widget, $cell_area) = @_;
+	my $layout=$cell->makelayout($widget);
+	my ($w,$h)=$layout->get_pixel_size;
+	my ($prop,$depth)=$cell->get('prop','depth');
+	my $s= $prop->[P_PSIZE][$depth] || $prop->[P_ICON][$depth];
+	if ($s == -1)	{$s=$h}
+	elsif ($h<$s)	{$h=$s}
+	my $width= $prop->[P_HORIZON] ? $w+$s+PAD+XPAD*2 : 0;
+	return (0,0,$width,$h+YPAD*2);
+}
+
+sub RENDER
+{	my ($cell, $window, $widget, $background_area, $cell_area, $expose_area, $flags) = @_;
+	my $x=$cell_area->x+XPAD;
+	my $y=$cell_area->y+YPAD;
+	my ($prop,$gid,$depth,$hash,$max)=$cell->get(qw/prop gid depth hash max/);
+	my $iconfield= $prop->[P_ICON][$depth];
+	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE][$depth];
+	my $layout=$cell->makelayout($widget);
+	my ($w,$h)=$layout->get_pixel_size;
+	$psize=$h if $psize == -1;
+	$w+=PAD+$psize;
+	my $offy=0;
+	if ($psize>$h)
+	{	$offy+=int( $cell->get('yalign')*($psize-$h) );
+		$h=$psize;
+	}
+	my $state= ($flags & 'selected') ?
+		( $widget->has_focus			? 'selected'	: 'active'):
+		( $widget->state eq 'insensitive'	? 'insensitive'	: 'normal');
+
+	if ($psize && $gid!=FilterList::GID_ALL)
+	{	my $field=$prop->[P_FIELD][$depth];
+		my $pixbuf=	$iconfield	? $widget->render_icon(Songs::Picture($gid,$field,'icon'),'menu')||undef: #FIXME could be better
+						AAPicture::pixbuf($field,$gid,$psize);
+		if ($pixbuf) #pic cached -> draw now
+		{	my $offy=int(($h-$pixbuf->get_height)/2);#center pic
+			my $offx=int(($psize-$pixbuf->get_width)/2);
+			$window->draw_pixbuf( $widget->style->black_gc, $pixbuf,0,0,
+				$x+$offx, $y+$offy,-1,-1,'none',0,0);
+		}
+		elsif (defined $pixbuf) #pic exists but not cached -> load and draw in idle
+		{	my ($tx,$ty)=$widget->widget_to_tree_coords($x,$y);
+			$cell->{idle}||=Glib::Idle->add(\&idle,$cell);
+			$cell->{widget}||=$widget;
+			$cell->{window}||=$window;
+			$cell->{queue}{$ty}=[$tx,$ty,$gid,$psize,$h,\$field];
+		}
+	}
+
+	if ($max && !$depth && !($flags & 'selected') && $gid!=FilterList::GID_ALL)	#draw histogram only works for depth==0
+	{	# if parent widget is a scrolledwindow, maxwidth use the visible width instead of the total width of the treeview
+		my $maxwidth= $widget->parent->isa('Gtk2::ScrolledWindow') ? $widget->parent->get_hadjustment->page_size : $cell_area->width;
+		$maxwidth-= 3*XPAD+$psize;
+		$maxwidth=5 if $maxwidth<5;
+		my $width= $hash->{$gid} / $max * $maxwidth;
+
+		$widget->style->paint_flat_box( $window,$state,'none',$expose_area,$widget,'cell_odd_ruled_last',
+			$x+$psize+PAD, $cell_area->y, $width, $cell_area->height );
+	}
+
+	# draw text
+	$widget-> get_style-> paint_layout($window, $state, 1,
+		$cell_area, $widget, undef, $x+$psize+PAD, $y+$offy, $layout);
+
+	my $field=$prop->[P_FIELD][$depth];
+	$field=~s/\..*//;
+	my $has_stars= $Songs::Def{$field}{starprefix}; #FIXME shouldn't use Songs::Def directly
+	if ($gid!=FilterList::GID_ALL && $has_stars)
+	{	if (my $pb= Songs::Stars($gid,$field))
+		{	# FIXME center verticaly or resize ?
+			$window->draw_pixbuf( $widget->style->black_gc, $pb,0,0, $x+XPAD+$w, $y+$offy,-1,-1,'none',0,0);
+		}
+	}
+}
+
+sub reset
+{	my $cell=$_[0];
+	delete $cell->{queue};
+	Glib::Source->remove( $cell->{idle} ) if $cell->{idle};
+	delete $cell->{idle};
+}
+
+sub idle
+{	my $cell=$_[0];
+	{	last unless $cell->{queue} && $cell->{widget}->mapped;
+		my ($y,$ref)=each %{ $cell->{queue} };
+		last unless $ref;
+		delete $cell->{queue}{$y};
+		_drawpix($cell->{widget},$cell->{window},@$ref);
+		last unless scalar keys %{ $cell->{queue} };
+		return 1;
+	}
+	delete $cell->{queue};
+	delete $cell->{widget};
+	delete $cell->{window};
+	return $cell->{idle}=undef;
+}
+
+sub _drawpix
+{	my ($widget,$window,$ctx,$cty,$gid,$psize,$h,$fieldref)=@_;
+	my ($vx,$vy,$vw,$vh)=$widget->get_visible_rect->values;
+	#warn "   $gid\n";
+	return if $vx > $ctx+$psize || $vy > $cty+$h || $vx+$vw < $ctx || $vy+$vh < $cty; #no longer visible
+	#warn "DO $gid\n";
+	my ($x,$y)=$widget->tree_to_widget_coords($ctx,$cty);
+	my $pixbuf= AAPicture::pixbuf($$fieldref,$gid, $psize,1);
+	return unless $pixbuf;
+
+	my $offy=int( ($h-$pixbuf->get_height)/2 );#center pic
+	my $offx=int( ($psize-$pixbuf->get_width )/2 );
+	$window->draw_pixbuf( $widget->style->black_gc, $pixbuf,0,0,
+		$x+$offx, $y+$offy, -1,-1,'none',0,0);
+}
+
+
 
 1
