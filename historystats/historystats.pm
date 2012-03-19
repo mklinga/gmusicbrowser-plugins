@@ -110,7 +110,7 @@ sub Start {
 	if (not defined $::Options{OPT.'StatisticsStartTime'}) {
 		$::Options{OPT.'StatisticsStartTime'} = time;
 	}
-	$::Options{OPT.'StatWeightedRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}});
+	$::Options{OPT.'StatWeightedRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (defined $::Options{OPT.'StatWeightedRandomMode'});
 
 	$globalstats{starttime} = $::Options{OPT.'StatisticsStartTime'}; 
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
@@ -338,7 +338,7 @@ sub CreateOverviewSite
 		$Oc->set_expand(1);
 		$Otoptreeviews[$_]->append_column($Oc);
 		my $render = Gtk2::CellRendererText->new;
-		$render->set_alignment(1,.5);
+		#$render->set_alignment(1,.5);
 		my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",$render,text => 1);
 		$Opc->set_expand(0);
 		$Otoptreeviews[$_]->append_column($Opc);
