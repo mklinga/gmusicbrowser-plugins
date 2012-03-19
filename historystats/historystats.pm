@@ -13,7 +13,7 @@
 # - recent albums / album treshold
 # - do overview setting: track/album
 # - don't update overview if nothing has changed
-# - overview context-menus (tracks!), other list handling
+# - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
@@ -47,7 +47,8 @@ use base 'Gtk2::Dialog';
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
-	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1);
+	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
+	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1);
 
 my %sites =
 (
@@ -175,12 +176,17 @@ sub prefbox
 	my $sCombo2 = ::NewPrefCombo( OPT.'StatWeightedRandomMode', \@randoms);
 	my $sCheck7 = ::NewPrefCheckButton(OPT.'WeightedRandomEnabled','Enable sorting by weighted random: ');
 	my $sCheck8 = ::NewPrefCheckButton(OPT.'WeightedRandomValueType','Show scaled value (0-100) of WRandom-item instead of real');
+	my $sLabel1 = Gtk2::Label->new('Show images in list for:');
+	$sLabel1->set_alignment(0,0.5);
+	my $sCheck9a = ::NewPrefCheckButton(OPT.'StatImageArtist','Artist');
+	my $sCheck9b = ::NewPrefCheckButton(OPT.'StatImageAlbum','Album');
+	my $sCheck9c = ::NewPrefCheckButton(OPT.'StatImageTitle','Track');
 
-	
 	my @vbox = ( 
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],$oAmount,$oAmount2,$oCombo,[$sCheck7,$sCombo2],$sCheck8),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],$oAmount,$oAmount2,$oCombo,[$sCheck7,$sCombo2],$sCheck8,
+				$sLabel1,[$sCheck9a,$sCheck9b,$sCheck9c]),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]) 
 	);
 	
@@ -1004,7 +1010,7 @@ sub STVContextPress
 	for (@paths)
 	{
 		my $iter=$store->get_iter($_);
-		my $ID=$store->get( $store->get_iter($_),2);
+		my $ID=$store->get( $store->get_iter($_),0);
 		$field=$store->get( $store->get_iter($_),3);
 		push @IDs,$ID;
 	}
@@ -1053,7 +1059,7 @@ sub STVChanged
 	for (@paths)
 	{
 		my $iter=$store->get_iter($_);
-		my $GID=$store->get( $store->get_iter($_),2);
+		my $GID=$store->get( $store->get_iter($_),0);
 		$field=$store->get( $store->get_iter($_),3);
 		next if ($field eq 'title');
 		push @Filters, Songs::MakeFilterFromGID($field,$GID);
@@ -1202,8 +1208,11 @@ sub GET_SIZE
 	my $layout=$cell->makelayout($widget);
 	my ($w,$h)=$layout->get_pixel_size;
 	my ($prop,$depth)=$cell->get('prop','depth');
+	my $ICanHasPic = $prop->[P_FIELD][$depth];;
+	$ICanHasPic =~ s/([\w']+)/\u\L$1/;
+	$ICanHasPic = ((defined $::Options{'PLUGIN_HISTORYSTATS_StatImage'.$ICanHasPic}) and ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.$ICanHasPic} == 1))? 1 : 0;
 	my $s= $prop->[P_PSIZE][$depth] || $prop->[P_ICON][$depth];
-	if ($s == -1)	{$s=$h}
+	if ((!$ICanHasPic) or ($s == -1)) {$s=$h}
 	elsif ($h<$s)	{$h=$s}
 	my $width= $prop->[P_HORIZON] ? $w+$s+PAD+XPAD*2 : 0;
 	return (0,0,$width,$h+YPAD*2);
@@ -1215,10 +1224,13 @@ sub RENDER
 	my $y=$cell_area->y+YPAD;
 	my ($prop,$gid,$depth,$hash,$max)=$cell->get(qw/prop gid depth hash max/);
 	my $iconfield= $prop->[P_ICON][$depth];
+	my $ICanHasPic = $prop->[P_FIELD][$depth];;
+	$ICanHasPic =~ s/([\w']+)/\u\L$1/;
+	$ICanHasPic = ((defined $::Options{'PLUGIN_HISTORYSTATS_StatImage'.$ICanHasPic}) and ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.$ICanHasPic} == 1))? 1 : 0;
 	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE][$depth];
 	my $layout=$cell->makelayout($widget);
 	my ($w,$h)=$layout->get_pixel_size;
-	$psize=$h if $psize == -1;
+	$psize=$h if (($psize == -1) or (!$ICanHasPic));
 	$w+=PAD+$psize;
 	my $offy=0;
 	if ($psize>$h)
@@ -1229,8 +1241,9 @@ sub RENDER
 		( $widget->has_focus			? 'selected'	: 'active'):
 		( $widget->state eq 'insensitive'	? 'insensitive'	: 'normal');
 
-	if ($psize && $gid!=FilterList::GID_ALL)
-	{	my $field=$prop->[P_FIELD][$depth];
+	if (($psize) and ($ICanHasPic))
+	{	
+		my $field=$prop->[P_FIELD][$depth];
 		my $pixbuf=	$iconfield	? $widget->render_icon(Songs::Picture($gid,$field,'icon'),'menu')||undef: #FIXME could be better
 						AAPicture::pixbuf($field,$gid,$psize);
 		if ($pixbuf) #pic cached -> draw now
