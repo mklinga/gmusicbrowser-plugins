@@ -587,7 +587,7 @@ sub UpdateSite
 sub Updatestatistics
 {
 	my $self = shift;
-warn "Up!";
+
 	my ($field) = grep { $StatTypes{$_}->{label} eq $::Options{OPT.'StatisticsTypeCombo'}} keys %StatTypes;
 	my ($sorttype) = grep { $SortTypes{$_}->{label} eq $::Options{OPT.'StatisticsSortCombo'}} keys %SortTypes;
 
@@ -622,28 +622,7 @@ warn "Up!";
 				my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
 				my $sub = $randommode->MakeGroupScoreFunction($field);
 				($dh)=$sub->($source);
-				if ($::Options{OPT.'WeightedRandomValueType'})
-				{
-					#then we'll set scale of values to 0-100 if wanted
-					my $min;my $max;
-					for (keys %$dh){
-						my $list=AA::GetIDs($field,$_);
-						next unless (scalar@$list);
-						$$dh{$_} /= scalar@$list; #we want only average values
-						if ((not defined $min) or ($$dh{$_} < $min)) {$min = $$dh{$_};}
-						elsif ((not defined $max) or ($$dh{$_} > $max)) {$max = $$dh{$_};}
-					}
-					#calculate scaled value (1-100)
-					for (keys %$dh) {$$dh{$_} = ($$dh{$_}-$min)*(100/($max-$min));}
-				}
-				else
-				{
-					for (keys %$dh){
-						my $list=AA::GetIDs($field,$_);
-						next unless (scalar@$list);
-						$$dh{$_} /= scalar@$list; #we want only average values
-					}
-				}
+				ScaleWRandom(\%$dh,$field);
 				
 			}
 			else{
@@ -686,12 +665,23 @@ warn "Up!";
 	}
 	else #single tracks
 	{
-		if ($sorttype eq 'weighted') {$sorttype = 'playcount'; $suffix = ':average';}
-		Songs::SortList($source,'-'.$sorttype); @list = @$source;
-		if ($self->{butinvert}->get_active) { @list = reverse @list;}
-		
-		my $max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
-		$#list = ($max-1);
+		my $max;
+		if ($sorttype eq 'weighted') {
+			my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
+			my $sub = $randommode->MakeSingleScoreFunction();
+			($dh) = $sub->($source);
+			ScaleWRandom(\%$dh,'title');
+			$max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);	
+			@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+		}
+		else
+		{
+			Songs::SortList($source,'-'.$sorttype); 
+			@list = @$source;
+			if ($self->{butinvert}->get_active) { @list = reverse @list;}
+			$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
+			$#list = ($max-1);
+		}
 		
 		if ($::Options{OPT.'AddCurrentToStatList'})
 		{
@@ -702,7 +692,9 @@ warn "Up!";
 		
 		for (0..$#list)
 		{
-			my ($title,$value) = Songs::Get($list[$_],'title',$sorttype);
+			my $title; my $value;
+			if ($sorttype eq 'weighted'){ $title = Songs::Get($list[$_],'title'); $value = $$dh{$list[$_]};}
+			else {($title,$value) = Songs::Get($list[$_],'title',$sorttype);}
 			if ($sorttype !~ /playedlength/) { $value = sprintf ("%.3f", $value);}
 			else {$value = FormatSmalltime($value);}
 			
@@ -1072,7 +1064,7 @@ sub STVChanged
 sub SongChanged 
 {
 	my ($widget,$force) = @_;
-warn "Ch!";	
+	
 	return if (($lastID == $::SongID) and (!$force));
 	
 	my $albumhaschanged = (Songs::Get_gid($lastID,'album') != Songs::Get_gid($::SongID,'album'))? 1 : 0; 
@@ -1136,6 +1128,40 @@ sub LogHistory
 	close $fh;
 
 	return 1;	
+}
+
+sub Random::MakeSingleScoreFunction
+{	my $self=shift;
+	my @Score;
+	$self->{Slist}=\@Score;
+	my ($before,$score)=$self->make;
+	my $func= $before.'; sub {my %s; $s{$_}='.$score.' for @{$_[0]}; return \%s; }';
+	my $sub=eval $func;
+	if ($@) { warn "Error in eval '$func' :\n$@"; $Score[$_]=1 for @{$_[0]}; }
+	return $sub;
+}
+
+sub ScaleWRandom
+{
+	my ($dh,$field) = @_;
+
+	my $min;my $max;
+	for (keys %{$dh}){
+		my $list = ($field eq 'title')? [$_] : AA::GetIDs($field,$_);
+		next unless (scalar@$list);
+		$$dh{$_} /= scalar@$list; #we want only average values
+		if ((not defined $min) or ($$dh{$_} < $min)) {$min = $$dh{$_};}
+		elsif ((not defined $max) or ($$dh{$_} > $max)) {$max = $$dh{$_};}
+	}
+	
+	if ($::Options{OPT.'WeightedRandomValueType'}) #calculate scaled value (1-100)
+	{
+		for (keys %{$dh}) {
+			$$dh{$_} = ($$dh{$_}-$min)*(100/($max-$min));
+		}
+	}
+
+	return 1;
 }
 
 1
