@@ -1196,7 +1196,7 @@ sub ScaleWRandom
 	if ($::Options{OPT.'WeightedRandomValueType'}) #calculate scaled value (1-100)
 	{
 		for (keys %{$dh}) {
-			$$dh{$_} = ($$dh{$_}-$min)*(100/($max-$min));
+			$$dh{$_} = ($max == $min)? 100 : ($$dh{$_}-$min)*(100/($max-$min));
 		}
 	}
 
@@ -1285,10 +1285,12 @@ sub RENDER
 	if ($max && !($flags & 'selected'))
 	{	
 		my $maxwidth = $background_area->width;
-		$maxwidth-= 3*XPAD+$psize;
+		$maxwidth-= 3*XPAD+$psize+($maxwidth/5);
 		$maxwidth=5 if $maxwidth<5;
-		my $width= $hash->{$gid} / $max * $maxwidth;
 
+		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth;
+		$width = int(0.5+(($width+(100*$maxwidth/5))/100));
+		 
 		$widget->style->paint_flat_box( $window,$state,'none',$expose_area,$widget,'cell_odd_ruled_last',
 			$x+$psize+XPAD, $cell_area->y, $width, $cell_area->height );
 	}
