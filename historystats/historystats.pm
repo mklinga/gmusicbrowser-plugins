@@ -9,15 +9,15 @@
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats (only for playcount) 
 # - Weekly/Monthly topNN, weeksinlist/last week position etc.
-# - histogram for stats
 # - recent albums / album treshold
-# - do overview setting: track/album
 # - don't update overview if nothing has changed
 # - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
+# - histogram color?
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
 # - sorting the playedlength (for now)
+# - values <1 in statlist w/ histogram
 #
 
 =gmbplugin HISTORYSTATS
@@ -48,7 +48,7 @@ use base 'Gtk2::Dialog';
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
-	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1);
+	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums');
 
 my %sites =
 (
@@ -148,19 +148,19 @@ sub prefbox
 	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
 
 	# Overview
-	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,20, step=>1, page=>2, text =>_("Number of top-items in Overview: "));
+	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,20, step=>1, page=>2, text =>_("Items in toplists: "));
 	my $oLabel1 = Gtk2::Label->new('Show toplists for (changing requires restart of plugin):');
 	$oLabel1->set_alignment(0,0.5);
 	my $oCheck1 = ::NewPrefCheckButton(OPT.'OVTHartist','Artists');
 	my $oCheck2 = ::NewPrefCheckButton(OPT.'OVTHalbum','Albums');
 	my $oCheck3 = ::NewPrefCheckButton(OPT.'OVTHtitle','Tracks');
 	my $oCheck4 = ::NewPrefCheckButton(OPT.'OVTHgenre','Genres');
-	my $oAmount2 = ::NewPrefSpinButton(OPT.'OverviewTop40Amount',3,100, step=>1, page=>5, text =>_("Items are shown in main charts: "));
+	my $oAmount2 = ::NewPrefSpinButton(OPT.'OverviewTop40Amount',3,100, step=>1, page=>5, text =>_("Items in main chart: "));
 	my @omodes = ('weekly','monthly');
 	my $oCombo = ::NewPrefCombo(OPT.'OverviewTop40Mode',\@omodes, text => 'Update main chart');
+	my @omodes2 = ('Artists','Albums','Tracks');
+	my $oCombo2 = ::NewPrefCombo(OPT.'OverviewTop40Item',\@omodes2, text => 'Show main chart for ');
 
-	
-	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
 	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
@@ -184,10 +184,10 @@ sub prefbox
 
 	my @vbox = ( 
 		::Vpack($gAmount1), 
-		::Vpack([$hCheck1,$hCheck2],$hCheck3,[$hAmount,$hCombo],$hEntry1,$hEntry2), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],$oAmount,$oAmount2,$oCombo,[$sCheck7,$sCombo2],$sCheck8,
-				$sLabel1,[$sCheck9a,$sCheck9b,$sCheck9c]),
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo]) 
+		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hEntry1,$hEntry2]), 
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo],[$sCheck7,$sCombo2],$sCheck8,
+				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c]) 
 	);
 	
 	$frame[$_]->add($vbox[$_]) for (0..$#frame);
@@ -357,12 +357,6 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->show;
 		
 		$vbox->pack_start($Otoptreeviews[$_],0,0,0);
-#		my $sw = Gtk2::ScrolledWindow->new;
-#		$sw->add($Otoptreeviews[$_]);
-#		$sw->set_shadow_type('none');
-#		$sw->set_policy('automatic','automatic');
-#		$sw->show;
-#		$vbox->pack_start($sw,1,1,0);
 	}
 
 	#treeview for top40
@@ -375,15 +369,15 @@ sub CreateOverviewSite
 	$Oicon->set_sort_column_id(0);
 	$Oicon->set_fixed_width(32);
 	$Oicon->set_min_width(32);
-	my $Otext=Gtk2::TreeViewColumn->new_with_attributes( "Pos",Gtk2::CellRendererText->new,text => 1);
-	$Otext->set_sort_column_id(1);
-	$Otext->set_expand(0);
+	my $Opos=Gtk2::TreeViewColumn->new_with_attributes( "Pos",Gtk2::CellRendererText->new,text => 1);
+	$Opos->set_sort_column_id(1);
+	$Opos->set_expand(0);
 	my $Ocover=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 2);
 	$Ocover->set_sort_column_id(0);
 	$Ocover->set_fixed_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_min_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_expand(0);
-	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Album",Gtk2::CellRendererText->new,text => 3);
+	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Item",Gtk2::CellRendererText->new,text => 3);
 	$Olabel->set_sort_column_id(1);
 	$Olabel->set_expand(1);
 	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "PC",Gtk2::CellRendererText->new,text => 4);
@@ -393,12 +387,12 @@ sub CreateOverviewSite
 	$Owil->set_sort_column_id(1);
 	$Owil->set_expand(0);
 
-	$Otreeview->append_column($Oicon);
-	$Otreeview->append_column($Otext);
+#	$Otreeview->append_column($Oicon);
+#	$Otreeview->append_column($Opos);
 	$Otreeview->append_column($Ocover);
 	$Otreeview->append_column($Olabel);
 	$Otreeview->append_column($Opc);
-	$Otreeview->append_column($Owil);
+#	$Otreeview->append_column($Owil);
 
 	$Otreeview->get_selection->set_mode('none');
 	$Otreeview->set_rules_hint(1);
@@ -466,18 +460,18 @@ sub CreateStatisticsSite
 
 	# Treeview for statistics: 
 	# fields in Sstore are  GID, markup, (raw)value, field, maxvalue, formattedvalue  
-	my $Sstore=Gtk2::TreeStore->new('Glib::ULong','Glib::String','Glib::String','Glib::String','Glib::UInt','Glib::String');
+	my $Sstore=Gtk2::ListStore->new('Glib::ULong','Glib::String','Glib::String','Glib::String','Glib::UInt','Glib::String');
 	my $Streeview=Gtk2::TreeView->new($Sstore);
 	my $Sitemrenderer=CellRendererLAITE->new;
 	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( _"",$Sitemrenderer);
 	$Sitem->set_cell_data_func($Sitemrenderer, sub
 		{	my (undef,$cell,$store,$iter)=@_;
 			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
-			my $max=$store->get($iter,4); my $depth=$store->iter_depth($iter);
-			my %hash = ($gid => $value); my @type = ($store->get($iter,3));
-			my @psize = ($::Options{OPT.'CoverSize'});
-			my @markup = ($store->get($iter,1));
-			$cell->set( prop => [\@type,\@markup,\@psize], gid=>$gid, depth=>$depth, hash => \%hash, max => $max);# 'is-expander'=> $depth < $store->{depth});
+			my $max=$store->get($iter,4);
+			my %hash = ($gid => $value); my $type = $store->get($iter,3);
+			my $psize = ($::Options{OPT.'CoverSize'});
+			my $markup = $store->get($iter,1);
+			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max);
 		});
 
 	$Sitem->set_sort_column_id(0);
@@ -655,7 +649,7 @@ sub Updatestatistics
 			
 			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
 			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append(undef),0,$list[$_],1,HandleStatMarkup($field,$list[$_],$num),2,$value,3,$field,4,$maxvalue,5,$formattedvalue);
+			$self->{sstore}->set($self->{sstore}->append,0,$list[$_],1,HandleStatMarkup($field,$list[$_],$num),2,$value,3,$field,4,$maxvalue,5,$formattedvalue);
 		}
 	}
 	else #single tracks
@@ -697,7 +691,7 @@ sub Updatestatistics
 			
 			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
 			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append(undef),0,$list[$_],1,HandleStatMarkup($field,$list[$_],$num),2,$value,3,$field,4,$maxvalue,5,$markedvalue);
+			$self->{sstore}->set($self->{sstore}->append,0,$list[$_],1,HandleStatMarkup($field,$list[$_],$num),2,$value,3,$field,4,$maxvalue,5,$markedvalue);
 		}
 	}
 
@@ -749,20 +743,41 @@ sub Updateoverview
 	
 	
 	# Main Chart
-	#TODO: Handle properly with @playtimes when possible, for now we'll just put TopNN albums here
-		
-	my ($dh) = Songs::BuildHash('album', $::Library, undef, 'playcount:sum');
-	my $max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$dh))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$dh);
-	@list = (sort { $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+	#TODO: Handle properly with @playtimes when possible, for now we'll just put TopNN items here
+	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'title');
+	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
+	
+	unless($field eq 'title'){
+		($dh) = Songs::BuildHash($field, $::Library, undef, 'playcount:sum');
+		$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$dh))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$dh);
+		@list = (sort { $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+	}
+	else {
+		@list = @$::Library;
+		Songs::SortList(\@list,'-playcount'); 
+		$max = ($::Options{OPT.'OverviewTop40Amount'} < (scalar@list))? $::Options{OPT.'OverviewTop40Amount'} : (scalar@list);
+	}
 	$self->{ostore_main}->clear;
 	my $icon = $self->render_icon("gtk-add","menu");
 	for (0..$#list){
+		my $label; my $value; my $pic; 
+	
+		if ($field eq 'title'){
+			($label,$value) = Songs::Get($list[$_],qw/title playcount/);
+			$pic = AAPicture::pixbuf('album', Songs::Get_gid($list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
+		}
+		else{
+			$label = Songs::Gid_to_Display($field,$list[$_]);
+			$value = $$dh{$list[$_]};
+			$pic = AAPicture::pixbuf($field, $list[$_], $::Options{OPT.'CoverSize'}, 1);
+		}
+		
 		$self->{ostore_main}->set($self->{ostore_main}->append,
 			0,$icon,
 			1,$_,
-			2,AAPicture::pixbuf('album', $list[$_], $::Options{OPT.'CoverSize'}, 1),
-			3,Songs::Gid_to_Display('album',$list[$_]),
-			4,$$dh{$list[$_]},
+			2,$pic,
+			3,($_+1).' - '.$label,
+			4,$value,
 			5,'-',
 			6,$list[$_]	
 		);
@@ -1195,7 +1210,6 @@ properties => [ Glib::ParamSpec->ulong('gid', 'gid', 'group id',		0, 2**32-1, 0,
 		Glib::ParamSpec->ulong('max', 'max', 'max number of songs',	0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->scalar('prop', 'prop', '[[field],[markup],[picsize]]',		[qw/readable writable/]),
 		Glib::ParamSpec->scalar('hash', 'hash', 'gid to song count',			[qw/readable writable/]),
-		Glib::ParamSpec->int('depth', 'depth', 'depth',			0, 20, 0,	[qw/readable writable/]),
 		];
 use constant { PAD => 2, XPAD => 2, YPAD => 2,		P_FIELD => 0, P_MARKUP =>1, P_PSIZE=>2, P_ICON =>3, P_HORIZON=>4 };
 
@@ -1204,10 +1218,10 @@ use constant { PAD => 2, XPAD => 2, YPAD => 2,		P_FIELD => 0, P_MARKUP =>1, P_PS
 #}
 sub makelayout
 {	my ($cell,$widget)=@_;
-	my ($prop,$gid,$depth)=$cell->get(qw/prop gid depth/);
+	my ($prop,$gid)=$cell->get(qw/prop gid/);
 	my $layout=Gtk2::Pango::Layout->new( $widget->create_pango_context );
-	my $field=$prop->[P_FIELD][$depth];
-	my $markup=$prop->[P_MARKUP][$depth] || "%a";
+	my $field=$prop->[P_FIELD];
+	my $markup=$prop->[P_MARKUP] || "%a";
 	if ($field eq 'title') { $markup = ::ReplaceFields($gid,$markup,::TRUE);}
 	else { $markup=AA::ReplaceFields( $gid,$markup,$field,::TRUE ); }
 	$layout->set_markup($markup);
@@ -1218,9 +1232,9 @@ sub GET_SIZE
 {	my ($cell, $widget, $cell_area) = @_;
 	my $layout=$cell->makelayout($widget);
 	my ($w,$h)=$layout->get_pixel_size;
-	my ($prop,$depth)=$cell->get('prop','depth');
-	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD][$depth])})? 1 : 0;
-	my $s= $prop->[P_PSIZE][$depth] || $prop->[P_ICON][$depth];
+	my ($prop)=$cell->get('prop');
+	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
+	my $s= $prop->[P_PSIZE] || $prop->[P_ICON];
 	if ((!$ICanHasPic) or ($s == -1)) {$s=0}
 	elsif ($h<$s)	{$h=$s}
 	my $width= $prop->[P_HORIZON] ? $w+$s+PAD+XPAD*2 : 0;
@@ -1229,12 +1243,12 @@ sub GET_SIZE
 
 sub RENDER
 {	my ($cell, $window, $widget, $background_area, $cell_area, $expose_area, $flags) = @_;
-	my $x=$cell_area->x+XPAD; $x=2;
+	my $x=$cell_area->x+XPAD;
 	my $y=$cell_area->y+YPAD;
-	my ($prop,$gid,$depth,$hash,$max)=$cell->get(qw/prop gid depth hash max/);
-	my $iconfield= $prop->[P_ICON][$depth];
-	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD][$depth])})? 1 : 0;
-	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE][$depth];
+	my ($prop,$gid,$hash,$max)=$cell->get(qw/prop gid hash max/);
+	my $iconfield= $prop->[P_ICON];
+	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
+	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE];
 	my $layout=$cell->makelayout($widget);
 	my ($w,$h)=$layout->get_pixel_size;
 	$psize=0 if (($psize == -1) or (!$ICanHasPic));
@@ -1250,7 +1264,7 @@ sub RENDER
 
 	if (($psize) and ($ICanHasPic))
 	{	
-		my $field=$prop->[P_FIELD][$depth];
+		my $field=$prop->[P_FIELD];
 		my $pixbuf=	$iconfield	? $widget->render_icon(Songs::Picture($gid,$field,'icon'),'menu')||undef: #FIXME could be better
 						AAPicture::pixbuf($field,$gid,$psize);
 		if ($pixbuf) #pic cached -> draw now
@@ -1268,14 +1282,14 @@ sub RENDER
 		}
 	}
 
-	if ($max && !$depth && !($flags & 'selected') && $gid!=FilterList::GID_ALL)	#draw histogram only works for depth==0
+	if ($max && !($flags & 'selected'))
 	{	
 		my $maxwidth = $background_area->width;
 		$maxwidth-= 3*XPAD+$psize;
 		$maxwidth=5 if $maxwidth<5;
 		my $width= $hash->{$gid} / $max * $maxwidth;
 
-		$widget->style->paint_flat_box( $window,$state,'none',$background_area,$widget,'cell_odd_ruled_last',
+		$widget->style->paint_flat_box( $window,$state,'none',$expose_area,$widget,'cell_odd_ruled_last',
 			$x+$psize+XPAD, $cell_area->y, $width, $cell_area->height );
 	}
 
