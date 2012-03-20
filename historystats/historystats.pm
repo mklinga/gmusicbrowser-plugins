@@ -460,7 +460,7 @@ sub CreateStatisticsSite
 
 	# Treeview for statistics: 
 	# fields in Sstore are  GID, markup, (raw)value, field, maxvalue, formattedvalue  
-	my $Sstore=Gtk2::ListStore->new('Glib::ULong','Glib::String','Glib::String','Glib::String','Glib::UInt','Glib::String');
+	my $Sstore=Gtk2::ListStore->new('Glib::ULong','Glib::String','Glib::String','Glib::String','Glib::Double','Glib::String');
 	my $Streeview=Gtk2::TreeView->new($Sstore);
 	my $Sitemrenderer=CellRendererLAITE->new;
 	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( _"",$Sitemrenderer);
@@ -584,7 +584,7 @@ sub Updatestatistics
 	$field = $StatTypes{$field}->{field};
 	$sorttype = $SortTypes{$sorttype}->{typecode};
 	my $source = (defined $::SelectedFilter)? $::SelectedFilter->filter : $::Library;
-	my @list; my $dh; my $dotime;
+	my @list; my $dh; my $dotime; my $maxvalue;
 
 	$self->{sstore}->clear;
 	
@@ -621,7 +621,7 @@ sub Updatestatistics
 		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);
 		my $currentID = ($::SongID)? Songs::Get_gid($::SongID,$field) : -1; 
 		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
-		
+				
 		if ($::Options{OPT.'AddCurrentToStatList'})
 		{
 			my @cis;
@@ -639,7 +639,8 @@ sub Updatestatistics
 			}
 		}
 		
-		my $maxvalue;
+		$maxvalue = ($self->{butinvert}->get_active)? $$dh{$list[$#list]} : $$dh{$list[0]};
+		
 		for (0..$#list)
 		{
 			my $value = $dh->{$list[$_]}; my $formattedvalue;
@@ -654,7 +655,7 @@ sub Updatestatistics
 	}
 	else #single tracks
 	{
-		my $max; my $maxvalue;
+		my $max;
 		if ($sorttype eq 'weighted') {
 			my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
 			my $sub = $randommode->MakeSingleScoreFunction();
@@ -1207,7 +1208,7 @@ package CellRendererLAITE;
 use Glib::Object::Subclass 'Gtk2::CellRenderer',
 properties => [ Glib::ParamSpec->ulong('gid', 'gid', 'group id',		0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->ulong('all_count', 'all_count', 'all_count',	0, 2**32-1, 0,	[qw/readable writable/]),
-		Glib::ParamSpec->ulong('max', 'max', 'max number of songs',	0, 2**32-1, 0,	[qw/readable writable/]),
+		Glib::ParamSpec->double('max', 'max', 'max value of bar',	0, 2**32-1, 1,	[qw/readable writable/]),
 		Glib::ParamSpec->scalar('prop', 'prop', '[[field],[markup],[picsize]]',		[qw/readable writable/]),
 		Glib::ParamSpec->scalar('hash', 'hash', 'gid to song count',			[qw/readable writable/]),
 		];
