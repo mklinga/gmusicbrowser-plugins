@@ -1303,9 +1303,9 @@ sub RENDER
 		$maxwidth=5 if $maxwidth<5;
 
 		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth / 100;
-		#$width = ::max($width,int($maxwidth/5));#int(0.5+(($width+(100*$maxwidth/5))/100));
+		$width = ::max($width,int($maxwidth/5));
 		
-		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'normal';
+		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'active';
 		my $start = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
 		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
 			$start, $cell_area->y, $width, $cell_area->height );
