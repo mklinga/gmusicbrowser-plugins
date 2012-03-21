@@ -7,17 +7,14 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - time-based (as in weekly/monthly etc.) stats (only for playcount) 
-# - Weekly/Monthly topNN, weeksinlist/last week position etc.
+# - time-based (as in weekly/monthly etc.) stats 
 # - recent albums / album treshold
 # - don't update overview if nothing has changed
 # - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
-# - histogram color?
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
 # - sorting the playedlength (for now)
-# - values <1 in statlist w/ histogram
 #
 
 =gmbplugin HISTORYSTATS
@@ -48,7 +45,7 @@ use base 'Gtk2::Dialog';
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
-	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums');
+	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0);
 
 my %sites =
 (
@@ -181,12 +178,13 @@ sub prefbox
 	my $sCheck9a = ::NewPrefCheckButton(OPT.'StatImageArtist','Artist');
 	my $sCheck9b = ::NewPrefCheckButton(OPT.'StatImageAlbum','Album');
 	my $sCheck9c = ::NewPrefCheckButton(OPT.'StatImageTitle','Track');
+	my $sCheck10 = ::NewPrefCheckButton(OPT.'LastfmStyleHistogram','Show histogram in \'last.fm-style\' (requires restart of plugin)');
 
 	my @vbox = ( 
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hEntry1,$hEntry2]), 
 		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],$sAmount,[$sCombo],[$sCheck7,$sCombo2],$sCheck8,
+		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],[$sCheck10],$sAmount,[$sCombo],[$sCheck7,$sCombo2],$sCheck8,
 				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c]) 
 	);
 	
@@ -428,7 +426,6 @@ sub CreateOverviewSite
 
 sub CreateStatisticsSite
 {
-
 	my $self = shift;
 	
 	## Treeview and little else for statistics
@@ -462,12 +459,14 @@ sub CreateStatisticsSite
 	# fields in Sstore are  GID, markup, (raw)value, field, maxvalue, formattedvalue  
 	my $Sstore=Gtk2::ListStore->new('Glib::ULong','Glib::String','Glib::String','Glib::String','Glib::Double','Glib::String');
 	my $Streeview=Gtk2::TreeView->new($Sstore);
+	
 	my $Sitemrenderer=CellRendererLAITE->new;
 	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( _"",$Sitemrenderer);
 	$Sitem->set_cell_data_func($Sitemrenderer, sub
 		{	my (undef,$cell,$store,$iter)=@_;
+			
 			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
-			my $max=$store->get($iter,4);
+			my $max = ($::Options{OPT.'LastfmStyleHistogram'})? 0 : $store->get($iter,4);
 			my %hash = ($gid => $value); my $type = $store->get($iter,3);
 			my $psize = ($::Options{OPT.'CoverSize'});
 			my $markup = $store->get($iter,1);
@@ -475,28 +474,36 @@ sub CreateStatisticsSite
 		});
 
 	$Sitem->set_sort_column_id(0);
+	$Sitem->set_resizable(1);	
 	$Sitem->set_expand(1);
-	$Sitem->set_resizable(1);
 	$Sitem->set_clickable(::FALSE);
 	$Sitem->set_sort_indicator(::FALSE);
 	$Streeview->append_column($Sitem);
 
-	my $Svaluerenderer=Gtk2::CellRendererText->new;
-	my $Svalue=Gtk2::TreeViewColumn->new_with_attributes( "Value",$Svaluerenderer,text => 5);
-	$Svalue->set_cell_data_func($Svaluerenderer, sub 
-	{ 
-		my ($column, $cell, $model, $iter, $func_data) = @_; 
-		my $raw = $model->get($iter,5);
-		$cell->set( text => $raw ); 
-	}, undef);
+	my $Svaluerenderer=CellRendererLAITE->new;
+	my $Svalue=Gtk2::TreeViewColumn->new_with_attributes( "Value",$Svaluerenderer);
+	$Svalue->set_cell_data_func($Svaluerenderer, sub
+		{	my (undef,$cell,$store,$iter)=@_;
+			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
+			my $max = ($::Options{OPT.'LastfmStyleHistogram'})? $store->get($iter,4) : 0;
+			my %hash = ($gid => $value); my $type = $store->get($iter,3);
+			my $psize = 0;
+			my $markup = $store->get($iter,5);
+			
+			#Gtk2::Gdk::Color->new(0,32758,0)
+			my $bg = ($::Options{OPT.'LastfmStyleHistogram'})? $self->style->base('normal') : undef;
+			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, cell_background_gdk => $bg);
+		});
+
 	$Svalue->set_sort_column_id(1);
 	$Svalue->set_alignment(0);
+	$Svalue->set_expand($::Options{OPT.'LastfmStyleHistogram'});
 	$Svalue->set_resizable(1);
 	$Svalue->set_min_width(10);
 	$Svalue->set_clickable(::FALSE);
 	$Svalue->set_sort_indicator(::FALSE);
 	$Streeview->append_column($Svalue);
-	$Streeview->set_rules_hint(0);
+	$Streeview->set_rules_hint($::Options{OPT.'LastfmStyleHistogram'});
 	my $Sselection = $Streeview->get_selection;
 	$Sselection->set_mode('multiple');
 	$Sselection->signal_connect(changed => \&STVChanged);
@@ -650,7 +657,11 @@ sub Updatestatistics
 			
 			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
 			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append,0,$list[$_],1,HandleStatMarkup($field,$list[$_],$num),2,$value,3,$field,4,$maxvalue,5,$formattedvalue);
+			$self->{sstore}->set($self->{sstore}->append,
+					0,$list[$_],
+					1,HandleStatMarkup($field,$list[$_],$num),
+					2,$value,3,$field,
+					4,$maxvalue,5,$formattedvalue);
 		}
 	}
 	else #single tracks
@@ -692,7 +703,11 @@ sub Updatestatistics
 			
 			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
 			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append,0,$list[$_],1,HandleStatMarkup($field,$list[$_],$num),2,$value,3,$field,4,$maxvalue,5,$markedvalue);
+			$self->{sstore}->set($self->{sstore}->append,
+					0,$list[$_],
+					1,HandleStatMarkup($field,$list[$_],$num),
+					2,$value,3,$field,
+					4,$maxvalue,5,$markedvalue);
 		}
 	}
 
@@ -1208,22 +1223,20 @@ package CellRendererLAITE;
 use Glib::Object::Subclass 'Gtk2::CellRenderer',
 properties => [ Glib::ParamSpec->ulong('gid', 'gid', 'group id',		0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->ulong('all_count', 'all_count', 'all_count',	0, 2**32-1, 0,	[qw/readable writable/]),
-		Glib::ParamSpec->double('max', 'max', 'max value of bar',	0, 2**32-1, 1,	[qw/readable writable/]),
+		Glib::ParamSpec->double('max', 'max', 'max value of bar',	0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->scalar('prop', 'prop', '[[field],[markup],[picsize]]',		[qw/readable writable/]),
-		Glib::ParamSpec->scalar('hash', 'hash', 'gid to song count',			[qw/readable writable/]),
+		Glib::ParamSpec->scalar('hash', 'hash', 'gid to value',			[qw/readable writable/]),
 		];
 use constant { PAD => 2, XPAD => 2, YPAD => 2,		P_FIELD => 0, P_MARKUP =>1, P_PSIZE=>2, P_ICON =>3, P_HORIZON=>4 };
 
-#sub INIT_INSTANCE
-#{	#$_[0]->set(xpad=>2,ypad=>2); #Gtk2::CellRendererText has these padding values as default
-#}
 sub makelayout
 {	my ($cell,$widget)=@_;
 	my ($prop,$gid)=$cell->get(qw/prop gid/);
 	my $layout=Gtk2::Pango::Layout->new( $widget->create_pango_context );
 	my $field=$prop->[P_FIELD];
-	my $markup=$prop->[P_MARKUP] || "%a";
-	if ($field eq 'title') { $markup = ::ReplaceFields($gid,$markup,::TRUE);}
+	my $markup=$prop->[P_MARKUP];# || "%a";
+	if ($markup !~ /\%/){ $markup = ::PangoEsc($markup);}
+	elsif ($field eq 'title') { $markup = ::ReplaceFields($gid,$markup,::TRUE);}
 	else { $markup=AA::ReplaceFields( $gid,$markup,$field,::TRUE ); }
 	$layout->set_markup($markup);
 	return $layout;
@@ -1235,7 +1248,7 @@ sub GET_SIZE
 	my ($w,$h)=$layout->get_pixel_size;
 	my ($prop)=$cell->get('prop');
 	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
-	my $s= $prop->[P_PSIZE] || $prop->[P_ICON];
+	my $s= $prop->[P_PSIZE] || $prop->[P_ICON] || 0;
 	if ((!$ICanHasPic) or ($s == -1)) {$s=0}
 	elsif ($h<$s)	{$h=$s}
 	my $width= $prop->[P_HORIZON] ? $w+$s+PAD+XPAD*2 : 0;
@@ -1291,9 +1304,11 @@ sub RENDER
 
 		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth;
 		$width = int(0.5+(($width+(100*$maxwidth/5))/100));
-		 
-		$widget->style->paint_flat_box( $window,$state,'none',$expose_area,$widget,'cell_odd_ruled_last',
-			$x+$psize+XPAD, $cell_area->y, $width, $cell_area->height );
+		
+		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'normal';
+		my $start = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
+		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
+			$start, $cell_area->y, $width, $cell_area->height );
 	}
 
 	# draw text
