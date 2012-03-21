@@ -833,7 +833,7 @@ sub Updatehistory
 	}
 	else{$amount = ((scalar keys(%HistoryHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%HistoryHash) : $::Options{OPT.'AmountOfHistoryItems'};}
 
-	my %final; my %seen_alb; my %albumplaytimes;
+	my %final; my %seen_alb; my %albumplaytimes; my @albumorder;
 	
 	#we test from biggest to smallest playtime (keys are 'pt'.$playtime) until find $amount songs that are in source
 	for my $hk (reverse sort keys %HistoryHash) 
@@ -845,9 +845,7 @@ sub Updatehistory
 
 			my $gid = Songs::Get_gid($final{$hk}->{ID},'album');
 			push @{$seen_alb{$gid}}, $final{$hk}->{ID};
-			if (not defined $albumplaytimes{$gid}){
-				if ($hk =~ /^pt(\d+)$/) { $albumplaytimes{$gid} = $1; }
-			}
+			if ((not defined $albumplaytimes{$gid}) and ($hk =~ /^pt(\d+)$/)){$albumplaytimes{$gid} = $1; push @albumorder,$gid;}
 		}
 		last if ((defined $amount) and ($amount <= 0));
 	}
@@ -864,14 +862,14 @@ sub Updatehistory
 	$self->{hstore_albums}->clear;
 	
 	my @real_source; my @playedsongs;
-	for my $key (keys %seen_alb) {
+	for my $key (@albumorder) {
 		push @real_source, @{AA::Get('idlist','album',$key)};
 		push @playedsongs, @{$seen_alb{$key}};
 	}
 	my ($totallengths) = Songs::BuildHash('album', \@real_source, undef, 'length:sum');
 	my ($playedlengths) = Songs::BuildHash('album', \@playedsongs, undef, 'length:sum');
 
-	for my $key (keys %seen_alb) {
+	for my $key (@albumorder) {
 
 		#don't add album if treshold doesn't hold
 		next unless ((($$playedlengths{$key}*100)/$$totallengths{$key} > $::Options{OPT.'HistAlbumPlayedPerc'}) or (($$playedlengths{$key}/60) > $::Options{OPT.'HistAlbumPlayedMin'}));
