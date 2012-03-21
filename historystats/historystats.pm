@@ -468,7 +468,7 @@ sub CreateStatisticsSite
 			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
 			my $max = ($::Options{OPT.'LastfmStyleHistogram'})? 0 : $store->get($iter,4);
 			my %hash = ($gid => $value); my $type = $store->get($iter,3);
-			my $psize = ($::Options{OPT.'CoverSize'});
+			my $psize = $::Options{OPT.'CoverSize'};
 			my $markup = $store->get($iter,1);
 			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max);
 		});
@@ -487,12 +487,12 @@ sub CreateStatisticsSite
 			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
 			my $max = ($::Options{OPT.'LastfmStyleHistogram'})? $store->get($iter,4) : 0;
 			my %hash = ($gid => $value); my $type = $store->get($iter,3);
-			my $psize = 0;
+			my $psize = $::Options{OPT.'CoverSize'};
 			my $markup = $store->get($iter,5);
 			
 			#Gtk2::Gdk::Color->new(0,32758,0)
 			my $bg = ($::Options{OPT.'LastfmStyleHistogram'})? $self->style->base('normal') : undef;
-			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, cell_background_gdk => $bg);
+			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, cell_background_gdk => $bg, nopic => 1);
 		});
 
 	$Svalue->set_sort_column_id(1);
@@ -1222,6 +1222,7 @@ sub ScaleWRandom
 package CellRendererLAITE;
 use Glib::Object::Subclass 'Gtk2::CellRenderer',
 properties => [ Glib::ParamSpec->ulong('gid', 'gid', 'group id',		0, 2**32-1, 0,	[qw/readable writable/]),
+		Glib::ParamSpec->boolean('nopic', 'nopic', 'nopic',	0, [qw/readable writable/]),
 		Glib::ParamSpec->ulong('all_count', 'all_count', 'all_count',	0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->double('max', 'max', 'max value of bar',	0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->scalar('prop', 'prop', '[[field],[markup],[picsize]]',		[qw/readable writable/]),
@@ -1247,6 +1248,7 @@ sub GET_SIZE
 	my $layout=$cell->makelayout($widget);
 	my ($w,$h)=$layout->get_pixel_size;
 	my ($prop)=$cell->get('prop');
+	my ($nopic)=$cell->get('nopic');
 	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
 	my $s= $prop->[P_PSIZE] || $prop->[P_ICON] || 0;
 	if ((!$ICanHasPic) or ($s == -1)) {$s=0}
@@ -1259,7 +1261,7 @@ sub RENDER
 {	my ($cell, $window, $widget, $background_area, $cell_area, $expose_area, $flags) = @_;
 	my $x=$cell_area->x+XPAD;
 	my $y=$cell_area->y+YPAD;
-	my ($prop,$gid,$hash,$max)=$cell->get(qw/prop gid hash max/);
+	my ($prop,$gid,$hash,$max,$nopic)=$cell->get(qw/prop gid hash max nopic/);
 	my $iconfield= $prop->[P_ICON];
 	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
 	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE];
@@ -1276,7 +1278,7 @@ sub RENDER
 		( $widget->has_focus			? 'selected'	: 'active'):
 		( $widget->state eq 'insensitive'	? 'insensitive'	: 'normal');
 
-	if (($psize) and ($ICanHasPic))
+	if (($psize) and ($ICanHasPic) and (!$nopic))
 	{	
 		my $field=$prop->[P_FIELD];
 		my $pixbuf=	$iconfield	? $widget->render_icon(Songs::Picture($gid,$field,'icon'),'menu')||undef: #FIXME could be better
@@ -1296,24 +1298,27 @@ sub RENDER
 		}
 	}
 
+	my $startx;
 	if ($max && !($flags & 'selected'))
 	{	
-		my $maxwidth = $background_area->width;
-		$maxwidth-= XPAD+$psize;
+		my $maxwidth = ($background_area->width)-XPAD;
+		$maxwidth-= $psize unless ($nopic);
 		$maxwidth=5 if $maxwidth<5;
 
 		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth / 100;
 		$width = ::max($width,int($maxwidth/5));
 		
-		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'active';
-		my $start = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
+		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'normal';
+		$startx = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
 		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
-			$start, $cell_area->y, $width, $cell_area->height );
+			$startx, $cell_area->y, $width, $cell_area->height );
 	}
-
+	
+	$startx = (defined $startx)? $startx+PAD+XPAD : $x+$psize+PAD+XPAD;
 	# draw text
 	$widget-> get_style-> paint_layout($window, $state, 1,
-		$background_area, $widget, undef, $x+$psize+PAD+XPAD, $y+$offy, $layout);
+		$background_area, $widget, undef, $startx, $y+$offy, $layout);
+
 }
 
 sub reset
