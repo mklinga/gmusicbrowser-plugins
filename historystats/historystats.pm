@@ -8,7 +8,6 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats 
-# - recent albums / album treshold
 # - don't update overview if nothing has changed
 # - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
 #
@@ -45,7 +44,8 @@ use base 'Gtk2::Dialog';
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
-	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0);
+	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
+	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40);
 
 my %sites =
 (
@@ -99,7 +99,7 @@ my %AdditionalData; #holds additional playcounts, key is 'pt' + (last playcount 
 my %HistoryHash = ( needupdate => 1);# last play of every track, key = 'pt'.Playtime
 my %sourcehash;
 my $lastID = -1; 
-my %lastAdded = ( ID => -1, playtime => -1);
+my %lastAdded = ( ID => -1, playtime => -1, albumID => -1);
 my $lastPlaytime;
 my %globalstats;
 
@@ -143,6 +143,9 @@ sub prefbox
 	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits, cb => sub{ $HistoryHash{needupdate} = 1;});
 	my $hEntry1 = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
 	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
+	my $hAmount2 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedPerc',1,240, step=>1, page=>10, text =>_("Count album as played after "));
+	my $hAmount3 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedMin',1,100, step=>1, page=>10, text =>_("% or "));
+	my $hLabel1 = Gtk2::Label->new(' minutes');
 
 	# Overview
 	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,20, step=>1, page=>2, text =>_("Items in toplists: "));
@@ -182,7 +185,7 @@ sub prefbox
 
 	my @vbox = ( 
 		::Vpack($gAmount1), 
-		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hEntry1,$hEntry2]), 
+		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hAmount2,$hAmount3,$hLabel1],[$hEntry1,$hEntry2]), 
 		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],[$sCheck10],$sAmount,[$sCombo],[$sCheck7,$sCombo2],$sCheck8,
 				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c]) 
@@ -288,7 +291,7 @@ sub CreateHistorySite
 	$Htreeview->signal_connect(button_press_event => \&HTVContext);
 	$Htreeview->{store}=$Hstore;
 
-	my $Hstore_albums=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt','Glib::String');
+	my $Hstore_albums=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::UInt','Glib::String');
 	my $Htreeview_albums=Gtk2::TreeView->new($Hstore_albums);
 	my $Hpic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 0);
 	$Hpic->set_sort_column_id(0);
@@ -299,8 +302,14 @@ sub CreateHistorySite
 	$Halbum->set_sort_column_id(1);
 	$Halbum->set_expand(1);
 	$Halbum->set_resizable(1);
+	my $Hpt=Gtk2::TreeViewColumn->new_with_attributes( _"Playtime",Gtk2::CellRendererText->new,text=>2);
+	$Hpt->set_sort_column_id(2);
+	$Hpt->set_expand(0);
+	$Hpt->set_resizable(1);
+
 	$Htreeview_albums->append_column($Hpic);
 	$Htreeview_albums->append_column($Halbum);
+	$Htreeview_albums->append_column($Hpt);
 	$Htreeview_albums->get_selection->set_mode('multiple');
 	$Htreeview_albums->set_rules_hint(1);
 	$Htreeview_albums->signal_connect(button_press_event => \&HTVContext);
@@ -824,22 +833,21 @@ sub Updatehistory
 	}
 	else{$amount = ((scalar keys(%HistoryHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%HistoryHash) : $::Options{OPT.'AmountOfHistoryItems'};}
 
-	my %final; my %seen; my @albums;
+	my %final; my %seen_alb; my %albumplaytimes;
 	
 	#we test from biggest to smallest playtime (keys are 'pt'.$playtime) until find $amount songs that are in source
 	for my $hk (reverse sort keys %HistoryHash) 
 	{
-		if ($hk =~ /^pt(\d+)$/) {last unless ($1 > $lasttime);}
+		if ($hk =~ /^pt(\d+)$/) { last unless ($1 > $lasttime);}
 		if (defined $sourcehash{$HistoryHash{$hk}->{ID}}) {
 			$final{$hk} = $HistoryHash{$hk};
-			
-			#TODO: Album treshold!
-			my $gid = Songs::Get_gid($final{$hk}->{ID},'album');
-			unless (defined $seen{$gid}){
-				$seen{$gid} = $hk;
-				push @albums, $gid;
-			} 
 			$amount-- if (defined $amount);
+
+			my $gid = Songs::Get_gid($final{$hk}->{ID},'album');
+			push @{$seen_alb{$gid}}, $final{$hk}->{ID};
+			if (not defined $albumplaytimes{$gid}){
+				if ($hk =~ /^pt(\d+)$/) { $albumplaytimes{$gid} = $1; }
+			}
 		}
 		last if ((defined $amount) and ($amount <= 0));
 	}
@@ -855,13 +863,26 @@ sub Updatehistory
 	# then albums
 	$self->{hstore_albums}->clear;
 	
-	for (@albums) {
-		my $xref = AA::Get('album_artist:gid','album',$_);
+	my @real_source; my @playedsongs;
+	for my $key (keys %seen_alb) {
+		push @real_source, @{AA::Get('idlist','album',$key)};
+		push @playedsongs, @{$seen_alb{$key}};
+	}
+	my ($totallengths) = Songs::BuildHash('album', \@real_source, undef, 'length:sum');
+	my ($playedlengths) = Songs::BuildHash('album', \@playedsongs, undef, 'length:sum');
+
+	for my $key (keys %seen_alb) {
+
+		#don't add album if treshold doesn't hold
+		next unless ((($$playedlengths{$key}*100)/$$totallengths{$key} > $::Options{OPT.'HistAlbumPlayedPerc'}) or (($$playedlengths{$key}/60) > $::Options{OPT.'HistAlbumPlayedMin'}));
+
+		my $xref = AA::Get('album_artist:gid','album',$key);
 		$self->{hstore_albums}->set($self->{hstore_albums}->append,
-			0,AAPicture::pixbuf('album', $_, $::Options{OPT.'CoverSize'}, 1),
-			1,Songs::Gid_to_Display('album',$_)."\n by ".Songs::Gid_to_Display('artist',$$xref[0]),
-			2,$_,
-			3,'album');
+			0,AAPicture::pixbuf('album', $key, $::Options{OPT.'CoverSize'}, 1),
+			1,Songs::Gid_to_Display('album',$key)."\n by ".Songs::Gid_to_Display('artist',$$xref[0]),
+			2,FormatRealtime($albumplaytimes{$key}),
+			3,$key,
+			4,'album');
 	}	
 		
 	return 1;	 
@@ -1149,6 +1170,11 @@ sub SongPlayed
 	$::Options{OPT.'TotalPlayTracks'} = ($globalstats{playtrack}+1) if ($playedEnough);
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
 	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
+
+	if ($lastAdded{albumID} != Songs::Get_gid($lastAdded{ID},'album'))
+	{
+		
+	}
 	
 	return 1;
 }
@@ -1299,24 +1325,25 @@ sub RENDER
 	}
 
 	my $startx;
+	my $lstate = $state;
 	if ($max && !($flags & 'selected'))
 	{	
-		my $maxwidth = ($background_area->width)-XPAD;
+		my $maxwidth = ($background_area->width) - XPAD;
 		$maxwidth-= $psize unless ($nopic);
 		$maxwidth=5 if $maxwidth<5;
 
 		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth / 100;
 		$width = ::max($width,int($maxwidth/5));
 		
-		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'normal';
 		$startx = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
+		$lstate = 'selected' if ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'});
 		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
 			$startx, $cell_area->y, $width, $cell_area->height );
 	}
 	
 	$startx = (defined $startx)? $startx+PAD+XPAD : $x+$psize+PAD+XPAD;
 	# draw text
-	$widget-> get_style-> paint_layout($window, $state, 1,
+	$widget-> get_style-> paint_layout($window, $lstate, 1,
 		$background_area, $widget, undef, $startx, $y+$offy, $layout);
 
 }
