@@ -1299,11 +1299,11 @@ sub RENDER
 	if ($max && !($flags & 'selected'))
 	{	
 		my $maxwidth = $background_area->width;
-		$maxwidth-= 3*XPAD+$psize+($maxwidth/5);
+		$maxwidth-= XPAD+$psize;
 		$maxwidth=5 if $maxwidth<5;
 
-		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth;
-		$width = int(0.5+(($width+(100*$maxwidth/5))/100));
+		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth / 100;
+		#$width = ::max($width,int($maxwidth/5));#int(0.5+(($width+(100*$maxwidth/5))/100));
 		
 		my $lstate = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? 'selected' : 'normal';
 		my $start = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
