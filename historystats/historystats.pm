@@ -982,8 +982,8 @@ sub HTVContext
 	for (@paths)
 	{
 		my $iter=$store->get_iter($_);
-		my $ID=$store->get( $store->get_iter($_),2);
-		$field=$store->get( $store->get_iter($_),3);
+		my $ID=$store->get( $store->get_iter($_),3);
+		$field=$store->get( $store->get_iter($_),4);
 		push @IDs,$ID;
 	}
 
