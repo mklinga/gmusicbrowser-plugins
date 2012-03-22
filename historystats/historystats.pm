@@ -614,8 +614,14 @@ sub Updatestatistics
 			my $albums = AA::Get('album:gid',$field,$gid);
 			next unless (scalar@$albums);
 			$$dh{$gid} = 0;
-			$$dh{$gid} += $$ah{$_} for (@$albums);
-			$$dh{$gid} /= scalar@$albums;
+			my $ok=0;
+			for (@$albums) {
+				my $ilist = AA::Get('album_artist:gid','album',$_);
+				next unless ((scalar@$ilist == 1) and ($$ilist[0] == $gid));
+				$$dh{$gid} += $$ah{$_};
+				$ok++;
+			}
+			$$dh{$gid} /= $ok unless (!$ok);
 		}
 	}
 	else {
