@@ -616,8 +616,8 @@ sub Updatestatistics
 			$$dh{$gid} = 0;
 			my $ok=0;
 			for (@$albums) {
-				my $ilist = AA::Get('album_artist:gid','album',$_);
-				next unless ((scalar@$ilist == 1) and ($$ilist[0] == $gid));
+				my $ilist = AA::Get($field.':gid','album',$_);
+				next unless ((ref($ilist) ne 'ARRAY') or ((scalar@$ilist == 1) and ($$ilist[0] == $gid)));
 				$$dh{$gid} += $$ah{$_};
 				$ok++;
 			}
