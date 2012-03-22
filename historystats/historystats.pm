@@ -10,9 +10,10 @@
 # - time-based (as in weekly/monthly etc.) stats 
 # - don't update overview if nothing has changed
 # - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
+# - ignore 'by album wrandom sort calculating' for albums with many artists? tjeu: n&l ? 
 #
 # BUGS:
-# - [ochosi:] pressing the sort-button in history/stats crashes gmb ?
+# - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
 # - sorting the playedlength (for now)
 #
 
@@ -600,124 +601,82 @@ sub Updatestatistics
 	$field = $StatTypes{$field}->{field};
 	$sorttype = $SortTypes{$sorttype}->{typecode};
 	my $source = (defined $::SelectedFilter)? $::SelectedFilter->filter : $::Library;
-	my @list; my $dh; my $dotime; my $maxvalue;
+	my @list; my $dh; my $dotime; my $maxvalue;my $max;
 
 	$self->{sstore}->clear;
 	
-	if ($field ne 'title')
+	#calculate album-based stats if so wanted
+	if (($field !~ /album|title/) and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average') and ($sorttype ne 'weighted'))
 	{
-		#calculate album-based stats if so wanted
-		if (($field ne 'album') and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average') and ($sorttype ne 'weighted'))
-		{
-			($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
-			my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
-			for my $gid (keys %$dh) {
-				my $albums = AA::Get('album:gid',$field,$gid);
-				next unless (scalar@$albums);
-				$$dh{$gid} = 0;
-				$$dh{$gid} += $$ah{$_} for (@$albums);
-				$$dh{$gid} /= scalar@$albums;
-			}
-		}
-		else {
-			if ($sorttype eq 'weighted')
-			{
-				my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
-				my $sub = $randommode->MakeGroupScoreFunction($field);
-				($dh)=$sub->($source);
-				ScaleWRandom(\%$dh,$field);
-				
-			}
-			else{
-				($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);
-			} 
-		}
-
-		#we got values, send 'em up!
-		my $max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);
-		my $currentID = ($::SongID)? Songs::Get_gid($::SongID,$field) : -1; 
-		@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
-				
-		if ($::Options{OPT.'AddCurrentToStatList'})
-		{
-			my @cis;
-			if (ref($currentID) ne 'ARRAY') { push @cis, $currentID;}
-			else {@cis = @$currentID;}
-		
-			for my $ci (@cis){
-				next if ($ci == -1);
-				if (scalar@$source != scalar@$::Library){
-					my ($isin) = grep { $ci == $$source[$_] } 0..$#$source;
-					next unless (defined $isin);
-				}
-				my ($iscurrentIDinlist)= grep { $ci == $list[$_]} 0..$#list;
-				push @list, $ci unless (defined $iscurrentIDinlist);
-			}
-		}
-		
-		$maxvalue = ($self->{butinvert}->get_active)? $$dh{$list[$#list]} : $$dh{$list[0]};
-		
-		for (0..$#list)
-		{
-			my $value = $dh->{$list[$_]}; my $formattedvalue;
-			$maxvalue = $value if ((not defined $maxvalue) or ($value > $maxvalue));
-			if ($sorttype eq 'playedlength') { $formattedvalue = FormatSmalltime($dh->{$list[$_]});}
-			else {$formattedvalue = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
-			
-			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
-			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append,
-					0,$list[$_],
-					1,HandleStatMarkup($field,$list[$_],$num),
-					2,$value,3,$field,
-					4,$maxvalue,5,$formattedvalue);
+		($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
+		my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
+		for my $gid (keys %$dh) {
+			my $albums = AA::Get('album:gid',$field,$gid);
+			next unless (scalar@$albums);
+			$$dh{$gid} = 0;
+			$$dh{$gid} += $$ah{$_} for (@$albums);
+			$$dh{$gid} /= scalar@$albums;
 		}
 	}
-	else #single tracks
-	{
-		my $max;
-		if ($sorttype eq 'weighted') {
+	else {
+		if ($sorttype eq 'weighted')
+		{
 			my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
-			my $sub = $randommode->MakeSingleScoreFunction();
-			($dh) = $sub->($source);
-			ScaleWRandom(\%$dh,'title');
-			$max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);	
-			@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
-			$maxvalue = ($self->{butinvert}->get_active)? $$dh{$list[$#list]} : $$dh{$list[0]};
-		}
-		else
-		{
-			Songs::SortList($source,'-'.$sorttype); 
-			@list = @$source;
-			if ($self->{butinvert}->get_active) { @list = reverse @list;}
-			$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
-			$#list = ($max-1);
-			$maxvalue = ($self->{butinvert}->get_active)? Songs::Get($list[$#list],$sorttype) : Songs::Get($list[0],$sorttype);
-		}
-		
-		if ($::Options{OPT.'AddCurrentToStatList'})
-		{
-			my $currentID = ($::SongID)? $::SongID : -1;
-			my ($iscurrentIDinlist)= grep { $currentID == $list[$_]} 0..$#list;
-			push @list, $currentID unless (defined $iscurrentIDinlist);
-		}
-		
-		for (0..$#list)
-		{
-			my $value; my $markedvalue;
-			if ($sorttype eq 'weighted'){ $value = $$dh{$list[$_]};}
-			else {$value = Songs::Get($list[$_],$sorttype);}
-			if ($sorttype !~ /playedlength/) { $markedvalue = sprintf ("%.3f", $value);}
-			else {$markedvalue = FormatSmalltime($value);}
+			my $sub = ($field eq 'title')? $randommode->MakeSingleScoreFunction() : $randommode->MakeGroupScoreFunction($field);
+			($dh)=$sub->($source);
+			ScaleWRandom(\%$dh,$field);
 			
-			my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
-			$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
-			$self->{sstore}->set($self->{sstore}->append,
-					0,$list[$_],
-					1,HandleStatMarkup($field,$list[$_],$num),
-					2,$value,3,$field,
-					4,$maxvalue,5,$markedvalue);
 		}
+		else{
+			if ($field ne 'title') {($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);}
+			else {
+				@list = @$source;
+				Songs::SortList(\@list,'-'.$sorttype);
+				if ($self->{butinvert}->get_active) { @list = reverse @list;}
+				$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
+				$$dh{$list[$_]} = Songs::Get($list[$_],$sorttype) for (0..($max-1));
+				@list = ();#empty list for now, just to be sure
+			}
+		} 
+	}
+	#we got values, send 'em up!
+	$max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);
+	my $currentID = ($::SongID)? (($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field)) : -1; 
+	@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
+			
+	if ($::Options{OPT.'AddCurrentToStatList'})
+	{
+		my @cis;
+		if (ref($currentID) ne 'ARRAY') { push @cis, $currentID;}
+		else {@cis = @$currentID;}
+	
+		for my $ci (@cis){
+			next if ($ci == -1);
+			if (scalar@$source != scalar@$::Library){
+				my ($isin) = grep { $ci == $$source[$_] } 0..$#$source;
+				next unless (defined $isin);
+			}
+			my ($iscurrentIDinlist)= grep { $ci == $list[$_]} 0..$#list;
+			push @list, $ci unless (defined $iscurrentIDinlist);
+		}
+	}
+
+	#maxvalue is either first or last item in list (also applies when added current song in list)		
+	$maxvalue = ($$dh{$list[$#list]} > $$dh{$list[0]})? $$dh{$list[$#list]} : $$dh{$list[0]};
+	
+	for (0..$#list)
+	{
+		my $value = $dh->{$list[$_]}; my $formattedvalue;
+			if ($sorttype eq 'playedlength') { $formattedvalue = FormatSmalltime($dh->{$list[$_]});}
+		else {$formattedvalue = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
+		
+		my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
+		$num ||= ($::Options{OPT.'ShowStatNumbers'})? (($_+1).".   ") : " ";
+		$self->{sstore}->set($self->{sstore}->append,
+				0,$list[$_],
+				1,HandleStatMarkup($field,$list[$_],$num),
+				2,$value,3,$field,
+				4,$maxvalue,5,$formattedvalue);
 	}
 
 	return 1;
@@ -869,8 +828,8 @@ sub Updatehistory
 	my ($totallengths) = Songs::BuildHash('album', \@real_source, undef, 'length:sum');
 	my ($playedlengths) = Songs::BuildHash('album', \@playedsongs, undef, 'length:sum');
 
-	for my $key (@albumorder) {
-
+	for my $key (@albumorder) 
+	{
 		#don't add album if treshold doesn't hold
 		next unless ((($$playedlengths{$key}*100)/$$totallengths{$key} > $::Options{OPT.'HistAlbumPlayedPerc'}) or (($$playedlengths{$key}/60) > $::Options{OPT.'HistAlbumPlayedMin'}));
 
@@ -1324,7 +1283,7 @@ sub RENDER
 
 	my $startx;
 	my $lstate = $state;
-	if ($max && !($flags & 'selected'))
+	if (($max) and (!($flags & 'selected')) and ($hash->{$gid}))
 	{	
 		my $maxwidth = ($background_area->width) - XPAD;
 		$maxwidth-= $psize unless ($nopic);
