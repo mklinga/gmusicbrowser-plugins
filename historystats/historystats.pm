@@ -8,7 +8,6 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats 
-# - don't update overview if nothing has changed
 # - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
 # - ignore 'by album wrandom sort calculating' for albums with many artists? tjeu: n&l ? 
 #
@@ -342,25 +341,27 @@ sub CreateOverviewSite
 	my @topheads;
 	for (keys %OverviewTopheads) { push @topheads, $OverviewTopheads{$_}->{label} if $OverviewTopheads{$_}->{enabled};}
 	
-	my @Ostore_toplists; my @Otoptreeviews;
+	my @Ostore_toplists; my @Otoptreeviews; my @Otopselection;
 	
 	for (0..$#topheads)
 	{
-		push @Ostore_toplists, Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt','Glib::String');#label, pc, ID, field
+		push @Ostore_toplists, Gtk2::ListStore->new('Glib::UInt','Glib::String','Glib::String','Glib::String');#ID, label, pc, field
 		push @Otoptreeviews, Gtk2::TreeView->new($Ostore_toplists[$_]);
-		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],Gtk2::CellRendererText->new,text => 0);
+		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],Gtk2::CellRendererText->new,text => 1);
 		$Oc->set_expand(1);
 		$Otoptreeviews[$_]->append_column($Oc);
 		my $render = Gtk2::CellRendererText->new;
-		#$render->set_alignment(1,.5);
-		my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",$render,text => 1);
+		my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",$render,text => 2);
 		$Opc->set_expand(0);
 		$Otoptreeviews[$_]->append_column($Opc);
 
-		$Otoptreeviews[$_]->get_selection->set_mode('single');
+		$Otoptreeviews[$_]->get_selection->set_mode('multiple');
 		$Otoptreeviews[$_]->set_rules_hint(1);
 		$Otoptreeviews[$_]->set_headers_visible(1);
-		$Otoptreeviews[$_]->signal_connect(button_press_event => \&HTVContext);
+		$Otoptreeviews[$_]->signal_connect(button_press_event => \&STVContextPress);
+		$Otopselection[$_] = $Otoptreeviews[$_]->get_selection;
+		$Otopselection[$_]->signal_connect(changed => \&STVChanged);
+		
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
 		$Otoptreeviews[$_]->show;
 		
@@ -369,43 +370,32 @@ sub CreateOverviewSite
 
 	#treeview for top40
 	my $Ostore; my $Otreeview;
-	# up/down/stable/new - icon (32x32?), position + lastweek position (if any), cover, label, playcount, weeks in list, GID
-	$Ostore=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::String','Glib::UInt');
+	# 0: (g)id, 1: icon, 2: position + lastweek position (if any), 3: field, 4: cover, 5: label, 6: playcount
+	$Ostore=Gtk2::ListStore->new('Glib::UInt','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt');
 
 	$Otreeview=Gtk2::TreeView->new($Ostore);
-	my $Oicon=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 0);
-	$Oicon->set_sort_column_id(0);
-	$Oicon->set_fixed_width(32);
-	$Oicon->set_min_width(32);
-	my $Opos=Gtk2::TreeViewColumn->new_with_attributes( "Pos",Gtk2::CellRendererText->new,text => 1);
-	$Opos->set_sort_column_id(1);
-	$Opos->set_expand(0);
-	my $Ocover=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 2);
+	my $Ocover=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 4);
 	$Ocover->set_sort_column_id(0);
 	$Ocover->set_fixed_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_min_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_expand(0);
-	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Item",Gtk2::CellRendererText->new,text => 3);
+	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Item",Gtk2::CellRendererText->new,text => 5);
 	$Olabel->set_sort_column_id(1);
 	$Olabel->set_expand(1);
-	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "PC",Gtk2::CellRendererText->new,text => 4);
+	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "PC",Gtk2::CellRendererText->new,text => 6);
 	$Opc->set_sort_column_id(1);
 	$Opc->set_expand(0);
-	my $Owil=Gtk2::TreeViewColumn->new_with_attributes( "IL",Gtk2::CellRendererText->new,text => 5);
-	$Owil->set_sort_column_id(1);
-	$Owil->set_expand(0);
 
-#	$Otreeview->append_column($Oicon);
-#	$Otreeview->append_column($Opos);
 	$Otreeview->append_column($Ocover);
 	$Otreeview->append_column($Olabel);
 	$Otreeview->append_column($Opc);
-#	$Otreeview->append_column($Owil);
 
-	$Otreeview->get_selection->set_mode('none');
+	$Otreeview->get_selection->set_mode('multiple');
 	$Otreeview->set_rules_hint(1);
 	$Otreeview->set_headers_visible(1);
-#	$Otreeview->signal_connect(button_press_event => \&HTVContext);
+	$Otreeview->signal_connect(button_press_event => \&STVContextPress);
+	my $Oselection = $Otreeview->get_selection;
+	$Oselection->signal_connect(changed => \&STVChanged);
 	$Otreeview->{store}=$Ostore;
 
 	my $sh = Gtk2::ScrolledWindow->new;
@@ -724,7 +714,7 @@ sub Updateoverview
 				push @values, 0,$title,1,$value.' plays',2,$list[$row],3,$topheads[$store];
 			}
 			else {
-				push @values, 0,Songs::Gid_to_Display($topheads[$store],$list[$row]),1,$$topref{$list[$row]}.' plays',2,$list[$row],3,$topheads[$store];
+				push @values, 0,$list[$row],1,Songs::Gid_to_Display($topheads[$store],$list[$row]),2,$$topref{$list[$row]}.' plays',3,$topheads[$store];
 			}
 
 			${$self->{ostore_toplist}}[$store]->set(${$self->{ostore_toplist}}[$store]->append,@values);
@@ -737,6 +727,7 @@ sub Updateoverview
 	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'title');
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
 	
+	
 	unless($field eq 'title'){
 		($dh) = Songs::BuildHash($field, $::Library, undef, 'playcount:sum');
 		$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$dh))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$dh);
@@ -745,7 +736,7 @@ sub Updateoverview
 	else {
 		@list = @$::Library;
 		Songs::SortList(\@list,'-playcount'); 
-		$max = ($::Options{OPT.'OverviewTop40Amount'} < (scalar@list))? $::Options{OPT.'OverviewTop40Amount'} : (scalar@list);
+		$#list = ($::Options{OPT.'OverviewTop40Amount'} < (scalar@list))? ($::Options{OPT.'OverviewTop40Amount'}-1) : (scalar@list -1);
 	}
 	$self->{ostore_main}->clear;
 	my $icon = $self->render_icon("gtk-add","menu");
@@ -755,21 +746,23 @@ sub Updateoverview
 		if ($field eq 'title'){
 			($label,$value) = Songs::Get($list[$_],qw/title playcount/);
 			$pic = AAPicture::pixbuf('album', Songs::Get_gid($list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
+			if (!$pic){ $pic = $self->render_icon("gmb-song","dialog");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
 		}
 		else{
 			$label = Songs::Gid_to_Display($field,$list[$_]);
 			$value = $$dh{$list[$_]};
 			$pic = AAPicture::pixbuf($field, $list[$_], $::Options{OPT.'CoverSize'}, 1);
+			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"dialog");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
 		}
-		
+
 		$self->{ostore_main}->set($self->{ostore_main}->append,
-			0,$icon,
-			1,$_,
-			2,$pic,
-			3,($_+1).' - '.$label,
-			4,$value,
-			5,'-',
-			6,$list[$_]	
+			0,$list[$_],
+			1,$icon,
+			2,$_,
+			3,$field,
+			4,$pic,
+			5,($_+1).' - '.$label,
+			6,$value,
 		);
 	}
 	
