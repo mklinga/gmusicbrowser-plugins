@@ -8,7 +8,6 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats 
-# - histogram for overview-toplists? 
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -203,6 +202,7 @@ sub new
 	$self->{fontsize} = $fontsize->get_size / Gtk2::Pango->scale;
 	$self->{site} = 'history';
 	$self->signal_connect(map => \&SongChanged);
+	$self->set_spacing(2);
 
 	my ($Hvbox, $Hstore,$Hstore_albums) = CreateHistorySite($self);
 	my ($Ovbox,$Ostore_toplist,$Ostore,$Ostatstore) = CreateOverviewSite($self,$options);	
@@ -319,6 +319,7 @@ sub CreateHistorySite
 	$Htreeview_albums->{store}=$Hstore_albums;
 
 	my $vbox = Gtk2::VBox->new;
+	$vbox->set_spacing(2);
 	my $sh = Gtk2::ScrolledWindow->new;	
 	$sh->add($Htreeview);
 	$sh->set_shadow_type('none');
@@ -339,22 +340,37 @@ sub CreateOverviewSite
 {
 	my ($self,$options) = @_;
 	my $vbox = Gtk2::VBox->new;
+	$vbox->set_spacing(2);
 
 	# top-lists
 	my @topheads;
-	for (sort keys %OverviewTopheads) { warn $_; push @topheads, $OverviewTopheads{$_}->{label} if $OverviewTopheads{$_}->{enabled};}
+	for (sort keys %OverviewTopheads) { push @topheads, $OverviewTopheads{$_}->{label} if $OverviewTopheads{$_}->{enabled};}
 	
 	my @Ostore_toplists; my @Otoptreeviews; my @Otopselection;
 	my $packafter = (($#topheads)%2);
 	for (0..$#topheads)
 	{
-		push @Ostore_toplists, Gtk2::ListStore->new('Glib::UInt','Glib::String','Glib::String','Glib::String');#ID, label, pc, field
+		push @Ostore_toplists, Gtk2::ListStore->new('Glib::UInt','Glib::String','Glib::UInt','Glib::String','Glib::UInt','Glib::String');#ID, label, raw pc, field, max pc, formattedvalue
 		push @Otoptreeviews, Gtk2::TreeView->new($Ostore_toplists[$_]);
-		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],Gtk2::CellRendererText->new,text => 1);
+		
+		my $Oitemrenderer=CellRendererLAITE->new;
+		my $Oc=Gtk2::TreeViewColumn->new_with_attributes( $topheads[$_],$Oitemrenderer);
+		$Oc->set_cell_data_func($Oitemrenderer, sub
+		{	my (undef,$cell,$store,$iter)=@_;
+			
+			my $gid = $store->get($iter,0); my $value = $store->get($iter,2);
+			my $max = $store->get($iter,4);
+			my %hash = ($gid => $value); my $type = $store->get($iter,3);
+			my $psize = 0;#should we enable pics here too?
+			my $markup = $store->get($iter,1);
+			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, lastfm => 0);
+		});
+
+		
 		$Oc->set_expand(1);
 		$Otoptreeviews[$_]->append_column($Oc);
-		my $render = Gtk2::CellRendererText->new;
-		my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",$render,text => 2);
+
+		my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",Gtk2::CellRendererText->new,text => 5);
 		$Opc->set_expand(0);
 		$Otoptreeviews[$_]->append_column($Opc);
 
@@ -369,14 +385,13 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->show;
 		
 		if (($_%2)==$packafter){
-			my $hbox = Gtk2::HBox->new;
+			my $hbox = Gtk2::HBox->new; $hbox->set_spacing(2);
 			$hbox->pack_start($Otoptreeviews[$_-1],1,1,0) unless (!$_);
-			$hbox->pack_end($Otoptreeviews[$_],1,1,0);
+			$hbox->pack_start($Otoptreeviews[$_],1,1,0);
 			$vbox->pack_start($hbox,0,0,0);
 			$hbox->show;
 		}
 	}
-
 	#treeview for top40
 	my $Ostore; my $Otreeview;
 	# 0: (g)id, 1: icon, 2: position + lastweek position (if any), 3: field, 4: cover, 5: label, 6: playcount
@@ -496,7 +511,7 @@ sub CreateStatisticsSite
 			my %hash = ($gid => $value); my $type = $store->get($iter,3);
 			my $psize = $::Options{OPT.'CoverSize'};
 			my $markup = $store->get($iter,1);
-			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max);
+			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, lastfm => $::Options{OPT.'LastfmStyleHistogram'});
 		});
 
 	$Sitem->set_sort_column_id(0);
@@ -518,7 +533,7 @@ sub CreateStatisticsSite
 			
 			#Gtk2::Gdk::Color->new(0,32758,0)
 			my $bg = ($::Options{OPT.'LastfmStyleHistogram'})? $self->style->base('normal') : undef;
-			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, cell_background_gdk => $bg, nopic => 1);
+			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, cell_background_gdk => $bg, nopic => 1, lastfm => $::Options{OPT.'LastfmStyleHistogram'});
 		});
 
 	$Svalue->set_sort_column_id(1);
@@ -729,11 +744,10 @@ sub Updateoverview
 	
 	for my $store (0..$#topheads)
 	{
-		my $topref;
+		my $topref; my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
 		if ($topheads[$store] eq 'title')
 		{
 			my $lr = $::Library;
-			my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
 			Songs::SortList($lr,'-'.$smode);
 			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (scalar@$lr))? (scalar@$lr) : $::Options{OPT.'OverViewTopAmount'};
 			@list = @$lr[0..($::Options{OPT.'OverViewTopAmount'})];
@@ -744,19 +758,27 @@ sub Updateoverview
 			$numberofitems = ($::Options{OPT.'OverViewTopAmount'} > (keys %$topref))? (keys %$topref) : $::Options{OPT.'OverViewTopAmount'};
 			@list = ((sort { $topref->{$b} <=> $topref->{$a} } keys %$topref)[0..($numberofitems-1)]);
 		}
+		my $maxvalue;
 		for my $row (0..($numberofitems-1))
 		{
-			my @values;
+			my $title; my $value;
 			if ($topheads[$store] eq 'title') {
-				my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
-				my ($title,$value) = Songs::Get($list[$row],'title',$smode);
-				push @values, 0,$list[$row],1,$title,2,$value.' plays',3,$topheads[$store];
+				($title,$value) = Songs::Get($list[$row],'title',$smode);
 			}
 			else {
-				push @values, 0,$list[$row],1,Songs::Gid_to_Display($topheads[$store],$list[$row]),2,$$topref{$list[$row]}.' plays',3,$topheads[$store];
+				$title = Songs::Gid_to_Display($topheads[$store],$list[$row]);
+				$value = $$topref{$list[$row]};
 			}
+			$maxvalue = $value unless ($maxvalue);
 
-			${$self->{ostore_toplist}}[$store]->set(${$self->{ostore_toplist}}[$store]->append,@values);
+			#ID, label, raw pc, field, max pc, formattedvalue
+			${$self->{ostore_toplist}}[$store]->set(${$self->{ostore_toplist}}[$store]->append,
+					0,$list[$row],
+					1,$title,
+					2,$value,
+					3,$topheads[$store],
+					4,$maxvalue,
+					5,$value.' plays');
 		}
 	}
 	
@@ -1168,6 +1190,7 @@ package CellRendererLAITE;
 use Glib::Object::Subclass 'Gtk2::CellRenderer',
 properties => [ Glib::ParamSpec->ulong('gid', 'gid', 'group id',		0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->boolean('nopic', 'nopic', 'nopic',	0, [qw/readable writable/]),
+		Glib::ParamSpec->boolean('lastfm', 'lastfm', 'last.fm style',	0, [qw/readable writable/]),
 		Glib::ParamSpec->ulong('all_count', 'all_count', 'all_count',	0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->double('max', 'max', 'max value of bar',	0, 2**32-1, 0,	[qw/readable writable/]),
 		Glib::ParamSpec->scalar('prop', 'prop', '[[field],[markup],[picsize]]',		[qw/readable writable/]),
@@ -1206,7 +1229,7 @@ sub RENDER
 {	my ($cell, $window, $widget, $background_area, $cell_area, $expose_area, $flags) = @_;
 	my $x=$cell_area->x+XPAD;
 	my $y=$cell_area->y+YPAD;
-	my ($prop,$gid,$hash,$max,$nopic)=$cell->get(qw/prop gid hash max nopic/);
+	my ($prop,$gid,$hash,$max,$nopic,$lastfm)=$cell->get(qw/prop gid hash max nopic lastfm/);
 	my $iconfield= $prop->[P_ICON];
 	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
 	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE];
@@ -1254,8 +1277,8 @@ sub RENDER
 		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth / 100;
 		$width = ::max($width,int($maxwidth/5));
 		
-		$startx = ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'})? $cell_area->x : $x+$psize+XPAD;
-		$lstate = 'selected' if ($::Options{'PLUGIN_HISTORYSTATS_LastfmStyleHistogram'});
+		$startx = ($lastfm)? $cell_area->x : $x+$psize+XPAD;
+		$lstate = 'selected' if ($lastfm);
 		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
 			$startx, $cell_area->y, $width, $cell_area->height );
 	}
