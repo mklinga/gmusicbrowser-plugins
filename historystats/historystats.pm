@@ -10,6 +10,7 @@
 # - time-based (as in weekly/monthly etc.) stats 
 # - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
 # - ignore 'by album wrandom sort calculating' for albums with many artists? tjeu: n&l ? 
+# - do we really need 'pt' in historyhash?
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -95,8 +96,7 @@ my $statswidget =
 };
 
 my $LogFile = $::HomeDir.'playhistory.log';
-my %AdditionalData; #holds additional playcounts, key is 'pt' + (last playcount of track), value is array
-my %HistoryHash = ( needupdate => 1);# last play of every track, key = 'pt'.Playtime
+my %HistoryHash = ( needupdate => 1);# last play of every track, key = playtime
 my %sourcehash;
 my $lastID = -1; 
 my %lastAdded = ( ID => -1, playtime => -1, albumID => -1);
@@ -290,7 +290,7 @@ sub CreateHistorySite
 	$Htreeview->set_rules_hint(1);
 	$Htreeview->signal_connect(button_press_event => \&ContextPress);
 	my $Hselection = $Htreeview->get_selection;
-	$Hselection->signal_connect(changed => \&ContextChanged);
+	$Hselection->signal_connect(changed => \&SelectionChanged);
 	$Htreeview->{store}=$Hstore;
 
 	my $Hstore_albums=Gtk2::ListStore->new('Glib::UInt','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::String');
@@ -316,7 +316,7 @@ sub CreateHistorySite
 	$Htreeview_albums->set_rules_hint(1);
 	$Htreeview_albums->signal_connect(button_press_event => \&ContextPress);
 	my $Hselection_a = $Htreeview_albums->get_selection;
-	$Hselection_a->signal_connect(changed => \&ContextChanged);
+	$Hselection_a->signal_connect(changed => \&SelectionChanged);
 	$Htreeview_albums->{store}=$Hstore_albums;
 
 	my $vbox = Gtk2::VBox->new;
@@ -364,7 +364,7 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->set_headers_visible(1);
 		$Otoptreeviews[$_]->signal_connect(button_press_event => \&ContextPress);
 		$Otopselection[$_] = $Otoptreeviews[$_]->get_selection;
-		$Otopselection[$_]->signal_connect(changed => \&ContextChanged);
+		$Otopselection[$_]->signal_connect(changed => \&SelectionChanged);
 		
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
 		$Otoptreeviews[$_]->show;
@@ -399,7 +399,7 @@ sub CreateOverviewSite
 	$Otreeview->set_headers_visible(1);
 	$Otreeview->signal_connect(button_press_event => \&ContextPress);
 	my $Oselection = $Otreeview->get_selection;
-	$Oselection->signal_connect(changed => \&ContextChanged);
+	$Oselection->signal_connect(changed => \&SelectionChanged);
 	$Otreeview->{store}=$Ostore;
 
 	my $sh = Gtk2::ScrolledWindow->new;
@@ -510,7 +510,7 @@ sub CreateStatisticsSite
 	$Streeview->set_rules_hint($::Options{OPT.'LastfmStyleHistogram'});
 	my $Sselection = $Streeview->get_selection;
 	$Sselection->set_mode('multiple');
-	$Sselection->signal_connect(changed => \&ContextChanged);
+	$Sselection->signal_connect(changed => \&SelectionChanged);
 	
 	$Streeview->signal_connect(button_press_event => \&ContextPress);
 	$Streeview->{store}=$Sstore;
@@ -797,27 +797,24 @@ sub Updatehistory
 
 	my %final; my %seen_alb; my %albumplaytimes; my @albumorder;
 	
-	#we test from biggest to smallest playtime (keys are 'pt'.$playtime) until find $amount songs that are in source
+	#we test from biggest to smallest playtime (keys are $playtime) until find $amount songs that are in source
 	for my $hk (reverse sort keys %HistoryHash) 
 	{
-		if ($hk =~ /^pt(\d+)$/) { last unless ($1 > $lasttime);}
+		if ($hk =~ /^(\d+)$/) { last unless ($1 > $lasttime);}
 		if (defined $sourcehash{$HistoryHash{$hk}->{ID}}) {
 			$final{$hk} = $HistoryHash{$hk};
 			$amount-- if (defined $amount);
 
-			my $gid = Songs::Get_gid($final{$hk}->{ID},'album');
-			push @{$seen_alb{$gid}}, $final{$hk}->{ID};
-			if ((not defined $albumplaytimes{$gid}) and ($hk =~ /^pt(\d+)$/)){$albumplaytimes{$gid} = $1; push @albumorder,$gid;}
+			push @{$seen_alb{$final{$hk}->{albumID}}}, $final{$hk}->{ID};
+			if ((not defined $albumplaytimes{$final{$hk}->{albumID}}) and ($hk =~ /^(\d+)$/)){$albumplaytimes{$final{$hk}->{albumID}} = $1; push @albumorder,$final{$hk}->{albumID};}
 		}
 		last if ((defined $amount) and ($amount <= 0));
 	}
 
 	#then re-populate the hstore
 	$self->{hstore}->clear;
-	for (reverse sort keys %final)	{
-		my $key = $_;
-		$key =~ s/^pt//;
-		$self->{hstore}->set($self->{hstore}->append,0,$final{$_}->{ID},1,FormatRealtime($key),2,$final{$_}->{label},3,'title');
+	for my $key (reverse sort keys %final)	{
+		$self->{hstore}->set($self->{hstore}->append,0,$final{$key}->{ID},1,FormatRealtime($key),2,$final{$key}->{label},3,'title');
 	}
 	
 	# then albums
@@ -856,8 +853,9 @@ sub CreateHistory
 		my $pt = Songs::Get($ID,'lastplay');
 		next unless ($pt);#we use playtime as hash key, so it must exist
 
-		$HistoryHash{'pt'.$pt}{ID} = $ID;
-		$HistoryHash{'pt'.$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
+		$HistoryHash{$pt}{ID} = $ID;
+		$HistoryHash{$pt}{albumID} = Songs::Get_gid($ID,'album');
+		$HistoryHash{$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 	}
 
 	delete $HistoryHash{needrecreate} if ($HistoryHash{needrecreate});
@@ -935,43 +933,6 @@ sub HandleStatMarkup
 	return $markup;
 }
 
-sub UpdateCursorCb
-{	
-	my $textview = shift;
-	my (undef,$wx,$wy,undef)=$textview->window->get_pointer;
-	my ($x,$y)=$textview->window_to_buffer_coords('widget',$wx,$wy);
-	my $iter=$textview->get_iter_at_location($x,$y);
-	my $cursor='xterm';
-	for my $tag ($iter->get_tags)
-	{	next unless $tag->{gid};
-		$cursor='hand2';
-		last;
-	}
-	return if ($textview->{cursor}||'') eq $cursor;
-	$textview->{cursor}=$cursor;
-	$textview->get_window('text')->set_cursor(Gtk2::Gdk::Cursor->new($cursor));
-}
-
-sub ButtonReleaseCb
-{
-	my ($textview,$event) = @_;
-	
-	my $self=::find_ancestor($textview,__PACKAGE__);
-	my ($x,$y)=$textview->window_to_buffer_coords('widget',$event->x, $event->y);
-	my $iter=$textview->get_iter_at_location($x,$y);
-	for my $tag ($iter->get_tags) {	
-		my $gid = $tag->{gid}; my $field = $tag->{field};
-		if ($field ne 'title') {
-			::PopupAAContextMenu({gid=>$gid,self=>$textview,field=>$field,mode=>'S'});
-		}
-		else{
-			::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $textview, IDs => [$gid]});
-		}
-	}
-
-	return ::TRUE; #don't want any default popups
-}
-
 sub ContextPress
 {
 	my ($treeview, $event) = @_;
@@ -1019,7 +980,7 @@ sub ContextPress
 	return 1;
 }
 
-sub ContextChanged
+sub SelectionChanged
 {
 	my $treeselection = shift;
 	
@@ -1056,11 +1017,9 @@ sub SongChanged
 	return if (($lastID == $::SongID) and (!$force));
 	
 	my $albumhaschanged = (Songs::Get_gid($lastID,'album') != Songs::Get_gid($::SongID,'album'))? 1 : 0; 
-	
 	$lastID = $::SongID;
 	
 	my $self=::find_ancestor($widget,__PACKAGE__);
-	
 	if ($self->{site} eq 'statistics')
 	{
 		$force = 1 if (($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{songchange}) 
@@ -1083,11 +1042,6 @@ sub SongPlayed
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
 	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
 
-	if ($lastAdded{albumID} != Songs::Get_gid($lastAdded{ID},'album'))
-	{
-		
-	}
-	
 	return 1;
 }
 
@@ -1098,8 +1052,8 @@ sub AddToHistory
 	$lastAdded{ID} = $ID;
 	$lastAdded{playtime} = $playtime;
 	
-	$HistoryHash{'pt'.$playtime}{ID} = $ID;
-	$HistoryHash{'pt'.$playtime}{label} = join " - ", ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
+	$HistoryHash{$playtime}{ID} = $ID;
+	$HistoryHash{$playtime}{label} = join " - ", ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 
 	$self->{needsupdate} = ($self->{site} eq 'history')? 1 : 0;
 	UpdateSite($self,'history');
