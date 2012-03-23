@@ -8,9 +8,7 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats 
-# - overview context-menus (tracks!), other list handling (merge pos in albumlabel / icon optional (hover?))
-# - ignore 'by album wrandom sort calculating' for albums with many artists? tjeu: n&l ? 
-# - do we really need 'pt' in historyhash?
+# - histogram for overview-toplists? 
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -114,7 +112,7 @@ sub Start {
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
 	$globalstats{playtrack} = $::Options{OPT.'TotalPlayTracks'};
 	
-	for (keys %OverviewTopheads) { 
+	for (sort keys %OverviewTopheads) { 
 		if (defined $::Options{OPT.'OVTH'.$_}) {$OverviewTopheads{$_}->{enabled} = $::Options{OPT.'OVTH'.$_};}
 		else {$::Options{OPT.'OVTH'.$_} = $OverviewTopheads{$_}->{enabled};}
 	}
@@ -344,10 +342,10 @@ sub CreateOverviewSite
 
 	# top-lists
 	my @topheads;
-	for (keys %OverviewTopheads) { push @topheads, $OverviewTopheads{$_}->{label} if $OverviewTopheads{$_}->{enabled};}
+	for (sort keys %OverviewTopheads) { warn $_; push @topheads, $OverviewTopheads{$_}->{label} if $OverviewTopheads{$_}->{enabled};}
 	
 	my @Ostore_toplists; my @Otoptreeviews; my @Otopselection;
-	
+	my $packafter = (($#topheads)%2);
 	for (0..$#topheads)
 	{
 		push @Ostore_toplists, Gtk2::ListStore->new('Glib::UInt','Glib::String','Glib::String','Glib::String');#ID, label, pc, field
@@ -370,7 +368,13 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
 		$Otoptreeviews[$_]->show;
 		
-		$vbox->pack_start($Otoptreeviews[$_],0,0,0);
+		if (($_%2)==$packafter){
+			my $hbox = Gtk2::HBox->new;
+			$hbox->pack_start($Otoptreeviews[$_-1],1,1,0) unless (!$_);
+			$hbox->pack_end($Otoptreeviews[$_],1,1,0);
+			$vbox->pack_start($hbox,0,0,0);
+			$hbox->show;
+		}
 	}
 
 	#treeview for top40
@@ -720,7 +724,7 @@ sub Updateoverview
 	#toplists
 	$_->clear for (@{$self->{ostore_toplist}});
 	my @topheads; 
-	for (keys %OverviewTopheads) { push @topheads, $_ if ($OverviewTopheads{$_}->{enabled});};
+	for (sort keys %OverviewTopheads) { push @topheads, $_ if ($OverviewTopheads{$_}->{enabled});};
 	my $numberofitems;
 	
 	for my $store (0..$#topheads)
