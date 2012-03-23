@@ -207,13 +207,14 @@ sub new
 	$self->signal_connect(map => \&SongChanged);
 
 	my ($Hvbox, $Hstore,$Hstore_albums) = CreateHistorySite($self);
-	my ($Ovbox,$Ostore_toplist,$Ostore) = CreateOverviewSite($self,$options);	
+	my ($Ovbox,$Ostore_toplist,$Ostore,$Ostatstore) = CreateOverviewSite($self,$options);	
 	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
 	$self->{hstore}=$Hstore;
 	$self->{hstore_albums}=$Hstore_albums;
 	$self->{ostore_main}=$Ostore;
+	$self->{ostore_stats}=$Ostatstore;
 	$self->{ostore_toplist}=$Ostore_toplist;
 	$self->{sstore}=$Sstore;
 	$self->{butinvert} = $Sinvert;
@@ -408,24 +409,41 @@ sub CreateOverviewSite
 	$sh->set_policy('automatic','automatic');
 	$sh->show;
 	$vbox->pack_start($sh,1,1,0);
-		
 	$Otreeview->show;
 
-	# statuslabel in the bottom
-	my $ago = (time-$globalstats{starttime})/86400;
-	my $text = "Since ".FormatRealtime($globalstats{starttime},'%d.%m.%y');
-	if ($ago)
-	{
-		$text .= " you have played a total of ".$globalstats{playtrack}." tracks.";
-		$text .= " That's about ".int(0.5+($globalstats{playtrack}/$ago))." per day.";
-	}	
+	## TreeView for statistics
+	my $Ostatstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::String');
+	my $Ostattreeview=Gtk2::TreeView->new($Ostatstore);
+	my $Ostatlabel=Gtk2::TreeViewColumn->new_with_attributes( "Label",Gtk2::CellRendererText->new,text => 0);
+	$Ostatlabel->set_sort_column_id(0); $Ostatlabel->set_resizable(1);
+	$Ostatlabel->set_expand(1);	$Ostatlabel->set_alignment(0);
+	my $Ostattotal=Gtk2::TreeViewColumn->new_with_attributes( _"Total",Gtk2::CellRendererText->new,text=>1);
+	$Ostattotal->set_sort_column_id(2); $Ostattotal->set_resizable(1); 
+	$Ostattotal->set_expand(0);	$Ostattotal->set_alignment(1);
 
+	$Ostattreeview->append_column($Ostatlabel);
+	$Ostattreeview->append_column($Ostattotal);
+	$Ostattreeview->get_column(1)->get_cell_renderers()->set_property('xalign',1.0);
+
+	$Ostattreeview->get_selection->set_mode('single');
+	$Ostattreeview->set_rules_hint(0);
+	$Ostattreeview->set_headers_visible(0);
+	$Ostattreeview->{store}=$Ostatstore;
+	$Ostattreeview->show;
 	
-	my $totalstatus_label = Gtk2::Label->new($text);
-	$totalstatus_label->set_alignment(0,0); $totalstatus_label->show;
-	$vbox->pack_end($totalstatus_label,0,0,0);
+	$vbox->pack_end($Ostattreeview,0,0,0);
+
+	my $bu = Gtk2::Button->new('Hide');
+	$bu->set_alignment(1,.5);
+	$bu->signal_connect(clicked => sub 
+		{ 
+			if ($Ostattreeview->visible){ $Ostattreeview->hide; $bu->set_label('Show');}
+			else { $Ostattreeview->show; $bu->set_label('Hide');}
+		});
+	$bu->show;
+	$vbox->pack_end($bu,0,0,0);
 	
-	return ($vbox,\@Ostore_toplists,$Ostore);
+	return ($vbox,\@Ostore_toplists,$Ostore,$Ostatstore);
 }
 
 sub CreateStatisticsSite
@@ -687,6 +705,19 @@ sub Updateoverview
 	my $self = shift;
 	my @list;
 
+	# general statistics
+	$self->{ostore_stats}->clear;
+	my $statref = CalcStatus();
+	
+	for (sort keys %$statref)
+	{
+		$self->{ostore_stats}->set($self->{ostore_stats}->append,
+			0,$$statref{$_}->{label},
+			1,$$statref{$_}->{value},
+		);
+	}
+
+	#toplists
 	$_->clear for (@{$self->{ostore_toplist}});
 	my @topheads; 
 	for (keys %OverviewTopheads) { push @topheads, $_ if ($OverviewTopheads{$_}->{enabled});};
@@ -715,7 +746,7 @@ sub Updateoverview
 			if ($topheads[$store] eq 'title') {
 				my $smode = ($::Options{OPT.'OverviewTopMode'}); $smode =~ s/\:(.+)//;
 				my ($title,$value) = Songs::Get($list[$row],'title',$smode);
-				push @values, 0,$title,1,$value.' plays',2,$list[$row],3,$topheads[$store];
+				push @values, 0,$list[$row],1,$title,2,$value.' plays',3,$topheads[$store];
 			}
 			else {
 				push @values, 0,$list[$row],1,Songs::Gid_to_Display($topheads[$store],$list[$row]),2,$$topref{$list[$row]}.' plays',3,$topheads[$store];
@@ -730,8 +761,7 @@ sub Updateoverview
 	#TODO: Handle properly with @playtimes when possible, for now we'll just put TopNN items here
 	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'title');
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
-	
-	
+		
 	unless($field eq 'title'){
 		($dh) = Songs::BuildHash($field, $::Library, undef, 'playcount:sum');
 		$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$dh))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$dh);
@@ -869,12 +899,12 @@ sub FormatSmalltime
 
 	my $result = '';
 	
-	if ($sec > 31536000) { $result .= int($sec/31536000).'y '; $sec = $sec%31536000;}
-	if ($sec > 2592000) { $result .= int($sec/2592000).'m '; $sec = $sec%2592000;}
+	if ($sec > 31536000) { $result .= int($sec/31536000).'y ';}
+	if ($sec > 2592000) { $result .= int($sec/2592000).'m '; }
 	elsif ($sec > 604800) { $result .= int($sec/604800).'wk ';} #show either weeks or months, not both
-	$sec = $sec%604800;
-	if ($sec > 86400) { $result .= int($sec/86400).'d '; $sec = $sec%86400;}
-	$result .= sprintf("%02d",int(($sec%86400)/3600)).':'.sprintf("%02d",int(($sec%3600)/60)).':'.sprintf("%02d",int($sec%60));
+	if ($sec > 86400) { $result .= int($sec/86400).'d '; }
+	if ($sec > 3600) { $result .= sprintf("%02d",int(($sec%86400)/3600)).':'; }
+	$result .= sprintf("%02d",int(($sec%3600)/60)).':'.sprintf("%02d",int($sec%60));
 
 	return $result;
 }
@@ -1088,6 +1118,25 @@ sub Random::MakeSingleScoreFunction
 	return $sub;
 }
 
+sub CalcStatus
+{
+	my $self = shift;
+	my %statustexts;
+
+	my $ago = int(100*((time-$globalstats{starttime})/86400));
+	$ago /= 100;
+	
+	$statustexts{1}->{label} = "Statistics started"; 
+	$statustexts{1}->{value} = FormatRealtime($globalstats{starttime},'%d.%m.%y')." (".$ago." days ago)";
+
+	$statustexts{2}->{label} = "Tracks Played";
+	$statustexts{2}->{value} = $globalstats{playtrack}." (".sprintf ("%.2f", $globalstats{playtrack}/$ago)." per day)";
+
+	$statustexts{3}->{label} = "Time Played";
+	$statustexts{3}->{value} = FormatSmalltime($globalstats{playtime})." (".FormatSmalltime($globalstats{playtime}/$ago)." per day)";
+	
+	return \%statustexts;
+}
 sub ScaleWRandom
 {
 	my ($dh,$field) = @_;
