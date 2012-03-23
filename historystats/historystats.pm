@@ -272,14 +272,14 @@ sub new
 sub CreateHistorySite
 {
 	## TreeView for history
-	my $Hstore=Gtk2::ListStore->new('Glib::String','Glib::String','Glib::UInt','Glib::String');
+	my $Hstore=Gtk2::ListStore->new('Glib::UInt','Glib::String','Glib::String','Glib::String');
 	my $Htreeview=Gtk2::TreeView->new($Hstore);
-	my $Hplaytime=Gtk2::TreeViewColumn->new_with_attributes( "Playtime",Gtk2::CellRendererText->new,text => 0);
+	my $Hplaytime=Gtk2::TreeViewColumn->new_with_attributes( "Playtime",Gtk2::CellRendererText->new,text => 1);
 	$Hplaytime->set_sort_column_id(0);
 	$Hplaytime->set_resizable(1);
 	$Hplaytime->set_alignment(0);
 	$Hplaytime->set_min_width(10);
-	my $Htrack=Gtk2::TreeViewColumn->new_with_attributes( _"Track",Gtk2::CellRendererText->new,text=>1);
+	my $Htrack=Gtk2::TreeViewColumn->new_with_attributes( _"Track",Gtk2::CellRendererText->new,text=>2);
 	$Htrack->set_sort_column_id(1);
 	$Htrack->set_expand(1);
 	$Htrack->set_resizable(1);
@@ -288,21 +288,23 @@ sub CreateHistorySite
 
 	$Htreeview->get_selection->set_mode('multiple');
 	$Htreeview->set_rules_hint(1);
-	$Htreeview->signal_connect(button_press_event => \&HTVContext);
+	$Htreeview->signal_connect(button_press_event => \&ContextPress);
+	my $Hselection = $Htreeview->get_selection;
+	$Hselection->signal_connect(changed => \&ContextChanged);
 	$Htreeview->{store}=$Hstore;
 
-	my $Hstore_albums=Gtk2::ListStore->new('Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::UInt','Glib::String');
+	my $Hstore_albums=Gtk2::ListStore->new('Glib::UInt','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::String');
 	my $Htreeview_albums=Gtk2::TreeView->new($Hstore_albums);
-	my $Hpic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 0);
+	my $Hpic=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 1);
 	$Hpic->set_sort_column_id(0);
 	$Hpic->set_resizable(1);
 	$Hpic->set_alignment(0);
 	$Hpic->set_min_width(10);
-	my $Halbum=Gtk2::TreeViewColumn->new_with_attributes( _"Album",Gtk2::CellRendererText->new,text=>1);
+	my $Halbum=Gtk2::TreeViewColumn->new_with_attributes( _"Album",Gtk2::CellRendererText->new,text=>2);
 	$Halbum->set_sort_column_id(1);
 	$Halbum->set_expand(1);
 	$Halbum->set_resizable(1);
-	my $Hpt=Gtk2::TreeViewColumn->new_with_attributes( _"Playtime",Gtk2::CellRendererText->new,text=>2);
+	my $Hpt=Gtk2::TreeViewColumn->new_with_attributes( _"Playtime",Gtk2::CellRendererText->new,text=>4);
 	$Hpt->set_sort_column_id(2);
 	$Hpt->set_expand(0);
 	$Hpt->set_resizable(1);
@@ -312,7 +314,9 @@ sub CreateHistorySite
 	$Htreeview_albums->append_column($Hpt);
 	$Htreeview_albums->get_selection->set_mode('multiple');
 	$Htreeview_albums->set_rules_hint(1);
-	$Htreeview_albums->signal_connect(button_press_event => \&HTVContext);
+	$Htreeview_albums->signal_connect(button_press_event => \&ContextPress);
+	my $Hselection_a = $Htreeview_albums->get_selection;
+	$Hselection_a->signal_connect(changed => \&ContextChanged);
 	$Htreeview_albums->{store}=$Hstore_albums;
 
 	my $vbox = Gtk2::VBox->new;
@@ -358,9 +362,9 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->get_selection->set_mode('multiple');
 		$Otoptreeviews[$_]->set_rules_hint(1);
 		$Otoptreeviews[$_]->set_headers_visible(1);
-		$Otoptreeviews[$_]->signal_connect(button_press_event => \&STVContextPress);
+		$Otoptreeviews[$_]->signal_connect(button_press_event => \&ContextPress);
 		$Otopselection[$_] = $Otoptreeviews[$_]->get_selection;
-		$Otopselection[$_]->signal_connect(changed => \&STVChanged);
+		$Otopselection[$_]->signal_connect(changed => \&ContextChanged);
 		
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
 		$Otoptreeviews[$_]->show;
@@ -393,9 +397,9 @@ sub CreateOverviewSite
 	$Otreeview->get_selection->set_mode('multiple');
 	$Otreeview->set_rules_hint(1);
 	$Otreeview->set_headers_visible(1);
-	$Otreeview->signal_connect(button_press_event => \&STVContextPress);
+	$Otreeview->signal_connect(button_press_event => \&ContextPress);
 	my $Oselection = $Otreeview->get_selection;
-	$Oselection->signal_connect(changed => \&STVChanged);
+	$Oselection->signal_connect(changed => \&ContextChanged);
 	$Otreeview->{store}=$Ostore;
 
 	my $sh = Gtk2::ScrolledWindow->new;
@@ -506,9 +510,9 @@ sub CreateStatisticsSite
 	$Streeview->set_rules_hint($::Options{OPT.'LastfmStyleHistogram'});
 	my $Sselection = $Streeview->get_selection;
 	$Sselection->set_mode('multiple');
-	$Sselection->signal_connect(changed => \&STVChanged);
+	$Sselection->signal_connect(changed => \&ContextChanged);
 	
-	$Streeview->signal_connect(button_press_event => \&STVContextPress);
+	$Streeview->signal_connect(button_press_event => \&ContextPress);
 	$Streeview->{store}=$Sstore;
 	
 	return ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels);	
@@ -813,7 +817,7 @@ sub Updatehistory
 	for (reverse sort keys %final)	{
 		my $key = $_;
 		$key =~ s/^pt//;
-		$self->{hstore}->set($self->{hstore}->append,0,FormatRealtime($key),1,$final{$_}->{label},2,$final{$_}->{ID},3,'song');
+		$self->{hstore}->set($self->{hstore}->append,0,$final{$_}->{ID},1,FormatRealtime($key),2,$final{$_}->{label},3,'title');
 	}
 	
 	# then albums
@@ -834,11 +838,12 @@ sub Updatehistory
 
 		my $xref = AA::Get('album_artist:gid','album',$key);
 		$self->{hstore_albums}->set($self->{hstore_albums}->append,
-			0,AAPicture::pixbuf('album', $key, $::Options{OPT.'CoverSize'}, 1),
-			1,Songs::Gid_to_Display('album',$key)."\n by ".Songs::Gid_to_Display('artist',$$xref[0]),
-			2,FormatRealtime($albumplaytimes{$key}),
-			3,$key,
-			4,'album');
+			0,$key,
+			1,AAPicture::pixbuf('album', $key, $::Options{OPT.'CoverSize'}, 1),
+			2,Songs::Gid_to_Display('album',$key)."\n by ".Songs::Gid_to_Display('artist',$$xref[0]),
+			3,'album',
+			4,FormatRealtime($albumplaytimes{$key})
+			);
 	}	
 		
 	return 1;	 
@@ -967,56 +972,7 @@ sub ButtonReleaseCb
 	return ::TRUE; #don't want any default popups
 }
 
-sub HTVContext 
-{
-	my ($treeview, $event) = @_;
-	return 0 unless $treeview;
-
-	my @paths = $treeview->get_selection->get_selected_rows;
-	return unless (scalar@paths);
-
-	my $store=$treeview->{store};
-	my @IDs; my $field;# this will be same for all rows, either 'song' or 'album'
-	
-	for (@paths)
-	{
-		my $iter=$store->get_iter($_);
-		my $ID=$store->get( $store->get_iter($_),3);
-		$field=$store->get( $store->get_iter($_),4);
-		push @IDs,$ID;
-	}
-
-	if ($event->button == 2) { 
-		if ($field eq 'song') {::Enqueue(\@IDs);}
-		else {}		 
-	}
-	elsif ($event->button == 3) {
-		if ($field ne 'song')
-		{
-			if (scalar@IDs == 1) {::PopupAAContextMenu({gid=>$IDs[0],self=>$treeview,field=>$field,mode=>'S'});}
-			else {
-				my @idlist;
-				for (@IDs) {push @idlist , @{AA::Get('idlist',$field,$_)};}
-				::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@idlist});
-			}
-		}
-		else {::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@IDs});}			
-	}
-	elsif (($event->button == 1) and ($event->type  eq '2button-press') and (scalar@IDs == 1)) {
-		if ($field ne 'title'){
-			my $aalist = AA::Get('idlist',$field,$IDs[0]);
-			Songs::SortList($aalist,$::Options{Sort} || $::Options{Sort_LastOrdered});
-			::Select( filter => Songs::MakeFilterFromGID($field,$IDs[0])) if ($::Options{OPT.'FilterOnDblClick'});
-			::Select( song => $$aalist[0], play => 1);
-		}
-		else {::Select(song => $IDs[0], play => 1);}
-	}
-	else {return 0;}
-	
-	return 1;
-}
-
-sub STVContextPress
+sub ContextPress
 {
 	my ($treeview, $event) = @_;
 	return 0 unless $treeview;
@@ -1063,7 +1019,7 @@ sub STVContextPress
 	return 1;
 }
 
-sub STVChanged
+sub ContextChanged
 {
 	my $treeselection = shift;
 	
