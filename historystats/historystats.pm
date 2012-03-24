@@ -9,6 +9,8 @@
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats 
 # - Proper 'last week'/'last month' - handling in overview main chart
+# - mainchart with top artist & their top albums ?
+# - update main chart column header to match showed item (...)
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -44,7 +46,8 @@ use base 'Gtk2::Dialog';
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'weekly', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
-	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40);
+	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40
+);
 
 my %sites =
 (
@@ -406,10 +409,10 @@ sub CreateOverviewSite
 	$Ocover->set_fixed_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_min_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_expand(0);
-	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Item",Gtk2::CellRendererText->new,markup => 5);
+	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Top ".$::Options{OPT.'OverviewTop40Item'},Gtk2::CellRendererText->new,markup => 5);
 	$Olabel->set_sort_column_id(1);
 	$Olabel->set_expand(1);
-	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "PC",Gtk2::CellRendererText->new,text => 6);
+	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",Gtk2::CellRendererText->new,text => 6);
 	$Opc->set_sort_column_id(1);
 	$Opc->set_expand(0);
 
@@ -420,7 +423,9 @@ sub CreateOverviewSite
 	$Otreeview->get_selection->set_mode('multiple');
 	$Otreeview->set_rules_hint(1);
 	$Otreeview->set_headers_visible(1);
+	$Otreeview->set_headers_clickable(0);
 	$Otreeview->signal_connect(button_press_event => \&ContextPress);
+	$Otreeview->signal_connect(map => sub {$Otreeview->get_column(1)->set_title("Top ".$::Options{OPT.'OverviewTop40Item'}.' ('.$::Options{OPT.'OverviewTop40Mode'}.')');});
 	my $Oselection = $Otreeview->get_selection;
 	$Oselection->signal_connect(changed => \&SelectionChanged);
 	$Otreeview->{store}=$Ostore;
@@ -781,7 +786,8 @@ sub Updateoverview
 					2,$value,
 					3,$topheads[$store],
 					4,$maxvalue,
-					5,$value.' plays');
+					5,::__('%d play','%d plays',$value)
+					);
 		}
 	}
 	
@@ -795,6 +801,7 @@ sub Updateoverview
 
 	my $starttime = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (time-7*86400) : (time-30*86400);
 	my $pcs = GivePCFromTime($starttime,time,$field,$::Options{OPT.'OverviewTop40Suffix'});
+	my $oldpcs = GivePCFromTime($starttime-(time-$starttime),$starttime,$field,$::Options{OPT.'OverviewTop40Suffix'});
 
 	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
 	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
@@ -802,9 +809,11 @@ sub Updateoverview
 	$self->{ostore_main}->clear;
 	my $icon;
 	for (0..$#mainchart_list){
-		my $label; my $value; my $pic; 
-		$label = HandleStatMarkup($field,$mainchart_list[$_],($_+1).' - ',1);
-		$value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$_]}) : $$pcs{$mainchart_list[$_]};
+		my $pic; 
+		my $label = HandleStatMarkup($field,$mainchart_list[$_],($_+1).'. ',1);
+		my $value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$_]}) : $$pcs{$mainchart_list[$_]};
+		my $oldpc = (defined $$oldpcs{$mainchart_list[$_]})? "\n(".$$oldpcs{$mainchart_list[$_]}." plays)" : "";
+		$value = ::__('%d play','%d plays',$value).$oldpc;
 
 		if ($field eq 'title'){
 			$label = ::ReplaceFields($mainchart_list[$_],$label,::TRUE );
@@ -913,7 +922,7 @@ sub CreateHistory
 
 		$HistoryHash{$pt}{ID} = $ID;
 		$HistoryHash{$pt}{albumID} = Songs::Get_gid($ID,'album');
-		$HistoryHash{$pt}{artistID} = Songs::Get_gid($ID,'artist');
+		$HistoryHash{$pt}{artistID} = @{AA::Get('album_artist:gid','album',$HistoryHash{$pt}{albumID})}[0];
 		$HistoryHash{$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 	}
 
@@ -999,6 +1008,7 @@ sub GivePCFromTime
 	my ($start,$end,$field,$mode) = @_;
 	$field = '' if ((not defined $field) or ($field !~ /title|artist|album/));
 	my $wanted = ($field eq 'title')? 'ID' : $field.'ID';
+	if ($start > $end) {my $t=$start; $start=$end; $end=$t;}
 	
 	my %ok;
 	for my $t (reverse sort keys %HistoryHash)
@@ -1018,6 +1028,7 @@ sub GivePCFromTime
 		
 	return \%ok;
 }
+
 sub ContextPress
 {
 	my ($treeview, $event) = @_;
@@ -1071,7 +1082,7 @@ sub SelectionChanged
 	
 	return unless ($::Options{OPT.'SetFilterOnLeftClick'});
 	
-	my $treeview = $treeselection->get_tree_view;	
+	my $treeview = $treeselection->get_tree_view;
 	my $store=$treeview->{store};
 	my @paths = $treeview->get_selection->get_selected_rows;
 	
