@@ -8,6 +8,7 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats 
+# - Proper 'last week'/'last month' - handling in overview main chart
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -40,7 +41,7 @@ use base 'Gtk2::Dialog';
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
-	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists',
+	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'weekly', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
 	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40);
@@ -157,7 +158,9 @@ sub prefbox
 	my $oCombo = ::NewPrefCombo(OPT.'OverviewTop40Mode',\@omodes, text => 'Update main chart');
 	my @omodes2 = ('Artists','Albums','Tracks');
 	my $oCombo2 = ::NewPrefCombo(OPT.'OverviewTop40Item',\@omodes2, text => 'Show main chart for ');
-
+	my @omodes3 = ('total','average');
+	my $oCombo3 = ::NewPrefCombo(OPT.'OverviewTop40Suffix',\@omodes3, text => 'Calculate list for');
+	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
 	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
@@ -183,7 +186,7 @@ sub prefbox
 	my @vbox = ( 
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hAmount2,$hAmount3,$hLabel1],[$hEntry1,$hEntry2]), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo,$oCombo3]),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],[$sCheck10],$sAmount,[$sCombo],[$sCheck7,$sCombo2],$sCheck8,
 				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c]) 
 	);
@@ -395,7 +398,7 @@ sub CreateOverviewSite
 	#treeview for top40
 	my $Ostore; my $Otreeview;
 	# 0: (g)id, 1: icon, 2: position + lastweek position (if any), 3: field, 4: cover, 5: label, 6: playcount
-	$Ostore=Gtk2::ListStore->new('Glib::UInt','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::UInt');
+	$Ostore=Gtk2::ListStore->new('Glib::UInt','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String');
 
 	$Otreeview=Gtk2::TreeView->new($Ostore);
 	my $Ocover=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 4);
@@ -787,38 +790,35 @@ sub Updateoverview
 	#TODO: Handle properly with @playtimes when possible, for now we'll just put TopNN items here
 	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'title');
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
-		
-	unless($field eq 'title'){
-		($dh) = Songs::BuildHash($field, $::Library, undef, 'playcount:sum');
-		$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$dh))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$dh);
-		@list = (sort { $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
-	}
-	else {
-		@list = @$::Library;
-		Songs::SortList(\@list,'-playcount'); 
-		$#list = ($::Options{OPT.'OverviewTop40Amount'} < (scalar@list))? ($::Options{OPT.'OverviewTop40Amount'}-1) : (scalar@list -1);
-	}
+
+	CreateHistory() if ((!scalar keys %HistoryHash) or ($HistoryHash{needrecreate}));
+
+	my $starttime = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (time-7*86400) : (time-30*86400);
+	my $pcs = GivePCFromTime($starttime,time,$field,$::Options{OPT.'OverviewTop40Suffix'});
+
+	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
+	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
+
 	$self->{ostore_main}->clear;
-	my $icon = $self->render_icon("gtk-add","menu");
-	for (0..$#list){
+	my $icon;
+	for (0..$#mainchart_list){
 		my $label; my $value; my $pic; 
-	
-		$label = HandleStatMarkup($field,$list[$_],($_+1).' - ',1);
+		$label = HandleStatMarkup($field,$mainchart_list[$_],($_+1).' - ',1);
+		$value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$_]}) : $$pcs{$mainchart_list[$_]};
+
 		if ($field eq 'title'){
-			$value = Songs::Get($list[$_],qw/title playcount/);
-			$label = ::ReplaceFields( $list[$_],$label,::TRUE );
-			$pic = AAPicture::pixbuf('album', Songs::Get_gid($list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
-			if (!$pic){ $pic = $self->render_icon("gmb-song","large-toolbar");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
+			$label = ::ReplaceFields($mainchart_list[$_],$label,::TRUE );
+			$pic = AAPicture::pixbuf('album', Songs::Get_gid($mainchart_list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
+			if (!$pic){ $pic = $self->render_icon("gmb-song","large-toolbar");}
 		}
 		else{
-			$value = $$dh{$list[$_]};
-			$label = AA::ReplaceFields( $list[$_],$label,$field,::TRUE );
-			$pic = AAPicture::pixbuf($field, $list[$_], $::Options{OPT.'CoverSize'}, 1);
-			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"large-toolbar");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
+			$label = AA::ReplaceFields($mainchart_list[$_],$label,$field,::TRUE );
+			$pic = AAPicture::pixbuf($field, $mainchart_list[$_], $::Options{OPT.'CoverSize'}, 1);
+			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"large-toolbar");}
 		}
 
 		$self->{ostore_main}->set($self->{ostore_main}->append,
-			0,$list[$_],
+			0,$mainchart_list[$_],
 			1,$icon,
 			2,$_,
 			3,$field,
@@ -913,6 +913,7 @@ sub CreateHistory
 
 		$HistoryHash{$pt}{ID} = $ID;
 		$HistoryHash{$pt}{albumID} = Songs::Get_gid($ID,'album');
+		$HistoryHash{$pt}{artistID} = Songs::Get_gid($ID,'artist');
 		$HistoryHash{$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 	}
 
@@ -992,6 +993,31 @@ sub HandleStatMarkup
 	return $markup;
 }
 
+# GivePCFromTime returns hash-ref with (G)ID as key and total PC as value during specified timeperiod
+sub GivePCFromTime
+{
+	my ($start,$end,$field,$mode) = @_;
+	$field = '' if ((not defined $field) or ($field !~ /title|artist|album/));
+	my $wanted = ($field eq 'title')? 'ID' : $field.'ID';
+	
+	my %ok;
+	for my $t (reverse sort keys %HistoryHash)
+	{
+		next if ($t > $end);
+		last if ($t < $start);
+		$ok{$HistoryHash{$t}->{$wanted}} = (defined $ok{$HistoryHash{$t}->{$wanted}})? ($ok{$HistoryHash{$t}->{$wanted}}+1) : 1;
+	}
+
+	if (($mode eq 'average') and ($field =~ /artist|album/))
+	{
+		for (keys %ok){
+			my $al = AA::Get('idlist',$field,$_);
+			$ok{$_} /= scalar@$al unless (!scalar@$al);
+		}	
+	}
+		
+	return \%ok;
+}
 sub ContextPress
 {
 	my ($treeview, $event) = @_;
@@ -1113,6 +1139,7 @@ sub AddToHistory
 	
 	$HistoryHash{$playtime}{ID} = $ID;
 	$HistoryHash{$playtime}{albumID} = Songs::Get_gid($ID,'album');
+	$HistoryHash{$playtime}{albumID} = Songs::Get_gid($ID,'artist');
 	$HistoryHash{$playtime}{label} = join " - ", ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 
 	$self->{needsupdate} = ($self->{site} eq 'history')? 1 : 0;
