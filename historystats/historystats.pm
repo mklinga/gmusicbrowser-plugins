@@ -403,7 +403,7 @@ sub CreateOverviewSite
 	$Ocover->set_fixed_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_min_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_expand(0);
-	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Item",Gtk2::CellRendererText->new,text => 5);
+	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Item",Gtk2::CellRendererText->new,markup => 5);
 	$Olabel->set_sort_column_id(1);
 	$Olabel->set_expand(1);
 	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "PC",Gtk2::CellRendererText->new,text => 6);
@@ -704,7 +704,7 @@ sub Updatestatistics
 	for (0..$#list)
 	{
 		my $value = $dh->{$list[$_]}; my $formattedvalue;
-			if ($sorttype eq 'playedlength') { $formattedvalue = FormatSmalltime($dh->{$list[$_]});}
+		if ($sorttype eq 'playedlength') { $formattedvalue = FormatSmalltime($dh->{$list[$_]});}
 		else {$formattedvalue = ($suffix =~ /average/)? sprintf ("%.2f", $dh->{$list[$_]}) : $dh->{$list[$_]};}
 		
 		my $num = ($_ > ($max-1))? "n/a  " : undef; #this is for the current, if it's not in original list  
@@ -803,16 +803,18 @@ sub Updateoverview
 	for (0..$#list){
 		my $label; my $value; my $pic; 
 	
+		$label = HandleStatMarkup($field,$list[$_],($_+1).' - ',1);
 		if ($field eq 'title'){
-			($label,$value) = Songs::Get($list[$_],qw/title playcount/);
+			$value = Songs::Get($list[$_],qw/title playcount/);
+			$label = ::ReplaceFields( $list[$_],$label,::TRUE );
 			$pic = AAPicture::pixbuf('album', Songs::Get_gid($list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
-			if (!$pic){ $pic = $self->render_icon("gmb-song","dialog");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
+			if (!$pic){ $pic = $self->render_icon("gmb-song","large-toolbar");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
 		}
 		else{
-			$label = Songs::Gid_to_Display($field,$list[$_]);
 			$value = $$dh{$list[$_]};
+			$label = AA::ReplaceFields( $list[$_],$label,$field,::TRUE );
 			$pic = AAPicture::pixbuf($field, $list[$_], $::Options{OPT.'CoverSize'}, 1);
-			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"dialog");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
+			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"large-toolbar");}#->scale_simple($::Options{OPT.'CoverSize'},$::Options{OPT.'CoverSize'},'bilinear');}
 		}
 
 		$self->{ostore_main}->set($self->{ostore_main}->append,
@@ -821,7 +823,7 @@ sub Updateoverview
 			2,$_,
 			3,$field,
 			4,$pic,
-			5,($_+1).' - '.$label,
+			5,$label,
 			6,$value,
 		);
 	}
@@ -964,7 +966,8 @@ sub FormatRealtime
 
 sub HandleStatMarkup
 {
-	my ($field,$id,$listnum) = @_;
+	my ($field,$id,$listnum,$HasPic) = @_;
+	$listnum = '' unless (defined $listnum);
 	my $markup = ($field eq 'title')? $listnum."%t": $listnum."%a";	
 	
 	if ($::SongID){
@@ -975,7 +978,7 @@ sub HandleStatMarkup
 
 	if (($::Options{OPT.'ShowArtistForAlbumsAndTracks'}) and ($field =~ /album|title/))
 	{
-		my $HasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($field)})? 1 : 0;
+		unless (defined $HasPic) {$HasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($field)})? 1 : 0;}
 		if ($field eq 'album') {
 			if ($HasPic) {$markup = $markup."\n\t by ".::PangoEsc(Songs::Gid_to_Display('artist',@{AA::Get('album_artist:gid','album',$id)}[0]));}
 			else {$markup = $markup."<small>  by  ".::PangoEsc(Songs::Gid_to_Display('artist',@{AA::Get('album_artist:gid','album',$id)}[0])).'</small>';}
