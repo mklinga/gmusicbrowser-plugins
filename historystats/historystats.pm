@@ -1151,7 +1151,7 @@ sub AddToHistory
 	
 	$HistoryHash{$playtime}{ID} = $ID;
 	$HistoryHash{$playtime}{albumID} = Songs::Get_gid($ID,'album');
-	$HistoryHash{$playtime}{albumID} = Songs::Get_gid($ID,'artist');
+	$HistoryHash{$playtime}{artistID} = @{AA::Get('album_artist:gid','album',$HistoryHash{$playtime}{albumID})}[0];
 	$HistoryHash{$playtime}{label} = join " - ", ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 
 	$self->{needsupdate} = ($self->{site} eq 'history')? 1 : 0;
