@@ -1013,6 +1013,7 @@ sub GivePCFromTime
 	my %ok;
 	for my $t (reverse sort keys %HistoryHash)
 	{
+		next unless ($t =~ /^(\d+)$/);
 		next if ($t > $end);
 		last if ($t < $start);
 		$ok{$HistoryHash{$t}->{$wanted}} = (defined $ok{$HistoryHash{$t}->{$wanted}})? ($ok{$HistoryHash{$t}->{$wanted}}+1) : 1;
