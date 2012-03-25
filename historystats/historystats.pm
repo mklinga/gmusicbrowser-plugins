@@ -937,12 +937,12 @@ sub FormatSmalltime
 
 	my $result = '';
 	
-	if ($sec > 31536000) { $result .= int($sec/31536000).'y ';}
-	if ($sec > 2592000) { $result .= int($sec/2592000).'m '; }
-	elsif ($sec > 604800) { $result .= int($sec/604800).'wk ';} #show either weeks or months, not both
-	if ($sec > 86400) { $result .= int($sec/86400).'d '; }
-	if ($sec > 3600) { $result .= sprintf("%02d",int(($sec%86400)/3600)).':'; }
-	$result .= sprintf("%02d",int(($sec%3600)/60)).':'.sprintf("%02d",int($sec%60));
+	if ($sec > 31536000) { $result .= int($sec/31536000).'y '; $sec = $sec%31536000;}
+	if ($sec > 2592000) { $result .= int($sec/2592000).'m '; $sec = $sec%2592000; }
+	elsif ($sec > 604800) { $result .= int($sec/604800).'wk '; $sec = $sec%604800;} #show either weeks or months, not both
+	if ($sec > 86400) { $result .= int($sec/86400).'d '; $sec = $sec%86400;}
+	if ($sec > 3600) { $result .= sprintf("%02d",int($sec/3600)).':'; $sec = $sec%3600;}
+	$result .= sprintf("%02d",int($sec/60)).':'.sprintf("%02d",int($sec%60));
 
 	return $result;
 }
