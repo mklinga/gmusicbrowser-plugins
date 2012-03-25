@@ -801,7 +801,7 @@ sub Updateoverview
 
 	my $starttime = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (time-7*86400) : (time-30*86400);
 	my $pcs = GivePCFromTime($starttime,time,$field,$::Options{OPT.'OverviewTop40Suffix'});
-	my $oldpcs = GivePCFromTime($starttime-(time-$starttime),$starttime,$field,$::Options{OPT.'OverviewTop40Suffix'});
+#	my $oldpcs = GivePCFromTime($starttime-(time-$starttime),$starttime,$field,$::Options{OPT.'OverviewTop40Suffix'});
 
 	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
 	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
@@ -811,9 +811,10 @@ sub Updateoverview
 	for (0..$#mainchart_list){
 		my $pic; 
 		my $label = HandleStatMarkup($field,$mainchart_list[$_],($_+1).'. ',1);
+
 		my $value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$_]}) : $$pcs{$mainchart_list[$_]};
-		my $oldpc = (defined $$oldpcs{$mainchart_list[$_]})? "\n(".$$oldpcs{$mainchart_list[$_]}." plays)" : "";
-		$value = ::__('%d play','%d plays',$value).$oldpc;
+#		my $oldpc = (defined $$oldpcs{$mainchart_list[$_]})? "\n(".$$oldpcs{$mainchart_list[$_]}." plays)" : "";
+		$value = ::__('%s play','%s plays',$value);#.$oldpc;
 
 		if ($field eq 'title'){
 			$label = ::ReplaceFields($mainchart_list[$_],$label,::TRUE );
@@ -1019,14 +1020,16 @@ sub GivePCFromTime
 		$ok{$HistoryHash{$t}->{$wanted}} = (defined $ok{$HistoryHash{$t}->{$wanted}})? ($ok{$HistoryHash{$t}->{$wanted}}+1) : 1;
 	}
 
+	my @notok;
 	if (($mode eq 'average') and ($field =~ /artist|album/))
 	{
 		for (keys %ok){
 			my $al = AA::Get('idlist',$field,$_);
+			unless (defined $al) {push @notok, $_; next;}
 			$ok{$_} /= scalar@$al unless (!scalar@$al);
 		}	
 	}
-		
+	delete $ok{$_} for (@notok);#if we don't have any songs, delete item (might happen when removed from db)
 	return \%ok;
 }
 
