@@ -783,18 +783,32 @@ sub Updateoverview
 	
 	# TODO: 
 	# show change from oldpc
-	# show average
 	
 	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'id');
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
 	my $pcs; my $oldpcs;
 
-	my $starttime = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (time-7*86400) : (time-30*86400);
-
+	my $timeperiod = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (7*86400) : (30*86400);
+	my $starttime = time-$timeperiod;
+	
 	$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);
-	#$oldpcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.$starttime.'-'.time);
-
-
+	
+	my @needed_source;
+	for my $key (keys %$pcs) {
+		push @needed_source, @{AA::Get('id:list',$field,$key)};
+	}
+	$oldpcs = Songs::BuildHash($field,\@needed_source,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.$starttime);
+	
+	if (($::Options{OPT.'OverviewTop40Suffix'} eq 'average') and ($field !~ /^id$/)){
+		for (keys %$pcs)
+		{
+			my $alist = AA::Get('id:list',$field,$_);
+			next unless ((defined $alist) and (scalar@$alist));
+			$$pcs{$_} /= scalar@$alist;
+			$$oldpcs{$_} /= scalar@$alist if (defined $$oldpcs{$_});
+		}
+	}
+	
 	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
 	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
 
@@ -805,8 +819,10 @@ sub Updateoverview
 		my $label = HandleStatMarkup($field,$mainchart_list[$_],($_+1).'. ',1);
 
 		my $value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$_]}) : $$pcs{$mainchart_list[$_]};
-#		my $oldpc = (defined $$oldpcs{$mainchart_list[$_]})? "\n(".$$oldpcs{$mainchart_list[$_]}." plays)" : "";
-		$value = ::__('%s play','%s plays',$value);#.$oldpc;
+		$value = ::__('%s play','%s plays',$value);
+		if (defined $$oldpcs{$mainchart_list[$_]}){
+			$value .= "\n(".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$_]}).')';
+		}
 
 		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$_],$label,::TRUE );
@@ -1006,7 +1022,7 @@ sub ContextPress
 
 	if ($event->button == 3)
 	{
-		if ($field !~ /title|id/){
+		if ($field !~ /^title$|^id$/){
 			if (scalar@IDs == 1) {::PopupAAContextMenu({gid=>$IDs[0],self=>$treeview,field=>$field,mode=>'S'});}
 			else {
 				my @idlist;
@@ -1019,7 +1035,7 @@ sub ContextPress
 		}
 	}
 	elsif (($event->button == 1) and ($event->type  eq '2button-press') and (scalar@IDs == 1)) {
-		if ($field !~ /title|id/){
+		if ($field !~ /^title$|^id$/){
 			my $aalist = AA::Get('id:list',$field,$IDs[0]);
 			Songs::SortList($aalist,$::Options{Sort} || $::Options{Sort_LastOrdered});
 			::Select( filter => Songs::MakeFilterFromGID($field,$IDs[0])) if ($::Options{OPT.'FilterOnDblClick'});
@@ -1050,7 +1066,7 @@ sub SelectionChanged
 		my $iter=$store->get_iter($_);
 		my $GID=$store->get( $store->get_iter($_),0);
 		$field=$store->get( $store->get_iter($_),3);
-		next if ($field =~ /title|id/);
+		next if ($field =~ /^title$|^id$/);
 		push @Filters, Songs::MakeFilterFromGID($field,$GID);
 	}
 	
