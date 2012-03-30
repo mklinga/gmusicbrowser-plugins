@@ -7,10 +7,9 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - time-based (as in weekly/monthly etc.) stats 
+# - time-based (as in weekly/monthly etc.) stats in STATISTICS!
 # - Proper 'last week'/'last month' - handling in overview main chart
 # - mainchart with top artist & their top albums ?
-# - update main chart column header to match showed item (...)
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -97,7 +96,6 @@ my $statswidget =
 };
 
 my $LogFile = $::HomeDir.'playhistory.log';
-my %HistoryHash = ( needupdate => 1);# last play of every track, key = playtime
 my %sourcehash;
 my $lastID = -1; 
 my %lastAdded = ( ID => -1, playtime => -1, albumID => -1);
@@ -136,14 +134,14 @@ sub prefbox
 	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>25, text =>_("Album cover size"));	
 
 	# History
-	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc', cb => sub{  $HistoryHash{needupdate} = 1;});
-	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter', cb => sub{ $HistoryHash{needupdate} = 1;});
+	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc');
+	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter');
 	my $hCheck3 = ::NewPrefCheckButton(OPT.'LogHistoryToFile','Log playhistory to file');
-	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "), cb => sub{  $HistoryHash{needupdate} = 1;});
+	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "));
 	my @historylimits = ('items','days');
-	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits, cb => sub{ $HistoryHash{needupdate} = 1;});
+	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits);
 	my $hEntry1 = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
-	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)", cb => sub { $HistoryHash{needrecreate} = 1;});
+	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)");
 	my $hAmount2 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedPerc',1,240, step=>1, page=>10, text =>_("Count album as played after "));
 	my $hAmount3 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedMin',1,100, step=>1, page=>10, text =>_("% or "));
 	my $hLabel1 = Gtk2::Label->new(' minutes');
@@ -267,7 +265,6 @@ sub new
 			my $force;
 			$force = 1 unless (($self->{site} eq 'history') and (!$::Options{OPT.'UseHistoryFilter'}));
 			SongChanged($self,$force);
-			$HistoryHash{needupdate} = 1;
 		});
 	
 	UpdateSite($self,$self->{site});
@@ -664,24 +661,14 @@ sub Updatestatistics
 		}
 	}
 	else {
-		if ($sorttype eq 'weighted')
-		{
+		if ($sorttype eq 'weighted'){
 			my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
 			my $sub = ($field eq 'title')? $randommode->MakeSingleScoreFunction() : $randommode->MakeGroupScoreFunction($field);
 			($dh)=$sub->($source);
 			ScaleWRandom(\%$dh,$field);
-			
 		}
 		else{
-			if ($field ne 'title') {($dh) = Songs::BuildHash($field, $source, undef, $sorttype.$suffix);}
-			else {
-				@list = @$source;
-				Songs::SortList(\@list,'-'.$sorttype);
-				if ($self->{butinvert}->get_active) { @list = reverse @list;}
-				$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar@list))? ($::Options{OPT.'AmountOfStatItems'}) : (scalar@list);
-				$$dh{$list[$_]} = Songs::Get($list[$_],$sorttype) for (0..($max-1));
-				@list = ();#empty list for now, just to be sure
-			}
+			($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field, $source, undef, $sorttype.$suffix);
 		} 
 	}
 	#we got values, send 'em up!
@@ -793,15 +780,20 @@ sub Updateoverview
 	
 	
 	# Main Chart
-	#TODO: Handle properly with @playtimes when possible, for now we'll just put TopNN items here
-	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'title');
+	
+	# TODO: 
+	# show change from oldpc
+	# show average
+	
+	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'id');
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
-
-	CreateHistory() if ((!scalar keys %HistoryHash) or ($HistoryHash{needrecreate}));
+	my $pcs; my $oldpcs;
 
 	my $starttime = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (time-7*86400) : (time-30*86400);
-	my $pcs = GivePCFromTime($starttime,time,$field,$::Options{OPT.'OverviewTop40Suffix'});
-#	my $oldpcs = GivePCFromTime($starttime-(time-$starttime),$starttime,$field,$::Options{OPT.'OverviewTop40Suffix'});
+
+	$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);
+	#$oldpcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.$starttime.'-'.time);
+
 
 	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
 	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
@@ -816,7 +808,7 @@ sub Updateoverview
 #		my $oldpc = (defined $$oldpcs{$mainchart_list[$_]})? "\n(".$$oldpcs{$mainchart_list[$_]}." plays)" : "";
 		$value = ::__('%s play','%s plays',$value);#.$oldpc;
 
-		if ($field eq 'title'){
+		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$_],$label,::TRUE );
 			$pic = AAPicture::pixbuf('album', Songs::Get_gid($mainchart_list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
 			if (!$pic){ $pic = $self->render_icon("gmb-song","large-toolbar");}
@@ -844,57 +836,64 @@ sub Updateoverview
 sub Updatehistory
 {
 	my $self = shift;
-
-	if ($HistoryHash{needupdate})
-	{
-		delete $sourcehash{$_} for (keys %sourcehash);
-		my $source = (($::Options{OPT.'UseHistoryFilter'}) and (defined $::SelectedFilter))? $::SelectedFilter->filter : $::Library; 
-		$sourcehash{$$source[$_]} = $_ for (0..$#$source);
-		delete $HistoryHash{needupdate};
+	
+	my $source = (($::Options{OPT.'UseHistoryFilter'}) and (defined $::SelectedFilter))? $::SelectedFilter->filter : $::Library;
+	my $h = Songs::BuildHash('id', $source, undef, 'playhistory');
+	my $albHash = Songs::BuildHash('id', $source, undef, 'album_artist:gid','album:gid');
+	my %hHash;
+	
+	for my $hashistory (keys %$h) {	# hashistory are every song in library that has playhistory
+		for my $plt (keys $$h{$hashistory}){ # plt are playtimes (epoch) 
+			$hHash{$plt} = $hashistory;
+		}
 	}
-
-	CreateHistory() if ((!scalar keys %HistoryHash) or ($HistoryHash{needrecreate}));
-
-	my $amount; my $lasttime = 0;
+	
+	my $lasttime = 0; my $amount=0;
 	if ($::Options{OPT.'HistoryLimitMode'} eq 'days') {
 		$lasttime = time-(($::Options{OPT.'AmountOfHistoryItems'}-1)*86400);
 		my ($sec, $min, $hour) = (localtime(time))[0,1,2];
 		$lasttime -= ($sec+(60*$min)+(3600*$hour));
+		my $hh = Songs::BuildHash('album_artist', $source, undef, 'playhistory:countafter:'.$lasttime);
+		for (keys %$hh) { $amount += $$hh{$_}; }; #could this be done more easily?
 	}
-	else{$amount = ((scalar keys(%HistoryHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%HistoryHash) : $::Options{OPT.'AmountOfHistoryItems'};}
-
-	my %final; my %seen_alb; my %albumplaytimes; my @albumorder;
+	else { $amount = ((scalar keys(%hHash)) < $::Options{OPT.'AmountOfHistoryItems'})? scalar keys(%hHash) : $::Options{OPT.'AmountOfHistoryItems'}; }
 	
-	#we test from biggest to smallest playtime (keys are $playtime) until find $amount songs that are in source
-	for my $hk (reverse sort keys %HistoryHash) 
-	{
-		if ($hk =~ /^(\d+)$/) { last unless ($1 > $lasttime);}
-		if (defined $sourcehash{$HistoryHash{$hk}->{ID}}) {
-			$final{$hk} = $HistoryHash{$hk};
-			$amount-- if (defined $amount);
+	my %seen_alb; my %albumplaytimes; my @albumorder;
 
-			push @{$seen_alb{$final{$hk}->{albumID}}}, $final{$hk}->{ID};
-			if ((not defined $albumplaytimes{$final{$hk}->{albumID}}) and ($hk =~ /^(\d+)$/)){$albumplaytimes{$final{$hk}->{albumID}} = $1; push @albumorder,$final{$hk}->{albumID};}
-		}
-		last if ((defined $amount) and ($amount <= 0));
-	}
-
-	#then re-populate the hstore
 	$self->{hstore}->clear;
-	for my $key (reverse sort keys %final)	{
-		$self->{hstore}->set($self->{hstore}->append,0,$final{$key}->{ID},1,FormatRealtime($key),2,$final{$key}->{label},3,'title');
+	
+	for my $key ((sort { $b <=> $a } keys %hHash)[0..($amount-1)]) 
+	{
+		#take note for albums
+		push @{$seen_alb{$$albHash{$hHash{$key}}[0]}}, $hHash{$key};
+		unless (defined $albumplaytimes{$$albHash{$hHash{$key}}[0]})
+		{
+			$albumplaytimes{$$albHash{$hHash{$key}}[0]} = $key;
+			push @albumorder,$$albHash{$hHash{$key}}[0];
+		}
+
+		#add to store
+		$self->{hstore}->set($self->{hstore}->append,
+				0,$hHash{$key},
+				1,FormatRealtime($key),
+				2,::ReplaceFields($hHash{$key},$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t'),
+				3,'title');
+
+		last unless ($key > $lasttime);
+		last if (defined $amount) and (--$amount <= 0);
 	}
 	
-	# then albums
-	$self->{hstore_albums}->clear;
+	# Albums' history
 	
 	my @real_source; my @playedsongs;
 	for my $key (@albumorder) {
-		push @real_source, @{AA::Get('idlist','album',$key)};
+		push @real_source, @{AA::Get('id:list','album',$key)};
 		push @playedsongs, @{$seen_alb{$key}};
 	}
 	my ($totallengths) = Songs::BuildHash('album', \@real_source, undef, 'length:sum');
 	my ($playedlengths) = Songs::BuildHash('album', \@playedsongs, undef, 'length:sum');
+
+	$self->{hstore_albums}->clear;
 
 	for my $key (@albumorder) 
 	{
@@ -910,26 +909,8 @@ sub Updatehistory
 			4,FormatRealtime($albumplaytimes{$key})
 			);
 	}	
-		
+	
 	return 1;	 
-}
-
-sub CreateHistory
-{
-	for my $ID (@$::Library)
-	{
-		my $pt = Songs::Get($ID,'lastplay');
-		next unless ($pt);#we use playtime as hash key, so it must exist
-
-		$HistoryHash{$pt}{ID} = $ID;
-		$HistoryHash{$pt}{albumID} = Songs::Get_gid($ID,'album');
-		$HistoryHash{$pt}{artistID} = @{AA::Get('album_artist:gid','album',$HistoryHash{$pt}{albumID})}[0];
-		$HistoryHash{$pt}{label} = ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
-	}
-
-	delete $HistoryHash{needrecreate} if ($HistoryHash{needrecreate});
-
-	return 1;
 }
 
 sub FormatSmalltime
@@ -979,6 +960,7 @@ sub HandleStatMarkup
 {
 	my ($field,$id,$listnum,$HasPic) = @_;
 	$listnum = '' unless (defined $listnum);
+	$field = 'title' if ($field eq 'id');
 	my $markup = ($field eq 'title')? $listnum."%t": $listnum."%a";	
 	
 	if ($::SongID){
@@ -1003,36 +985,6 @@ sub HandleStatMarkup
 	return $markup;
 }
 
-# GivePCFromTime returns hash-ref with (G)ID as key and total PC as value during specified timeperiod
-sub GivePCFromTime
-{
-	my ($start,$end,$field,$mode) = @_;
-	$field = '' if ((not defined $field) or ($field !~ /title|artist|album/));
-	my $wanted = ($field eq 'title')? 'ID' : $field.'ID';
-	if ($start > $end) {my $t=$start; $start=$end; $end=$t;}
-	
-	my %ok;
-	for my $t (reverse sort keys %HistoryHash)
-	{
-		next unless ($t =~ /^(\d+)$/);
-		next if ($t > $end);
-		last if ($t < $start);
-		$ok{$HistoryHash{$t}->{$wanted}} = (defined $ok{$HistoryHash{$t}->{$wanted}})? ($ok{$HistoryHash{$t}->{$wanted}}+1) : 1;
-	}
-
-	my @notok;
-	if (($mode eq 'average') and ($field =~ /artist|album/))
-	{
-		for (keys %ok){
-			my $al = AA::Get('idlist',$field,$_);
-			unless (defined $al) {push @notok, $_; next;}
-			$ok{$_} /= scalar@$al unless (!scalar@$al);
-		}	
-	}
-	delete $ok{$_} for (@notok);#if we don't have any songs, delete item (might happen when removed from db)
-	return \%ok;
-}
-
 sub ContextPress
 {
 	my ($treeview, $event) = @_;
@@ -1054,11 +1006,11 @@ sub ContextPress
 
 	if ($event->button == 3)
 	{
-		if ($field ne 'title'){
+		if ($field !~ /title|id/){
 			if (scalar@IDs == 1) {::PopupAAContextMenu({gid=>$IDs[0],self=>$treeview,field=>$field,mode=>'S'});}
 			else {
 				my @idlist;
-				for (@IDs) {push @idlist , @{AA::Get('idlist',$field,$_)};}
+				for (@IDs) {push @idlist , @{AA::Get('id:list',$field,$_)};}
 				::PopupContextMenu(\@::SongCMenu,{mode=> 'S', self=> $treeview, IDs => \@idlist});
 			}
 		}
@@ -1067,8 +1019,8 @@ sub ContextPress
 		}
 	}
 	elsif (($event->button == 1) and ($event->type  eq '2button-press') and (scalar@IDs == 1)) {
-		if ($field ne 'title'){
-			my $aalist = AA::Get('idlist',$field,$IDs[0]);
+		if ($field !~ /title|id/){
+			my $aalist = AA::Get('id:list',$field,$IDs[0]);
 			Songs::SortList($aalist,$::Options{Sort} || $::Options{Sort_LastOrdered});
 			::Select( filter => Songs::MakeFilterFromGID($field,$IDs[0])) if ($::Options{OPT.'FilterOnDblClick'});
 			::Select( song => $$aalist[0], play => 1);
@@ -1098,7 +1050,7 @@ sub SelectionChanged
 		my $iter=$store->get_iter($_);
 		my $GID=$store->get( $store->get_iter($_),0);
 		$field=$store->get( $store->get_iter($_),3);
-		next if ($field eq 'title');
+		next if ($field =~ /title|id/);
 		push @Filters, Songs::MakeFilterFromGID($field,$GID);
 	}
 	
@@ -1151,11 +1103,6 @@ sub AddToHistory
 
 	$lastAdded{ID} = $ID;
 	$lastAdded{playtime} = $playtime;
-	
-	$HistoryHash{$playtime}{ID} = $ID;
-	$HistoryHash{$playtime}{albumID} = Songs::Get_gid($ID,'album');
-	$HistoryHash{$playtime}{artistID} = @{AA::Get('album_artist:gid','album',$HistoryHash{$playtime}{albumID})}[0];
-	$HistoryHash{$playtime}{label} = join " - ", ::ReplaceFields($ID,$::Options{OPT.'HistoryItemFormat'} || '%a - %l - %t');
 
 	$self->{needsupdate} = ($self->{site} eq 'history')? 1 : 0;
 	UpdateSite($self,'history');
