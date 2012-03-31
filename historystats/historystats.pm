@@ -8,13 +8,17 @@
 
 # TODO:
 # - time-based (as in weekly/monthly etc.) stats in STATISTICS!
-# - Proper 'last week'/'last month' - handling in overview main chart
 # - mainchart with top artist & their top albums ?
+# - more timeperiods for main chart (custom?)
+# - see if historysite could be done faster
+# - clean prefs
+# - weekstartday?
+# - show change from oldpc (only for last *?)
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
 # - sorting the playedlength (for now)
-#
+
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -42,7 +46,7 @@ use base 'Gtk2::Dialog';
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
-	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'weekly', OverviewTop40Suffix => 'sum',
+	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
 	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40
@@ -84,6 +88,18 @@ my %OverviewTopheads = (
 	album => {label => 'Top Albums', enabled => 0},
 	title => {label => 'Top Tracks', enabled => 0},
 	genre => {label => 'Top Genres', enabled => 0}
+);
+
+my %timeperiods = (
+	a => { label => 'last week', dayspan => 'w'},
+	b => { label => 'last month', dayspan => 'm'},
+	c => { label => '1 week', dayspan => 7},
+	d => { label => '2 weeks', dayspan => 14},
+	e => { label => '4 weeks', dayspan => 28},
+	f => { label => '3 months', dayspan => 90},
+	g => { label => '6 months', dayspan => 180},
+	h => { label => '12 months', dayspan => 365},
+	i => { label => 'Overall', dayspan => 'o'}
 );
 
 my $statswidget =
@@ -155,7 +171,8 @@ sub prefbox
 	my $oCheck3 = ::NewPrefCheckButton(OPT.'OVTHtitle','Tracks');
 	my $oCheck4 = ::NewPrefCheckButton(OPT.'OVTHgenre','Genres');
 	my $oAmount2 = ::NewPrefSpinButton(OPT.'OverviewTop40Amount',3,100, step=>1, page=>5, text =>_("Items in main chart: "));
-	my @omodes = ('weekly','monthly');
+	my @omodes; 
+	for (sort keys %timeperiods) { push @omodes, $timeperiods{$_}->{label};}
 	my $oCombo = ::NewPrefCombo(OPT.'OverviewTop40Mode',\@omodes, text => 'Update main chart');
 	my @omodes2 = ('Artists','Albums','Tracks');
 	my $oCombo2 = ::NewPrefCombo(OPT.'OverviewTop40Item',\@omodes2, text => 'Show main chart for ');
@@ -492,14 +509,25 @@ sub CreateStatisticsSite
 		$stat_hbox1->pack_start($combos[$_],1,1,1);
 	}
 	
-	#buttons for avg & inv
+	#buttons for timeperiod & inv
 	my $Sinvert = Gtk2::ToggleButton->new();
 	my $iw=Gtk2::Image->new_from_stock('gtk-sort-descending','menu');
 	$Sinvert->add($iw);
 	$Sinvert->set_tooltip_text('Invert sorting order');
 	$Sinvert->signal_connect(toggled => sub {Updatestatistics($self);});
+	my $Stimep = Gtk2::Button->new();
+	my $tpb=Gtk2::Image->new_from_stock('gmb-filter','menu');
+	$Stimep->set_image($tpb);
+	$Stimep->set_tooltip_text('Choose timeperiod for statistics');
+	$Stimep->signal_connect(clicked => sub 
+		{
+			#TODO: context-menu
+			Updatestatistics($self);
+		});
+	$Stimep->show;
 
 	$stat_hbox1->pack_start($Sinvert,0,0,0);
+	$stat_hbox1->pack_start($Stimep,0,0,0);
 
 	# Treeview for statistics: 
 	# fields in Sstore are  GID, markup, (raw)value, field, maxvalue, formattedvalue  
@@ -780,24 +808,22 @@ sub Updateoverview
 	
 	
 	# Main Chart
-	
-	# TODO: 
-	# show change from oldpc
-	
+
 	my %fc = (Artists => 'artist', Albums => 'album', Tracks => 'id');
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
 	my $pcs; my $oldpcs;
 
-	my $timeperiod = ($::Options{OPT.'OverviewTop40Mode'} eq 'weekly')? (7*86400) : (30*86400);
-	my $starttime = time-$timeperiod;
-	
-	$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);
-	
-	my @needed_source;
-	for my $key (keys %$pcs) {
-		push @needed_source, @{AA::Get('id:list',$field,$key)};
+	my ($span) = grep { $timeperiods{$_}->{label} eq $::Options{OPT.'OverviewTop40Mode'}} keys %timeperiods;
+	my ($starttime,$endtime,$timeperiod) = GetTimeSpan($timeperiods{$span}->{dayspan});
+
+	if ($endtime){$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
+	else {$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);}
+
+	if ($timeperiod){
+		my @needed_source;
+		push @needed_source, @{AA::Get('id:list',$field,$_)} for (keys %$pcs);
+		$oldpcs = Songs::BuildHash($field,\@needed_source,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.$starttime);
 	}
-	$oldpcs = Songs::BuildHash($field,\@needed_source,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.$starttime);
 	
 	if (($::Options{OPT.'OverviewTop40Suffix'} eq 'average') and ($field !~ /^id$/)){
 		for (keys %$pcs)
@@ -971,6 +997,37 @@ sub FormatRealtime
 
 	return $formatted;
 }
+
+sub GetTimeSpan
+{
+	my $span = shift;
+	my $starttime; my $endtime; my $timeperiod;
+	
+	if ($span =~ /^(\d+)$/) { 
+		$timeperiod = $span*86400; 
+		$starttime = time-$timeperiod;
+		$endtime = 0;
+	}
+	else{
+		if ($span eq 'o') { $timeperiod = 0; $starttime = 0; $endtime = time;}
+		elsif ($span eq 'w') { 
+			$timeperiod = 7*86400;
+			my ($s,$m,$h,$wday) = ( localtime time )[0,1,2,6];
+			$starttime = time - ((7 + (($wday == 0)? 6 : ($wday-1))) * 86400);
+			$starttime -= ($h*3600+$m*60+$s);
+			$endtime = $starttime+$timeperiod;
+		}
+		elsif ($span eq 'm') { 
+			my ($m,$y) = ( localtime time )[4,5];
+			$starttime = ::mktime( 0, 0, 0, 1, $m - 1, $y );
+			$endtime = ::mktime( 0, 0, 0, 1, $m, $y );  
+			$timeperiod = $starttime - ::mktime( 0, 0, 0, 1, $m - 2, $y );
+		}
+	}
+	
+	return ($starttime,$endtime,$timeperiod);
+}
+
 
 sub HandleStatMarkup
 {
