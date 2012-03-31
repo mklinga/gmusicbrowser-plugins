@@ -7,13 +7,11 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - time-based (as in weekly/monthly etc.) stats in STATISTICS!
 # - mainchart with top artist & their top albums ?
-# - more timeperiods for main chart (custom?)
-# - see if historysite could be done faster
-# - clean prefs
-# - weekstartday?
-# - show change from oldpc (only for last *?)
+# - clean prefs & new
+# - show change from oldpc (only for last *?) (position change?)
+# - merge lastplays into playhistory
+# - album-based average for timeperiods other than 'overall' in statistics
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -49,7 +47,7 @@ use base 'Gtk2::Dialog';
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
-	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40
+	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40, TimePeriodCombo => 'Overall'
 );
 
 my %sites =
@@ -227,7 +225,7 @@ sub new
 
 	my ($Hvbox, $Hstore,$Hstore_albums) = CreateHistorySite($self);
 	my ($Ovbox,$Ostore_toplist,$Ostore,$Ostatstore) = CreateOverviewSite($self,$options);	
-	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels) = CreateStatisticsSite($self);
+	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$stat_hbox2,$iw,@combos,@labels) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
 	$self->{hstore}=$Hstore;
@@ -250,6 +248,7 @@ sub new
 
 	my $site_statistics = Gtk2::VBox->new(); 
 	$site_statistics->pack_start($stat_hbox1,0,0,0);
+	$site_statistics->pack_start($stat_hbox2,0,0,0);
 	$site_statistics->pack_start($sh,1,1,0);
 
 	$infobox->pack_start($site_history,1,1,0);
@@ -501,10 +500,35 @@ sub CreateStatisticsSite
 		push @{$lists[1]}, $SortTypes{$_}->{label};
 	}
 
+	my @timeperiodcombonames;
+	for (sort keys %timeperiods) { push @timeperiodcombonames, $timeperiods{$_}->{label};}
+	my $timeperiodlabel = Gtk2::Label->new('Timeperiod: ');
+	my $timeperiodcombo = ::NewPrefCombo(OPT.'TimePeriodCombo',\@timeperiodcombonames);
+	$timeperiodcombo->signal_connect(changed => sub {Updatestatistics($self);});
+	$timeperiodcombo->show; $timeperiodlabel->show;
+	my $stat_hbox2 = Gtk2::HBox->new;
+	$stat_hbox2->pack_start($timeperiodlabel,0,0,1);
+	$stat_hbox2->pack_start($timeperiodcombo,1,1,1);
+	$stat_hbox2->show if ($::Options{OPT.'StatisticsSortCombo'} =~ /Playcount/);
+	
+
 	my @combos; my @coptname = (OPT.'StatisticsTypeCombo',OPT.'StatisticsSortCombo');
 	for (0..1) {
 		$combos[$_] = ::NewPrefCombo($coptname[$_],$lists[$_]);
-		$combos[$_]->signal_connect(changed => sub {Updatestatistics($self);});
+		if ($_)
+		{
+			$combos[$_]->signal_connect(changed => sub {
+				my $cself = $_[0];
+				if (($cself->get_active_text =~ /Playcount/) and (!$stat_hbox2->visible))	{
+					$stat_hbox2->show;
+				}
+				elsif (($cself->get_active_text !~ /Playcount/) and ($stat_hbox2->visible)){
+					$stat_hbox2->hide;
+				}
+				Updatestatistics($self);
+			});
+		}
+		else {$combos[$_]->signal_connect(changed => sub {Updatestatistics($self);});}
 		$stat_hbox1->pack_start($labels[$_],0,0,1);
 		$stat_hbox1->pack_start($combos[$_],1,1,1);
 	}
@@ -515,19 +539,8 @@ sub CreateStatisticsSite
 	$Sinvert->add($iw);
 	$Sinvert->set_tooltip_text('Invert sorting order');
 	$Sinvert->signal_connect(toggled => sub {Updatestatistics($self);});
-	my $Stimep = Gtk2::Button->new();
-	my $tpb=Gtk2::Image->new_from_stock('gmb-filter','menu');
-	$Stimep->set_image($tpb);
-	$Stimep->set_tooltip_text('Choose timeperiod for statistics');
-	$Stimep->signal_connect(clicked => sub 
-		{
-			#TODO: context-menu
-			Updatestatistics($self);
-		});
-	$Stimep->show;
 
 	$stat_hbox1->pack_start($Sinvert,0,0,0);
-	$stat_hbox1->pack_start($Stimep,0,0,0);
 
 	# Treeview for statistics: 
 	# fields in Sstore are  GID, markup, (raw)value, field, maxvalue, formattedvalue  
@@ -585,7 +598,7 @@ sub CreateStatisticsSite
 	$Streeview->signal_connect(button_press_event => \&ContextPress);
 	$Streeview->{store}=$Sstore;
 	
-	return ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$iw,@combos,@labels);	
+	return ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$stat_hbox2,$iw,@combos,@labels);	
 }
 
 sub CreateToolbar
@@ -669,38 +682,24 @@ sub Updatestatistics
 
 	$self->{sstore}->clear;
 	
-	#calculate album-based stats if so wanted
-	if (($field !~ /album|title/) and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average') and ($sorttype ne 'weighted'))
-	{
-		($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
-		my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
-		for my $gid (keys %$dh) {
-			my $albums = AA::Get('album:gid',$field,$gid);
-			next unless (scalar@$albums);
-			$$dh{$gid} = 0;
-			my $ok=0;
-			for (@$albums) {
-				my $ilist = AA::Get($field.':gid','album',$_);
-				next unless ((ref($ilist) ne 'ARRAY') or ((scalar@$ilist == 1) and ($$ilist[0] == $gid)));
-				$$dh{$gid} += $$ah{$_};
-				$ok++;
-			}
-			$$dh{$gid} /= $ok unless (!$ok);
-		}
+	if (($sorttype eq 'playcount') and ($::Options{OPT.'TimePeriodCombo'} ne 'Overall')) { # timeperiodic
+		($dh) = CalcTimePeriodCount($field,$source,$suffix);
+	} 
+	elsif (($field !~ /album|title/) and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix eq ':average') and ($sorttype ne 'weighted')) { # album-based average
+		($dh) = CalcAlbumBasedAverage($field,$source,$sorttype);
 	}
-	else {
-		if ($sorttype eq 'weighted'){
+	elsif ($sorttype eq 'weighted'){ # wRandom
 			my $randommode = Random->new(${$::Options{SavedWRandoms}}{$::Options{OPT.'StatWeightedRandomMode'}},$source);
 			my $sub = ($field eq 'title')? $randommode->MakeSingleScoreFunction() : $randommode->MakeGroupScoreFunction($field);
 			($dh)=$sub->($source);
 			ScaleWRandom(\%$dh,$field);
-		}
-		else{
-			($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field, $source, undef, $sorttype.$suffix);
-		} 
 	}
+	else { ($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field, $source, undef, $sorttype.$suffix); } # 'normal mode'
+
+	return unless (scalar keys %$dh);
+	
 	#we got values, send 'em up!
-	$max = ($::Options{OPT.'AmountOfStatItems'} < (keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (keys %$dh);
+	$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (scalar keys %$dh);
 	my $currentID = ($::SongID)? (($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field)) : -1; 
 	@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
 			
@@ -718,6 +717,7 @@ sub Updatestatistics
 			}
 			my ($iscurrentIDinlist)= grep { $ci == $list[$_]} 0..$#list;
 			push @list, $ci unless (defined $iscurrentIDinlist);
+			$$dh{$ci} = 0 unless (defined $$dh{$ci});
 		}
 	}
 
@@ -813,8 +813,7 @@ sub Updateoverview
 	my $dh; my $max; my $field = $fc{$::Options{OPT.'OverviewTop40Item'}} || 'album';
 	my $pcs; my $oldpcs;
 
-	my ($span) = grep { $timeperiods{$_}->{label} eq $::Options{OPT.'OverviewTop40Mode'}} keys %timeperiods;
-	my ($starttime,$endtime,$timeperiod) = GetTimeSpan($timeperiods{$span}->{dayspan});
+	my ($starttime,$endtime,$timeperiod) = GetTimeSpan($::Options{OPT.'OverviewTop40Mode'});
 
 	if ($endtime){$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
 	else {$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);}
@@ -881,7 +880,6 @@ sub Updatehistory
 	
 	my $source = (($::Options{OPT.'UseHistoryFilter'}) and (defined $::SelectedFilter))? $::SelectedFilter->filter : $::Library;
 	my $h = Songs::BuildHash('id', $source, undef, 'playhistory');
-	my $albHash = Songs::BuildHash('id', $source, undef, 'album_artist:gid','album:gid');
 	my %hHash;
 	
 	for my $hashistory (keys %$h) {	# hashistory are every song in library that has playhistory
@@ -907,11 +905,13 @@ sub Updatehistory
 	for my $key ((sort { $b <=> $a } keys %hHash)[0..($amount-1)]) 
 	{
 		#take note for albums
-		push @{$seen_alb{$$albHash{$hHash{$key}}[0]}}, $hHash{$key};
-		unless (defined $albumplaytimes{$$albHash{$hHash{$key}}[0]})
+		my $album_gid = Songs::Get_gid($hHash{$key},'album');
+		
+		push @{$seen_alb{$album_gid}}, $hHash{$key};
+		unless (defined $albumplaytimes{$album_gid})
 		{
-			$albumplaytimes{$$albHash{$hHash{$key}}[0]} = $key;
-			push @albumorder,$$albHash{$hHash{$key}}[0];
+			$albumplaytimes{$album_gid} = $key;
+			push @albumorder,$album_gid;
 		}
 
 		#add to store
@@ -1000,7 +1000,13 @@ sub FormatRealtime
 
 sub GetTimeSpan
 {
-	my $span = shift;
+	my $label = shift;
+	
+	my ($span) = grep { $timeperiods{$_}->{label} eq $label} keys %timeperiods;
+	$span = $timeperiods{$span}->{dayspan};
+	
+	return (undef,undef,undef) unless (defined $span);
+	
 	my $starttime; my $endtime; my $timeperiod;
 	
 	if ($span =~ /^(\d+)$/) { 
@@ -1028,7 +1034,49 @@ sub GetTimeSpan
 	return ($starttime,$endtime,$timeperiod);
 }
 
+sub CalcTimePeriodCount
+{
+	my ($field,$source,$suffix) = @_;
+	my $dh;
+	my ($starttime,$endtime,$timeperiod) = GetTimeSpan($::Options{OPT.'TimePeriodCombo'});
+	if ($endtime){($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field,$source,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
+	else {($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field,$source,undef,'playhistory:countafter:'.$starttime);}
+				
+	if (($suffix =~ /average/) and ($field !~ /^title$/))
+	{
+		for (keys %$dh)
+		{
+			my $alist = AA::Get('id:list',$field,$_);
+			next unless ((defined $alist) and (scalar@$alist));
+			$$dh{$_} /= scalar@$alist;
+		}
+	}
+	
+	return $dh;
+}
+sub CalcAlbumBasedAverage
+{
+	my ($field,$source,$sorttype) = @_;
+	
+	my ($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
+	my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
+	
+	for my $gid (keys %$dh) {
+		my $albums = AA::Get('album:gid',$field,$gid);
+		next unless (scalar@$albums);
+		$$dh{$gid} = 0;
+		my $ok=0;
+		for (@$albums) {
+			my $ilist = AA::Get($field.':gid','album',$_);
+			next unless ((ref($ilist) ne 'ARRAY') or ((scalar@$ilist == 1) and ($$ilist[0] == $gid)));
+			$$dh{$gid} += $$ah{$_} if (defined $$ah{$_});
+			$ok++;
+		}
+		$$dh{$gid} /= $ok unless (!$ok);
+	}
 
+	return \%$dh;	
+}
 sub HandleStatMarkup
 {
 	my ($field,$id,$listnum,$HasPic) = @_;
