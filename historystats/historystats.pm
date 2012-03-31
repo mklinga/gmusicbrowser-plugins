@@ -11,7 +11,7 @@
 # - clean prefs & new
 # - show change from oldpc (only for last *?) (position change?)
 # - merge lastplays into playhistory
-# - album-based average for timeperiods other than 'overall' in statistics
+# - should we have 'overall' calculated from playhistory? possibly.
 #
 # BUGS:
 # - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
@@ -702,7 +702,7 @@ sub Updatestatistics
 	$max = ($::Options{OPT.'AmountOfStatItems'} < (scalar keys %$dh))? $::Options{OPT.'AmountOfStatItems'} : (scalar keys %$dh);
 	my $currentID = ($::SongID)? (($field eq 'title')? $::SongID : Songs::Get_gid($::SongID,$field)) : -1; 
 	@list = (sort { ($self->{butinvert}->get_active)? $dh->{$a} <=> $dh->{$b} : $dh->{$b} <=> $dh->{$a} } keys %$dh)[0..($max-1)];
-			
+
 	if ($::Options{OPT.'AddCurrentToStatList'})
 	{
 		my @cis;
@@ -1041,8 +1041,23 @@ sub CalcTimePeriodCount
 	my ($starttime,$endtime,$timeperiod) = GetTimeSpan($::Options{OPT.'TimePeriodCombo'});
 	if ($endtime){($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field,$source,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
 	else {($dh) = Songs::BuildHash(($field eq 'title')? 'id':$field,$source,undef,'playhistory:countafter:'.$starttime);}
-				
-	if (($suffix =~ /average/) and ($field !~ /^title$/))
+
+	if (($field !~ /album|title/) and ($::Options{OPT.'PerAlbumInsteadOfTrack'}) and ($suffix =~ /average/)) # album-based  
+	{
+		my ($ah);
+		if ($endtime){($ah) = Songs::BuildHash('album',$source,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
+		else {($ah) = Songs::BuildHash('album',$source,undef,'playhistory:countafter:'.$starttime);}
+		
+		for (keys %$ah) { 
+			my $aalist = AA::Get('id:list','album',$_);
+			next unless ((defined $aalist) and (scalar@$aalist));
+			$$ah{$_} /= scalar@$aalist;
+		}
+
+		$dh = CalcAlbumBasedAverage($field,$source,'playcount',$dh,$ah);
+
+	}
+	elsif (($suffix =~ /average/) and ($field !~ /^title$/))
 	{
 		for (keys %$dh)
 		{
@@ -1056,10 +1071,13 @@ sub CalcTimePeriodCount
 }
 sub CalcAlbumBasedAverage
 {
-	my ($field,$source,$sorttype) = @_;
+	my ($field,$source,$sorttype,$dh,$ah) = @_;
 	
-	my ($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
-	my ($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
+	unless ((defined $dh) and (defined $ah))
+	{
+		($dh) = Songs::BuildHash($field, $source, undef, $sorttype.':sum');
+		($ah) = Songs::BuildHash('album', $source, undef, $sorttype.':average');
+	}
 	
 	for my $gid (keys %$dh) {
 		my $albums = AA::Get('album:gid',$field,$gid);
@@ -1075,7 +1093,7 @@ sub CalcAlbumBasedAverage
 		$$dh{$gid} /= $ok unless (!$ok);
 	}
 
-	return \%$dh;	
+	return $dh;	
 }
 sub HandleStatMarkup
 {
