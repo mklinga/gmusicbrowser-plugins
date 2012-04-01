@@ -8,11 +8,8 @@
 
 # TODO:
 # - mainchart with top artist & their top albums ?
-# - show change from oldpc (only for last *?) (position change?)
 # - merge lastplays into playhistory
 # - should we have 'overall' calculated from playhistory? possibly.
-#
-
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -43,7 +40,7 @@ use base 'Gtk2::Dialog';
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
-	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40, TimePeriodCombo => 'Overall', ShowOverviewIcon => 1
+	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40, TimePeriodCombo => 'Overall', ShowOverviewIcon => 1, ShowOverviewHistory => 1
 );
 
 my %sites =
@@ -405,7 +402,7 @@ sub CreateOverviewSite
 	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Top ".$::Options{OPT.'OverviewTop40Item'},Gtk2::CellRendererText->new,markup => 5);
 	$Olabel->set_sort_column_id(1);
 	$Olabel->set_expand(1);
-	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",Gtk2::CellRendererText->new,text => 6);
+	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",Gtk2::CellRendererText->new,markup => 6);
 	$Opc->set_sort_column_id(1);
 	$Opc->set_expand(0);
 	
@@ -819,56 +816,37 @@ sub Updateoverview
 	if ($endtime){$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
 	else {$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);}
 
-	if ($timeperiod){$oldpcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.($starttime-1));}
-	
-	if (($::Options{OPT.'OverviewTop40Suffix'} eq 'average') and ($field !~ /^id$/)){
-		for (keys %$pcs)
-		{
-			my $alist = AA::Get('id:list',$field,$_);
-			next unless ((defined $alist) and (scalar@$alist));
-			$$pcs{$_} /= scalar@$alist;
-		}
-		for (keys %$oldpcs) # TODO: use above for less calc
-		{
-			my $alist = AA::Get('id:list',$field,$_);
-			next unless ((defined $alist) and (scalar@$alist));
-			$$oldpcs{$_} /= scalar@$alist;
-		}
-	}
-	
-	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
-	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
-	
 	my @oldmainchart_list;
-	if ($timeperiod){
-		my $oldmax = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$oldpcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$oldpcs);
+	if (($timeperiod) and ($::Options{OPT.'ShowOverviewHistory'})){
+		$oldpcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.($starttime-1));
+		my $oldmax = ($::Options{OPT.'OverviewTop40Amount'} < (scalar keys %$oldpcs))? $::Options{OPT.'OverviewTop40Amount'} : (scalar keys %$oldpcs);
 		@oldmainchart_list = (sort { $$oldpcs{$b} <=> $$oldpcs{$a}} keys %{$oldpcs})[0..($oldmax-1)];
 	}
+	
+	$max = ($::Options{OPT.'OverviewTop40Amount'} < (scalar keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (scalar keys %$pcs);
+	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
 
 	$self->{ostore_main}->clear;
 	my $icon;
 	
 	for my $listkey (0..$#mainchart_list){
 		my $pic; 
-		my $label = HandleStatMarkup($field,$mainchart_list[$listkey],($listkey+1).'. ',1);;
+		my $label = HandleStatMarkup($field,$mainchart_list[$listkey],($listkey+1).'. ',::TRUE,::TRUE);
 
-		my $value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$listkey]}) : $$pcs{$mainchart_list[$listkey]};
-		$value = ::__('%s play','%s plays',$value);
+		my $value = ::__('%s play','%s plays',$$pcs{$mainchart_list[$listkey]});
 		
 		if (defined $$oldpcs{$mainchart_list[$listkey]}){
 			my ($num) = grep { $mainchart_list[$listkey] == $oldmainchart_list[$_] } 0..$#oldmainchart_list;
 			return unless (defined $num);
 
-			$value .= "\n(".($num+1).'.) '.::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).'';
+			$value .= "\n<small>".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).' ('.($num+1).'.) </small>';
 			
 			if ($::Options{OPT.'ShowOverviewIcon'}){
 				my $itype = ($num > $listkey)? 'gtk-go-up' : (($num < $listkey)? 'gtk-go-down' : undef);
 				if (defined $itype) {$icon = $self->render_icon($itype,'menu');}	
 			}
 		}
-		else {
-			if ($::Options{OPT.'ShowOverviewIcon'}){$icon = $self->render_icon('gtk-goto-top','menu');}
-		}
+		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = $self->render_icon('gtk-goto-top','menu');}
 
 		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$listkey],$label,::TRUE );
@@ -1118,9 +1096,10 @@ sub CalcAlbumBasedAverage
 }
 sub HandleStatMarkup
 {
-	my ($field,$id,$listnum,$HasPic) = @_;
+	my ($field,$id,$listnum,$HasPic,$wantSmall) = @_;
 	$listnum = '' unless (defined $listnum);
 	$field = 'title' if ($field eq 'id');
+	$wantSmall = 0 unless (defined $wantSmall);
 	my $markup = ($field eq 'title')? $listnum."%t": $listnum."%a";	
 	
 	if ($::SongID){
@@ -1133,7 +1112,10 @@ sub HandleStatMarkup
 	{
 		unless (defined $HasPic) {$HasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($field)})? 1 : 0;}
 		if ($field eq 'album') {
-			if ($HasPic) {$markup = $markup."\n\t by ".::PangoEsc(Songs::Gid_to_Display('artist',@{AA::Get('album_artist:gid','album',$id)}[0]));}
+			if ($HasPic) {
+				if ($wantSmall) {$markup = $markup."\n\t <small>by ".::PangoEsc(Songs::Gid_to_Display('artist',@{AA::Get('album_artist:gid','album',$id)}[0]))."</small>";}
+				else  {$markup = $markup."\n\t by ".::PangoEsc(Songs::Gid_to_Display('artist',@{AA::Get('album_artist:gid','album',$id)}[0]));}
+			}
 			else {$markup = $markup."<small>  by  ".::PangoEsc(Songs::Gid_to_Display('artist',@{AA::Get('album_artist:gid','album',$id)}[0])).'</small>';}
 		}
 		elsif ($field eq 'title'){
