@@ -37,7 +37,7 @@ use base 'Gtk2::Dialog';
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
 	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 1, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
-	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week', OverviewTop40Suffix => 'sum',
+	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
 	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40, TimePeriodCombo => 'Overall', ShowOverviewIcon => 1, ShowOverviewHistory => 1
@@ -168,8 +168,6 @@ sub prefbox
 	my $oCombo = ::NewPrefCombo(OPT.'OverviewTop40Mode',\@omodes, text => 'Update main chart');
 	my @omodes2 = ('Artists','Albums','Tracks');
 	my $oCombo2 = ::NewPrefCombo(OPT.'OverviewTop40Item',\@omodes2, text => 'Show main chart for ');
-	my @omodes3 = ('total','average');
-	my $oCombo3 = ::NewPrefCombo(OPT.'OverviewTop40Suffix',\@omodes3, text => 'Calculate list for');
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -192,7 +190,7 @@ sub prefbox
 	my @vbox = ( 
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hAmount2,$hAmount3,$hLabel1],[$hEntry1,$hEntry2]), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo,$oCombo3]),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck10],$sAmount,[$sCombo],[$sLabel2,$sCombo2],$sCheck8,
 				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c])
 	);
