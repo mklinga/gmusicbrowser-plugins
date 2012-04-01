@@ -91,7 +91,6 @@ my %timeperiods = (
 	g => { label => '6 months', dayspan => 180},
 	h => { label => '12 months', dayspan => 365},
 	i => { label => 'Overall', dayspan => 'o'},
-	j => { label => '1 day', dayspan => 1}
 );
 
 my $statswidget =
@@ -844,7 +843,7 @@ sub Updateoverview
 				if (defined $itype) {$icon = $self->render_icon($itype,'menu');}	
 			}
 		}
-		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = undef;}
+		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = $self->render_icon('edit-redo','menu');}
 
 		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$listkey],$label,::TRUE );
