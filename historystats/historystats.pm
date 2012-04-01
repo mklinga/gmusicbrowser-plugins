@@ -8,14 +8,10 @@
 
 # TODO:
 # - mainchart with top artist & their top albums ?
-# - clean prefs & new
 # - show change from oldpc (only for last *?) (position change?)
 # - merge lastplays into playhistory
 # - should we have 'overall' calculated from playhistory? possibly.
 #
-# BUGS:
-# - [ochosi:] pressing the sort-button in history/stats crashes gmb (cannot reproduce, dismiss?)
-# - sorting the playedlength (for now)
 
 
 =gmbplugin HISTORYSTATS
@@ -47,7 +43,7 @@ use base 'Gtk2::Dialog';
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
 	StatImageArtist => 1, StatImageAlbum => 1, StatImageTitle => 1, OverviewTop40Item => 'Albums', LastfmStyleHistogram => 0,
-	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40, TimePeriodCombo => 'Overall'
+	HistAlbumPlayedPerc => 50, HistAlbumPlayedMin => 40, TimePeriodCombo => 'Overall', ShowOverviewIcon => 1
 );
 
 my %sites =
@@ -97,7 +93,8 @@ my %timeperiods = (
 	f => { label => '3 months', dayspan => 90},
 	g => { label => '6 months', dayspan => 180},
 	h => { label => '12 months', dayspan => 365},
-	i => { label => 'Overall', dayspan => 'o'}
+	i => { label => 'Overall', dayspan => 'o'},
+	j => { label => '1 day', dayspan => 1}
 );
 
 my $statswidget =
@@ -401,15 +398,20 @@ sub CreateOverviewSite
 	$Ocover->set_fixed_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_min_width($::Options{OPT.'CoverSize'});
 	$Ocover->set_expand(0);
+
+	my $Oicon=Gtk2::TreeViewColumn->new_with_attributes( "",Gtk2::CellRendererPixbuf->new,pixbuf => 1);
+	$Oicon->set_expand(0);
+
 	my $Olabel=Gtk2::TreeViewColumn->new_with_attributes( "Top ".$::Options{OPT.'OverviewTop40Item'},Gtk2::CellRendererText->new,markup => 5);
 	$Olabel->set_sort_column_id(1);
 	$Olabel->set_expand(1);
 	my $Opc=Gtk2::TreeViewColumn->new_with_attributes( "Playcount",Gtk2::CellRendererText->new,text => 6);
 	$Opc->set_sort_column_id(1);
 	$Opc->set_expand(0);
-
+	
 	$Otreeview->append_column($Ocover);
 	$Otreeview->append_column($Olabel);
+	$Otreeview->append_column($Oicon) if ($::Options{OPT.'ShowOverviewIcon'});
 	$Otreeview->append_column($Opc);
 
 	$Otreeview->get_selection->set_mode('multiple');
@@ -817,11 +819,7 @@ sub Updateoverview
 	if ($endtime){$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.$starttime.'-'.$endtime);}
 	else {$pcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countafter:'.$starttime);}
 
-	if ($timeperiod){
-		my @needed_source;
-		push @needed_source, @{AA::Get('id:list',$field,$_)} for (keys %$pcs);
-		$oldpcs = Songs::BuildHash($field,\@needed_source,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.$starttime);
-	}
+	if ($timeperiod){$oldpcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.($starttime-1));}
 	
 	if (($::Options{OPT.'OverviewTop40Suffix'} eq 'average') and ($field !~ /^id$/)){
 		for (keys %$pcs)
@@ -829,40 +827,64 @@ sub Updateoverview
 			my $alist = AA::Get('id:list',$field,$_);
 			next unless ((defined $alist) and (scalar@$alist));
 			$$pcs{$_} /= scalar@$alist;
-			$$oldpcs{$_} /= scalar@$alist if (defined $$oldpcs{$_});
+		}
+		for (keys %$oldpcs) # TODO: use above for less calc
+		{
+			my $alist = AA::Get('id:list',$field,$_);
+			next unless ((defined $alist) and (scalar@$alist));
+			$$oldpcs{$_} /= scalar@$alist;
 		}
 	}
 	
 	$max = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$pcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$pcs);
 	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
+	
+	my @oldmainchart_list;
+	if ($timeperiod){
+		my $oldmax = ($::Options{OPT.'OverviewTop40Amount'} < (keys %$oldpcs))? $::Options{OPT.'OverviewTop40Amount'} : (keys %$oldpcs);
+		@oldmainchart_list = (sort { $$oldpcs{$b} <=> $$oldpcs{$a}} keys %{$oldpcs})[0..($oldmax-1)];
+	}
 
 	$self->{ostore_main}->clear;
 	my $icon;
-	for (0..$#mainchart_list){
+	
+	for my $listkey (0..$#mainchart_list){
 		my $pic; 
-		my $label = HandleStatMarkup($field,$mainchart_list[$_],($_+1).'. ',1);
+		my $label = HandleStatMarkup($field,$mainchart_list[$listkey],($listkey+1).'. ',1);;
 
-		my $value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$_]}) : $$pcs{$mainchart_list[$_]};
+		my $value = ($::Options{OPT.'OverviewTop40Suffix'} eq 'average')? sprintf ("%.2f", $$pcs{$mainchart_list[$listkey]}) : $$pcs{$mainchart_list[$listkey]};
 		$value = ::__('%s play','%s plays',$value);
-		if (defined $$oldpcs{$mainchart_list[$_]}){
-			$value .= "\n(".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$_]}).')';
+		
+		if (defined $$oldpcs{$mainchart_list[$listkey]}){
+			my ($num) = grep { $mainchart_list[$listkey] == $oldmainchart_list[$_] } 0..$#oldmainchart_list;
+			return unless (defined $num);
+
+			$value .= "\n(".($num+1).'.) '.::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).'';
+			
+			if ($::Options{OPT.'ShowOverviewIcon'}){
+				my $itype = ($num > $listkey)? 'gtk-go-up' : (($num < $listkey)? 'gtk-go-down' : undef);
+				if (defined $itype) {$icon = $self->render_icon($itype,'menu');}	
+			}
+		}
+		else {
+			if ($::Options{OPT.'ShowOverviewIcon'}){$icon = $self->render_icon('gtk-goto-top','menu');}
 		}
 
 		if ($field eq 'id'){
-			$label = ::ReplaceFields($mainchart_list[$_],$label,::TRUE );
-			$pic = AAPicture::pixbuf('album', Songs::Get_gid($mainchart_list[$_],'album'), $::Options{OPT.'CoverSize'}, 1);	
+			$label = ::ReplaceFields($mainchart_list[$listkey],$label,::TRUE );
+			$pic = AAPicture::pixbuf('album', Songs::Get_gid($mainchart_list[$listkey],'album'), $::Options{OPT.'CoverSize'}, 1);	
 			if (!$pic){ $pic = $self->render_icon("gmb-song","large-toolbar");}
 		}
 		else{
-			$label = AA::ReplaceFields($mainchart_list[$_],$label,$field,::TRUE );
-			$pic = AAPicture::pixbuf($field, $mainchart_list[$_], $::Options{OPT.'CoverSize'}, 1);
+			$label = AA::ReplaceFields($mainchart_list[$listkey],$label,$field,::TRUE );
+			$pic = AAPicture::pixbuf($field, $mainchart_list[$listkey], $::Options{OPT.'CoverSize'}, 1);
 			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"large-toolbar");}
 		}
 
 		$self->{ostore_main}->set($self->{ostore_main}->append,
-			0,$mainchart_list[$_],
+			0,$mainchart_list[$listkey],
 			1,$icon,
-			2,$_,
+			2,$listkey,
 			3,$field,
 			4,$pic,
 			5,$label,
