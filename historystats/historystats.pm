@@ -9,7 +9,8 @@
 # TODO:
 # - mainchart with top artist & their top albums ?
 # - merge lastplays into playhistory
-# - should we have 'overall' calculated from playhistory? possibly.
+# - calculate 'overall' from playhistory
+# - confirmation for MERGE-button
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -138,7 +139,8 @@ sub prefbox
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Overview "),Gtk2::Frame->new(" Statistics "));
 	
 	#General
-	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>25, text =>_("Album cover size"));	
+	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>25, text =>_("Album cover size"));
+	my $gMergeButton = ::NewIconButton('gtk-dialog-warning','Merge fields',\&MergeFields,undef,'Please check README and make sure you understand what this does BEFORE pressing this!');	
 
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc');
@@ -187,7 +189,7 @@ sub prefbox
 	my $sCheck10 = ::NewPrefCheckButton(OPT.'LastfmStyleHistogram','Show histogram in \'last.fm-style\' (requires restart of plugin)');
 
 	my @vbox = ( 
-		::Vpack($gAmount1), 
+		::Vpack([$gAmount1,'-',$gMergeButton]), 
 		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hAmount2,$hAmount3,$hLabel1],[$hEntry1,$hEntry2]), 
 		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck10],$sAmount,[$sCombo],[$sLabel2,$sCombo2],$sCheck8,
@@ -829,21 +831,19 @@ sub Updateoverview
 	for my $listkey (0..$#mainchart_list){
 		my $pic; 
 		my $label = HandleStatMarkup($field,$mainchart_list[$listkey],($listkey+1).'. ',::TRUE,::TRUE);
-
 		my $value = ::__('%s play','%s plays',$$pcs{$mainchart_list[$listkey]});
 		
 		if (defined $$oldpcs{$mainchart_list[$listkey]}){
 			my ($num) = grep { $mainchart_list[$listkey] == $oldmainchart_list[$_] } 0..$#oldmainchart_list;
-			return unless (defined $num);
-
-			$value .= "\n<small>".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).' ('.($num+1).'.) </small>';
+			
+			$value .= "\n<small>".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).((defined $num)? ' ('.($num+1).'.)' : '').' </small>';
 			
 			if ($::Options{OPT.'ShowOverviewIcon'}){
-				my $itype = ($num > $listkey)? 'gtk-go-up' : (($num < $listkey)? 'gtk-go-down' : undef);
-				if (defined $itype) {$icon = $self->render_icon($itype,'menu');}	
+				if ((defined $num) and ($num < $listkey)) {$icon = $self->render_icon('gtk-go-down','menu');}
+				elsif ((not defined $num) or ($num > $listkey)) {$icon = $self->render_icon('gtk-go-up','menu');}
 			}
 		}
-		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = $self->render_icon('edit-redo','menu');}
+		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = undef;}
 
 		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$listkey],$label,::TRUE );
@@ -855,7 +855,6 @@ sub Updateoverview
 			$pic = AAPicture::pixbuf($field, $mainchart_list[$listkey], $::Options{OPT.'CoverSize'}, 1);
 			if (!$pic){ $pic = $self->render_icon("gmb-".$field,"large-toolbar");}
 		}
-
 		$self->{ostore_main}->set($self->{ostore_main}->append,
 			0,$mainchart_list[$listkey],
 			1,$icon,
@@ -1315,6 +1314,39 @@ sub ScaleWRandom
 		}
 	}
 
+	return 1;
+}
+
+sub MergeFields
+{
+	my ($dh) = Songs::BuildHash('id', $::Library, undef, 'lastplay');
+	my %foundkeys;
+	for my $ID (keys %$dh) {
+		my $playtime = (keys %{$$dh{$ID}})[0];
+		next unless ($playtime);
+		$foundkeys{$ID} = $playtime;
+	}
+
+	warn "Found ".(scalar keys %foundkeys)." items with 'lastplay'";
+	warn "Now setting data to playhistory (no backsies!)";
+	
+	my $abort; my $i=0;
+	my $pid= ::Progress( undef, end=>scalar(keys %foundkeys), abortcb=>sub {$abort=1}, title=>_"Merging data");
+	Glib::Idle->add(sub
+	{	
+		my $ID= (keys %foundkeys)[$i];
+		if (defined $ID){ Songs::Set($ID,'+playhistory' => $foundkeys{$ID});	}
+		$i++;
+		if ($abort || $i>=(scalar keys %foundkeys))
+		{	::Progress($pid, abort=>1);
+			return 0;
+		}
+		::Progress( $pid, current=>$i );
+		return 1;
+	 });		
+
+	warn "All done?";
+	
 	return 1;
 }
 
