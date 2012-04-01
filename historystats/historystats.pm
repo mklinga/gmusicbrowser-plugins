@@ -844,7 +844,7 @@ sub Updateoverview
 				if (defined $itype) {$icon = $self->render_icon($itype,'menu');}	
 			}
 		}
-		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = $self->render_icon('gtk-goto-top','menu');}
+		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = undef;}
 
 		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$listkey],$label,::TRUE );
