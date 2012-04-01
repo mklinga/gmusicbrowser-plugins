@@ -564,7 +564,6 @@ sub CreateStatisticsSite
 			my $psize = $::Options{OPT.'CoverSize'};
 			my $markup = $store->get($iter,5);
 			
-			#Gtk2::Gdk::Color->new(0,32758,0)
 			my $bg = ($::Options{OPT.'LastfmStyleHistogram'})? $self->style->base('normal') : undef;
 			$cell->set( prop => [$type,$markup,$psize], gid=>$gid, hash => \%hash, max => $max, cell_background_gdk => $bg, nopic => 1, lastfm => $::Options{OPT.'LastfmStyleHistogram'});
 		});
@@ -1414,6 +1413,7 @@ sub RENDER
 		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
 			$startx, $cell_area->y, $width, $cell_area->height );
 	}
+	elsif ($max) {$startx = $cell_area->x;}
 	
 	$startx = (defined $startx)? $startx+PAD+XPAD : $x+$psize+PAD+XPAD;
 	# draw text
