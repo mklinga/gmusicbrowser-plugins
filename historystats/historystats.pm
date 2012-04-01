@@ -42,7 +42,7 @@ use base 'Gtk2::Dialog';
 ::SetDefaultOptions(OPT,RequirePlayConditions => 1, HistoryLimitMode => 'days', AmountOfHistoryItems => 3, 
 	AmountOfStatItems => 50, UseHistoryFilter => 0, TotalPlayTime => 0, 
 	TotalPlayTracks => 0, ShowArtistForAlbumsAndTracks => 1, HistoryTimeFormat => '%d.%m.%y %H:%M:%S',
-	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 0, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
+	HistoryItemFormat => '%a - %l - %t',FilterOnDblClick => 1, LogHistoryToFile => 0, SetFilterOnLeftClick => 1,
 	PerAlbumInsteadOfTrack => 0, ShowStatNumbers => 1, AddCurrentToStatList => 1, OverviewTopMode => 'playcount:sum',
 	OverViewTopAmount => 5, CoverSize => 60, StatisticsTypeCombo => 'Artists', OverviewTop40Mode => 'last week', OverviewTop40Suffix => 'sum',
 	StatisticsSortCombo => 'Playcount (Average)', OverviewTop40Amount => 40, WeightedRandomEnabled => 1, WeightedRandomValueType => 1,
@@ -180,17 +180,13 @@ sub prefbox
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
 	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
-	my $sCheck2 = ::NewPrefCheckButton(OPT.'SetFilterOnLeftClick','Show items selected with left-click');
-	my $sCheck3 = ::NewPrefCheckButton(OPT.'FilterOnDblClick','Set Filter when playing items with double-click', tip => 'This option doesn\'t apply to single tracks');
 	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
-	my $sCheck5 = ::NewPrefCheckButton(OPT.'ShowStatNumbers','Show numbers in list');
-	my $sCheck6 = ::NewPrefCheckButton(OPT.'AddCurrentToStatList','Always show currently playing item in list');
 	my @sum = (values %statupdatemodes);
 	my $sCombo = ::NewPrefCombo(OPT.'StatViewUpdateMode',\@sum, text => 'Update Statistics: ');
 	my @randoms;
 	push @randoms, $_ for (sort keys %{$::Options{SavedWRandoms}});
 	my $sCombo2 = ::NewPrefCombo( OPT.'StatWeightedRandomMode', \@randoms);
-	my $sCheck7 = ::NewPrefCheckButton(OPT.'WeightedRandomEnabled','Enable sorting by weighted random: ');
+	my $sLabel2 = Gtk2::Label->new('Use for weighted random: ');
 	my $sCheck8 = ::NewPrefCheckButton(OPT.'WeightedRandomValueType','Show scaled value (0-100) of WRandom-item instead of real');
 	my $sLabel1 = Gtk2::Label->new('Show images in list for:');
 	$sLabel1->set_alignment(0,0.5);
@@ -203,8 +199,8 @@ sub prefbox
 		::Vpack($gAmount1), 
 		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hAmount2,$hAmount3,$hLabel1],[$hEntry1,$hEntry2]), 
 		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo,$oCombo3]),
-		::Vpack([$sCheck1,$sCheck4],[$sCheck2,$sCheck3],[$sCheck5,$sCheck6],[$sCheck10],$sAmount,[$sCombo],[$sCheck7,$sCombo2],$sCheck8,
-				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c]) 
+		::Vpack([$sCheck1,$sCheck4],[$sCheck10],$sAmount,[$sCombo],[$sLabel2,$sCombo2],$sCheck8,
+				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c])
 	);
 	
 	$frame[$_]->add($vbox[$_]) for (0..$#frame);
@@ -223,50 +219,24 @@ sub new
 	$self->signal_connect(map => \&SongChanged);
 	$self->set_spacing(2);
 
-	my ($Hvbox, $Hstore,$Hstore_albums) = CreateHistorySite($self);
-	my ($Ovbox,$Ostore_toplist,$Ostore,$Ostatstore) = CreateOverviewSite($self,$options);	
-	my ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$stat_hbox2,$iw,@combos,@labels) = CreateStatisticsSite($self);
+	my ($Hvbox) = CreateHistorySite($self);
+	my ($Ovbox) = CreateOverviewSite($self,$options);	
+	my ($Svbox) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
-	$self->{hstore}=$Hstore;
-	$self->{hstore_albums}=$Hstore_albums;
-	$self->{ostore_main}=$Ostore;
-	$self->{ostore_stats}=$Ostatstore;
-	$self->{ostore_toplist}=$Ostore_toplist;
-	$self->{sstore}=$Sstore;
-	$self->{butinvert} = $Sinvert;
-	$self->{stattypecombo} = $combos[1];
-	$self->{Ovbox} = $Ovbox;
+	$self->{site_overview} = $Ovbox; 
+	$self->{site_history} =  $Hvbox; 
+	$self->{site_statistics} = $Svbox;
 
 	my $infobox = Gtk2::HBox->new; 	$infobox->set_spacing(0);
-	my $site_overview = $Ovbox;
-	my $site_history= $Hvbox;
-	my $sh = Gtk2::ScrolledWindow->new;
-	$sh->add($Streeview);
-	$sh->set_shadow_type('none');
-	$sh->set_policy('automatic','automatic');
-
-	my $site_statistics = Gtk2::VBox->new(); 
-	$site_statistics->pack_start($stat_hbox1,0,0,0);
-	$site_statistics->pack_start($stat_hbox2,0,0,0);
-	$site_statistics->pack_start($sh,1,1,0);
-
-	$infobox->pack_start($site_history,1,1,0);
-	$infobox->pack_start($site_overview,1,1,0);
-	$infobox->pack_start($site_statistics,1,1,0);
-
-	#show everything from hidden pages
-	$Streeview->show; $stat_hbox1->show; $sh->show;
-	$_->show for (@combos); $_->show for (@labels);
-	$Sinvert->show; $iw->show;
+	$infobox->pack_start($Hvbox,1,1,0);
+	$infobox->pack_start($Ovbox,1,1,0);
+	$infobox->pack_start($Svbox,1,1,0);
 	
 	#starting site is always 'history'
-	$site_overview->set_no_show_all(1);
-	$site_statistics->set_no_show_all(1);
-
-	$self->{site_overview} = $site_overview; 
-	$self->{site_history} = $site_history; 
-	$self->{site_statistics} = $site_statistics;
+	# TODO: remember last?
+	$Ovbox->set_no_show_all(1);
+	$Svbox->set_no_show_all(1);
 
 	$self->pack_start($toolbar,0,0,0);
 	$self->pack_start($infobox,1,1,0);
@@ -289,6 +259,8 @@ sub new
 
 sub CreateHistorySite
 {
+	my $self = shift;
+	
 	## TreeView for history
 	my $Hstore=Gtk2::ListStore->new('Glib::UInt','Glib::String','Glib::String','Glib::String');
 	my $Htreeview=Gtk2::TreeView->new($Hstore);
@@ -310,6 +282,7 @@ sub CreateHistorySite
 	my $Hselection = $Htreeview->get_selection;
 	$Hselection->signal_connect(changed => \&SelectionChanged);
 	$Htreeview->{store}=$Hstore;
+	$self->{hstore}=$Hstore;
 
 	my $Hstore_albums=Gtk2::ListStore->new('Glib::UInt','Gtk2::Gdk::Pixbuf','Glib::String','Glib::String','Glib::String');
 	my $Htreeview_albums=Gtk2::TreeView->new($Hstore_albums);
@@ -336,6 +309,7 @@ sub CreateHistorySite
 	my $Hselection_a = $Htreeview_albums->get_selection;
 	$Hselection_a->signal_connect(changed => \&SelectionChanged);
 	$Htreeview_albums->{store}=$Hstore_albums;
+	$self->{hstore_albums}=$Hstore_albums;
 
 	my $vbox = Gtk2::VBox->new;
 	$vbox->set_spacing(2);
@@ -352,7 +326,7 @@ sub CreateHistorySite
 	$vbox->pack_start($sh,1,1,0);
 	$vbox->pack_start($sh2,1,1,0);
 
-	return ($vbox,$Hstore,$Hstore_albums);
+	return ($vbox);
 }
 
 sub CreateOverviewSite
@@ -401,6 +375,8 @@ sub CreateOverviewSite
 		$Otopselection[$_]->signal_connect(changed => \&SelectionChanged);
 		
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
+		
+		
 		$Otoptreeviews[$_]->show;
 		
 		if (($_%2)==$packafter){
@@ -411,6 +387,9 @@ sub CreateOverviewSite
 			$hbox->show;
 		}
 	}
+	$self->{ostore_toplist}=\@Ostore_toplists;
+	
+	
 	#treeview for top40
 	my $Ostore; my $Otreeview;
 	# 0: (g)id, 1: icon, 2: position + lastweek position (if any), 3: field, 4: cover, 5: label, 6: playcount
@@ -442,6 +421,7 @@ sub CreateOverviewSite
 	my $Oselection = $Otreeview->get_selection;
 	$Oselection->signal_connect(changed => \&SelectionChanged);
 	$Otreeview->{store}=$Ostore;
+	$self->{ostore_main}=$Ostore;
 
 	my $sh = Gtk2::ScrolledWindow->new;
 	$sh->add($Otreeview);
@@ -469,6 +449,7 @@ sub CreateOverviewSite
 	$Ostattreeview->set_rules_hint(0);
 	$Ostattreeview->set_headers_visible(0);
 	$Ostattreeview->{store}=$Ostatstore;
+	$self->{ostore_stats}=$Ostatstore;
 	$Ostattreeview->show;
 	
 	$vbox->pack_end($Ostattreeview,0,0,0);
@@ -532,14 +513,20 @@ sub CreateStatisticsSite
 		$stat_hbox1->pack_start($labels[$_],0,0,1);
 		$stat_hbox1->pack_start($combos[$_],1,1,1);
 	}
+	$stat_hbox1->show;
+	$_->show for (@combos); $_->show for (@labels);
+	$self->{stattypecombo} = $combos[1];
 	
-	#buttons for timeperiod & inv
+	#buttons for inv
 	my $Sinvert = Gtk2::ToggleButton->new();
 	my $iw=Gtk2::Image->new_from_stock('gtk-sort-descending','menu');
 	$Sinvert->add($iw);
 	$Sinvert->set_tooltip_text('Invert sorting order');
 	$Sinvert->signal_connect(toggled => sub {Updatestatistics($self);});
-
+	$Sinvert->show; $iw->show;
+	$self->{butinvert} = $Sinvert;
+	
+	
 	$stat_hbox1->pack_start($Sinvert,0,0,0);
 
 	# Treeview for statistics: 
@@ -597,8 +584,21 @@ sub CreateStatisticsSite
 	
 	$Streeview->signal_connect(button_press_event => \&ContextPress);
 	$Streeview->{store}=$Sstore;
+	$self->{sstore}=$Sstore;
+	$Streeview->show;
 	
-	return ($Streeview,$Sstore,$Sinvert,$stat_hbox1,$stat_hbox2,$iw,@combos,@labels);	
+	my $sh = Gtk2::ScrolledWindow->new;
+	$sh->add($Streeview);
+	$sh->set_shadow_type('none');
+	$sh->set_policy('automatic','automatic');
+	$sh->show;
+	
+	my $Svbox = Gtk2::VBox->new(); 
+	$Svbox->pack_start($stat_hbox1,0,0,0);
+	$Svbox->pack_start($stat_hbox2,0,0,0);
+	$Svbox->pack_start($sh,1,1,0);
+	
+	return ($Svbox);	
 }
 
 sub CreateToolbar
