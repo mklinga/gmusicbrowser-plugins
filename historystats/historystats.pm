@@ -8,7 +8,6 @@
 
 # TODO:
 # - mainchart with top artist & their top albums?
-# - confirmation for merge - button
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -127,7 +126,7 @@ sub Start {
 		else {$::Options{OPT.'OVTH'.$_} = $OverviewTopheads{$_}->{enabled};}
 	}
 	
-	warn 'LoadChart: '.LoadChart();
+	LoadChart();
 }
 
 sub Stop {
@@ -1229,7 +1228,7 @@ sub SongChanged
 						or 
 					  (($::Options{OPT.'StatViewUpdateMode'} eq $statupdatemodes{albumchange}) and ($albumhaschanged)));
 	} 
-
+	elsif (($self->{site} eq 'overview') and ($albumhaschanged)) {$force = 1;}
 	UpdateSite($self,$self->{site},$force);
 	
 	return 1;
@@ -1321,8 +1320,6 @@ sub LoadChart
 		$read++;
 	}
 	
-	warn "Read total of ".$read." items from charthistory";
-	
 	return 1;
 }
 sub HasBeenInChart
@@ -1388,8 +1385,24 @@ sub ScaleWRandom
 	return 1;
 }
 
+sub ConfirmMerging
+{
+	my $window = shift;
+	
+	my $dialog = Gtk2::MessageDialog->new( $window, [qw/modal destroy-with-parent/], 'warning','ok-cancel','This will modify your filetags permanently. Do you still want to continue?' );
+	$dialog->set_position('center-always');
+	$dialog->set_default_response ('cancel');
+	$dialog->show_all;
+
+	my $response = $dialog->run;
+	$dialog->destroy;
+	return $response;
+}
+
 sub MergeFields
 {
+	return unless (ConfirmMerging() eq 'ok');
+
 	my ($dh) = Songs::BuildHash('id', $::Library, undef, 'lastplay');
 	my %foundkeys;
 	for my $ID (keys %$dh) {
