@@ -8,6 +8,7 @@
 
 # TODO:
 # - mainchart with top artist & their top albums?
+# - do we really need to save whole label with playchart.history?
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -169,6 +170,7 @@ sub prefbox
 	my $oCombo = ::NewPrefCombo(OPT.'OverviewTop40Mode',\@omodes, text => 'Update main chart');
 	my @omodes2 = ('Artists','Albums','Tracks');
 	my $oCombo2 = ::NewPrefCombo(OPT.'OverviewTop40Item',\@omodes2, text => 'Show main chart for ');
+	my $oCheck6 = ::NewPrefCheckButton(OPT.'ShowOverviewIcon','Illustrate changes in main chart with icons');
 	
 	# Statistics
 	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
@@ -191,7 +193,7 @@ sub prefbox
 	my @vbox = ( 
 		::Vpack([$gAmount1,'-',$gMergeButton]), 
 		::Vpack([$hCheck1,$hCheck2],[$hCheck3,$hAmount,$hCombo],[$hAmount2,$hAmount3,$hLabel1],[$hEntry1,$hEntry2]), 
-		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo]),
+		::Vpack($oLabel1,[$oCheck1,$oCheck2,$oCheck3,$oCheck4],[$oAmount,$oAmount2],[$oCombo2,$oCombo],$oCheck6),
 		::Vpack([$sCheck1,$sCheck4],[$sCheck10],$sAmount,[$sCombo],[$sLabel2,$sCombo2],$sCheck8,
 				[$sLabel1,$sCheck9a,$sCheck9b,$sCheck9c])
 	);
@@ -1313,22 +1315,22 @@ sub LoadChart
 	for my $line (@lines)
 	{
 		if ($line =~ /^\[(.+)\]$/) {$field = $1; next;}
-		next unless ($line =~ /^(\d+)\t(.+)\t(\d+)$/);
 		next unless (defined $field);
+		next unless ($line =~ /^(\d+)\t(.+)\t(\d+)$/);
 		my $item = $1; my $check = $2; my $playtime = $3;
+		my $wantedlabel = ($field eq 'title')? Songs::Get($item,'title') : Songs::Gid_to_Display($field,$item);
+		next unless ($wantedlabel eq $check);
 		$ChartHistory{$field}->{$item} = $playtime;
 		$read++;
 	}
-	
+
 	return 1;
 }
 sub HasBeenInChart
 {
 	my ($field,$ID,$starttime) = @_;
 
-	if ((defined $ChartHistory{$field}->{$ID}) and ($ChartHistory{$field}->{$ID} < $starttime)){
-		return 1;
-	}
+	return 1 if ((defined $ChartHistory{$field}->{$ID}) and ($ChartHistory{$field}->{$ID} < $starttime));
 		
 	return 0;
 }
@@ -1387,11 +1389,10 @@ sub ScaleWRandom
 
 sub ConfirmMerging
 {
-	my $window = shift;
-	
-	my $dialog = Gtk2::MessageDialog->new( $window, [qw/modal destroy-with-parent/], 'warning','ok-cancel','This will modify your filetags permanently. Do you still want to continue?' );
+	my $dialog = Gtk2::MessageDialog->new( undef, [qw/modal destroy-with-parent/], 'warning','ok-cancel','This will modify your filetags permanently. Do you still want to continue?' );
 	$dialog->set_position('center-always');
 	$dialog->set_default_response ('cancel');
+	$dialog->set_title('History/Stats confirmation');
 	$dialog->show_all;
 
 	my $response = $dialog->run;
