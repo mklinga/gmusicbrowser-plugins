@@ -7,10 +7,8 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - mainchart with top artist & their top albums ?
-# - merge lastplays into playhistory
-# - calculate 'overall' from playhistory
-# - confirmation for MERGE-button
+# - mainchart with top artist & their top albums?
+# - confirmation for merge - button
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -20,6 +18,7 @@ desc	Show playhistory and statistics in layout
 =cut
 
 package GMB::Plugin::HISTORYSTATS;
+my $VNUM = '0.01';
 
 use strict;
 use warnings;
@@ -104,11 +103,13 @@ my $statswidget =
 };
 
 my $LogFile = $::HomeDir.'playhistory.log';
+my $ChartFile = $::HomeDir.'playcharts.history';
 my %sourcehash;
 my $lastID = -1; 
 my %lastAdded = ( ID => -1, playtime => -1, albumID => -1);
 my $lastPlaytime;
 my %globalstats;
+my %ChartHistory;
 
 sub Start {
 	Layout::RegisterWidget(HistoryStats => $statswidget);
@@ -126,7 +127,7 @@ sub Start {
 		else {$::Options{OPT.'OVTH'.$_} = $OverviewTopheads{$_}->{enabled};}
 	}
 	
-	
+	warn 'LoadChart: '.LoadChart();
 }
 
 sub Stop {
@@ -826,9 +827,9 @@ sub Updateoverview
 	my @mainchart_list = (sort { $$pcs{$b} <=> $$pcs{$a}} keys %{$pcs})[0..($max-1)];
 
 	$self->{ostore_main}->clear;
-	my $icon;
 	
 	for my $listkey (0..$#mainchart_list){
+		my $icon;
 		my $pic; 
 		my $label = HandleStatMarkup($field,$mainchart_list[$listkey],($listkey+1).'. ',::TRUE,::TRUE);
 		my $value = ::__('%s play','%s plays',$$pcs{$mainchart_list[$listkey]});
@@ -840,10 +841,18 @@ sub Updateoverview
 			
 			if ($::Options{OPT.'ShowOverviewIcon'}){
 				if ((defined $num) and ($num < $listkey)) {$icon = $self->render_icon('gtk-go-down','menu');}
-				elsif ((not defined $num) or ($num > $listkey)) {$icon = $self->render_icon('gtk-go-up','menu');}
+				elsif ((defined $num) and ($num == $listkey)) {$icon = $self->render_icon('gtk-go-next','menu');}
+				elsif ((defined $num) and ($num > $listkey)) {$icon = $self->render_icon('gtk-go-up','menu');}
 			}
 		}
-		elsif ($::Options{OPT.'ShowOverviewIcon'}) {$icon = undef;}
+		
+		if (($::Options{OPT.'ShowOverviewIcon'}) and (not defined $icon)) 
+		{
+			#item wasn't played in previous ('old') timeperiod, but might have been played before
+			# we only want to check whether it has been on a list the user has seen, so we don't care about it's 'true history'
+			if (HasBeenInChart($field,$mainchart_list[$listkey],($starttime-$timeperiod))) {$icon = $self->render_icon('edit-redo','menu');}
+			else {$icon = $self->render_icon('gtk-about','menu');}
+		}
 
 		if ($field eq 'id'){
 			$label = ::ReplaceFields($mainchart_list[$listkey],$label,::TRUE );
@@ -864,7 +873,11 @@ sub Updateoverview
 			5,$label,
 			6,$value,
 		);
+		
+		$ChartHistory{$field}->{$mainchart_list[$listkey]} = time unless (defined $ChartHistory{$field}->{$mainchart_list[$listkey]});
 	}
+	
+	SaveChart();
 	
 	return 1;
 }
@@ -1264,6 +1277,64 @@ sub LogHistory
 	return 1;	
 }
 
+sub SaveChart
+{
+	return 'no ChartFile' unless defined $ChartFile;
+
+	my $content='ChartHistory v.'.$VNUM."\n";
+
+	for my $field (keys %ChartHistory)
+	{
+		$content .= "[".$field."]\n";
+		for my $item (keys %{$ChartHistory{$field}})
+		{
+			my $label = ($field eq 'title')? Songs::Get($item,'title') : Songs::Gid_to_Display($field,$item);
+			$content .= $item."\t".$label."\t".$ChartHistory{$field}->{$item}."\n";
+		}
+	}
+
+	open my $fh,'>',$ChartFile or warn "Error opening '$ChartFile' for writing : $!\n";
+	print $fh $content or warn "Error writing to '$ChartFile' : $!\n";
+	close $fh;
+	
+	return 1;	
+}
+sub LoadChart
+{
+	return 0 unless defined $ChartFile;
+	my $read=0;
+	
+	open my $fh,'<',$ChartFile or return 0;
+	my @lines = <$fh>;
+	close($fh);
+	
+	my $header = shift @lines;
+	return 0 unless ($header =~ /ChartHistory v\.(\d+)(\.\d+)?$/);
+	my $field;
+	for my $line (@lines)
+	{
+		if ($line =~ /^\[(.+)\]$/) {$field = $1; next;}
+		next unless ($line =~ /^(\d+)\t(.+)\t(\d+)$/);
+		next unless (defined $field);
+		my $item = $1; my $check = $2; my $playtime = $3;
+		$ChartHistory{$field}->{$item} = $playtime;
+		$read++;
+	}
+	
+	warn "Read total of ".$read." items from charthistory";
+	
+	return 1;
+}
+sub HasBeenInChart
+{
+	my ($field,$ID,$starttime) = @_;
+
+	if ((defined $ChartHistory{$field}->{$ID}) and ($ChartHistory{$field}->{$ID} < $starttime)){
+		return 1;
+	}
+		
+	return 0;
+}
 sub Random::MakeSingleScoreFunction
 {	my $self=shift;
 	my @Score;
