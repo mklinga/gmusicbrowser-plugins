@@ -68,6 +68,14 @@ my %SortTypes = (
  weighted_random => { label => 'Weighted random', typecode => 'weighted', suffix => ':average'} 
 );
 
+my %OverviewChartIcons = (
+	down => {stock => 'gtk-go-down'},
+	same => {stock => 'gtk-go-next'},
+	first => {stock => 'gtk-about'},
+	up => {stock => 'gtk-go-up'},
+	reappear => {stock => 'edit-redo'},
+);
+
 my %statupdatemodes = ( 
 	songchange => 'On songchange', 
 	albumchange => 'On albumchange', 
@@ -464,6 +472,11 @@ sub CreateOverviewSite
 	$bu->show;
 	$vbox->pack_end($bu,0,0,0);
 	
+	#render icons for main chart
+	for (keys %OverviewChartIcons){
+		$OverviewChartIcons{$_}->{icon} = $self->render_icon($OverviewChartIcons{$_}->{stock},'menu');
+	}
+	
 	return ($vbox,\@Ostore_toplists,$Ostore,$Ostatstore);
 }
 
@@ -820,7 +833,7 @@ sub Updateoverview
 	my @oldmainchart_list;
 	if (($timeperiod) and ($::Options{OPT.'ShowOverviewHistory'})){
 		$oldpcs = Songs::BuildHash($field,$::Library,undef,'playhistory:countrange:'.($starttime-$timeperiod).'-'.($starttime-1));
-		my $oldmax = ($::Options{OPT.'OverviewTop40Amount'} < (scalar keys %$oldpcs))? $::Options{OPT.'OverviewTop40Amount'} : (scalar keys %$oldpcs);
+		my $oldmax = ($::Options{OPT.'OverviewTop40Amount'} < (scalar keys %$oldpcs))? ($::Options{OPT.'OverviewTop40Amount'}) : (scalar keys %$oldpcs);
 		@oldmainchart_list = (sort { $$oldpcs{$b} <=> $$oldpcs{$a}} keys %{$oldpcs})[0..($oldmax-1)];
 	}
 	
@@ -841,9 +854,9 @@ sub Updateoverview
 			$value .= "\n<small>".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).((defined $num)? ' ('.($num+1).'.)' : '').' </small>';
 			
 			if ($::Options{OPT.'ShowOverviewIcon'}){
-				if ((defined $num) and ($num < $listkey)) {$icon = $self->render_icon('gtk-go-down','menu');}
-				elsif ((defined $num) and ($num == $listkey)) {$icon = $self->render_icon('gtk-go-next','menu');}
-				elsif ((defined $num) and ($num > $listkey)) {$icon = $self->render_icon('gtk-go-up','menu');}
+				if ((defined $num) and ($num < $listkey)) {$icon = $OverviewChartIcons{down}->{icon};}
+				elsif ((defined $num) and ($num == $listkey)) {$icon = $OverviewChartIcons{same}->{icon};}
+				elsif ((defined $num) and ($num > $listkey)) {$icon = $OverviewChartIcons{up}->{icon};}
 			}
 		}
 		
@@ -851,8 +864,8 @@ sub Updateoverview
 		{
 			#item wasn't played in previous ('old') timeperiod, but might have been played before
 			# we only want to check whether it has been on a list the user has seen, so we don't care about it's 'true history'
-			if (HasBeenInChart($field,$mainchart_list[$listkey],($starttime-$timeperiod))) {$icon = $self->render_icon('edit-redo','menu');}
-			else {$icon = $self->render_icon('gtk-about','menu');}
+			if (HasBeenInChart($field,$mainchart_list[$listkey],($starttime-$timeperiod))) {$icon = $OverviewChartIcons{reappear}->{icon};}
+			else {$icon = $OverviewChartIcons{first}->{icon};}
 		}
 
 		if ($field eq 'id'){
