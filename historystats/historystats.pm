@@ -9,6 +9,10 @@
 # TODO:
 # - mainchart with top artist & their top albums?
 # - do we really need to save whole label with playchart.history?
+#
+# BUGS:
+# - gmb-artist doesn't show?
+# 
 
 =gmbplugin HISTORYSTATS
 name	History/Stats
@@ -118,6 +122,7 @@ my %lastAdded = ( ID => -1, playtime => -1, albumID => -1);
 my $lastPlaytime;
 my %globalstats;
 my %ChartHistory;
+my $merging = 0;
 
 sub Start {
 	Layout::RegisterWidget(HistoryStats => $statswidget);
@@ -1369,6 +1374,8 @@ sub CalcStatus
 	$statustexts{1}->{label} = "Statistics started"; 
 	$statustexts{1}->{value} = FormatRealtime($globalstats{starttime},'%d.%m.%y')." (".$ago." days ago)";
 
+	return \%statustexts unless ($ago);
+	
 	$statustexts{2}->{label} = "Tracks Played";
 	$statustexts{2}->{value} = $globalstats{playtrack}." (".sprintf ("%.2f", $globalstats{playtrack}/$ago)." per day)";
 
@@ -1415,8 +1422,10 @@ sub ConfirmMerging
 
 sub MergeFields
 {
+	return if ($merging);
 	return unless (ConfirmMerging() eq 'ok');
 
+	$merging = 1;
 	my ($dh) = Songs::BuildHash('id', $::Library, undef, 'lastplay');
 	my %foundkeys;
 	for my $ID (keys %$dh) {
@@ -1437,13 +1446,12 @@ sub MergeFields
 		$i++;
 		if ($abort || $i>=(scalar keys %foundkeys))
 		{	::Progress($pid, abort=>1);
+			$merging = 0;
 			return 0;
 		}
 		::Progress( $pid, current=>$i );
 		return 1;
 	 });		
-
-	warn "All done?";
 	
 	return 1;
 }
@@ -1496,9 +1504,11 @@ sub RENDER
 	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
 	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE];
 	my $layout=$cell->makelayout($widget);
+
 	my ($w,$h)=$layout->get_pixel_size;
 	$psize=0 if (($psize == -1) or (!$ICanHasPic));
 	$w+=PAD+$psize;
+
 	my $offy=0;
 	if ($psize>$h)
 	{	$offy+=int( $cell->get('yalign')*($psize-$h) );
@@ -1530,23 +1540,26 @@ sub RENDER
 
 	my $startx;
 	my $lstate = $state;
-	if (($max) and (!($flags & 'selected')) and ($hash->{$gid}))
+	if ($max)
 	{	
 		my $maxwidth = ($background_area->width) - XPAD;
 		$maxwidth-= $psize unless ($nopic);
 		$maxwidth=5 if $maxwidth<5;
 
 		my $width= ((100*$hash->{$gid}) / $max) * $maxwidth / 100;
-		$width = ::max($width,int($maxwidth/5));
+		$width = ($hash->{$gid})? ::max($width,int($maxwidth/5)) : 0;
 		
 		$startx = ($lastfm)? $cell_area->x : $x+$psize+XPAD;
 		$lstate = 'selected' if ($lastfm);
-		$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
-			$startx, $cell_area->y, $width, $cell_area->height );
+		if ($width){
+			$widget->style->paint_flat_box( $window,$lstate,'none',$expose_area,$widget,'',
+				$startx, $cell_area->y, $width, $cell_area->height );
+		}
 	}
-	elsif ($max) {$startx = $cell_area->x;}
+	elsif (($lastfm) and ($ICanHasPic) and (!$nopic)){ $startx = $x+$psize+XPAD;}
+	else {$startx = $cell_area->x;}
 	
-	$startx = (defined $startx)? $startx+PAD+XPAD : $x+$psize+PAD+XPAD;
+	$startx = $startx+PAD+XPAD;
 	# draw text
 	$widget-> get_style-> paint_layout($window, $lstate, 1,
 		$background_area, $widget, undef, $startx, $y+$offy, $layout);
