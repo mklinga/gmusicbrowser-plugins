@@ -688,7 +688,6 @@ sub Updatestatistics
 
 	my ($field) = grep { $StatTypes{$_}->{label} eq $::Options{OPT.'StatisticsTypeCombo'}} keys %StatTypes;
 	my ($sorttype) = grep { $SortTypes{$_}->{label} eq $::Options{OPT.'StatisticsSortCombo'}} keys %SortTypes;
-
 	return unless (($field) and ($sorttype));
 
 	my $suffix = $SortTypes{$sorttype}->{suffix};
@@ -1220,13 +1219,17 @@ sub SelectionChanged
 		my $iter=$store->get_iter($_);
 		my $GID=$store->get( $store->get_iter($_),0);
 		$field=$store->get( $store->get_iter($_),3);
-		next if ($field =~ /^title$|^id$/);
-		push @Filters, Songs::MakeFilterFromGID($field,$GID);
+		if ($field =~ /^title$|^id$/){
+			push @Filters, Songs::MakeFilterFromGID('album',Songs::Get_gid($GID,'album'));
+		}
+		else{
+			push @Filters, Songs::MakeFilterFromGID($field,$GID);
+		}
 	}
 	
-	my $fnew = Filter->newadd(0, @Filters);
+	my $fnew = Filter->newadd(0, @Filters) if (scalar@Filters);
 	my $filt = (defined $::SelectedFilter)? Filter->newadd(1,$::SelectedFilter,$fnew) : $fnew; 
-	
+
 	::SetFilter($treeview,$filt,1);
 	
 	return 1;
@@ -1504,6 +1507,13 @@ sub RENDER
 	my $ICanHasPic = ($::Options{'PLUGIN_HISTORYSTATS_StatImage'.ucfirst($prop->[P_FIELD])})? 1 : 0;
 	my $psize= $iconfield ? (Gtk2::IconSize->lookup('menu'))[0] : $prop->[P_PSIZE];
 	my $layout=$cell->makelayout($widget);
+	my $field=$prop->[P_FIELD];
+	my $realgid; my $realfield;
+
+	if ($field eq 'title'){
+		$realfield = 'album';
+		$realgid = Songs::Get_gid($gid,$realfield); #use album-picture for tracks
+	}
 
 	my ($w,$h)=$layout->get_pixel_size;
 	$psize=0 if (($psize == -1) or (!$ICanHasPic));
@@ -1520,9 +1530,9 @@ sub RENDER
 
 	if (($psize) and ($ICanHasPic) and (!$nopic))
 	{	
-		my $field=$prop->[P_FIELD];
-		my $pixbuf=	$iconfield	? $widget->render_icon(Songs::Picture($gid,$field,'icon'),'menu')||undef: #FIXME could be better
-						AAPicture::pixbuf($field,$gid,$psize);
+		my $pixbuf = $iconfield ? $widget->render_icon(Songs::Picture($realgid || $gid,$realfield || $field,'icon'),'menu')||undef: 
+					AAPicture::pixbuf($realfield || $field,$realgid ||$gid,$psize);
+
 		if ($pixbuf) #pic cached -> draw now
 		{	my $offy=int(($h-$pixbuf->get_height)/2);#center pic
 			my $offx=int(($psize-$pixbuf->get_width)/2);
@@ -1534,7 +1544,8 @@ sub RENDER
 			$cell->{idle}||=Glib::Idle->add(\&idle,$cell);
 			$cell->{widget}||=$widget;
 			$cell->{window}||=$window;
-			$cell->{queue}{$ty}=[$tx,$ty,$gid,$psize,$h,\$field];
+			my $f = $realfield || $field;
+			$cell->{queue}{$ty}=[$tx,$ty,$realgid || $gid,$psize,$h,\$f];
 		}
 	}
 
@@ -1556,8 +1567,9 @@ sub RENDER
 				$startx, $cell_area->y, $width, $cell_area->height );
 		}
 	}
-	elsif (($lastfm) and ($ICanHasPic) and (!$nopic)){ $startx = $x+$psize+XPAD;}
+	elsif (($ICanHasPic) and (!$nopic)){ $startx = $x+$psize+XPAD;}
 	else {$startx = $cell_area->x;}
+
 	
 	$startx = $startx+PAD+XPAD;
 	# draw text
@@ -1596,6 +1608,7 @@ sub _drawpix
 	return if $vx > $ctx+$psize || $vy > $cty+$h || $vx+$vw < $ctx || $vy+$vh < $cty; #no longer visible
 	#warn "DO $gid\n";
 	my ($x,$y)=$widget->tree_to_widget_coords($ctx,$cty);
+	
 	my $pixbuf= AAPicture::pixbuf($$fieldref,$gid, $psize,1);
 	return unless $pixbuf;
 
