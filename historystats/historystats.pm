@@ -910,7 +910,7 @@ sub Updatehistory
 	my %hHash;
 	
 	for my $hashistory (keys %$h) {	# hashistory are every song in library that has playhistory
-		for my $plt (keys $$h{$hashistory}){ # plt are playtimes (epoch) 
+		for my $plt (keys %{$$h{$hashistory}}){ # plt are playtimes (epoch) 
 			$hHash{$plt} = $hashistory;
 		}
 	}
