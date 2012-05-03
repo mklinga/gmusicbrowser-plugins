@@ -9,6 +9,8 @@
 # TODO:
 # - mainchart with top artist & their top albums?
 # - do we really need to save whole label with playchart.history?
+# - perhaps disable 'merge'-button while on action
+# - README: mention that images are from gnome-colors (http://code.google.com/p/gnome-colors/), GNU GPL v2
 #
 # BUGS:
 # - gmb-artist doesn't show?
@@ -553,7 +555,7 @@ sub CreateStatisticsSite
 	my $Streeview=Gtk2::TreeView->new($Sstore);
 	
 	my $Sitemrenderer=CellRendererLAITE->new;
-	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( _"",$Sitemrenderer);
+	my $Sitem=Gtk2::TreeViewColumn->new_with_attributes( _"Item",$Sitemrenderer);
 	$Sitem->set_cell_data_func($Sitemrenderer, sub
 		{	my (undef,$cell,$store,$iter)=@_;
 			
