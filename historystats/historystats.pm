@@ -152,7 +152,7 @@ sub prefbox
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Overview "),Gtk2::Frame->new(" Statistics "));
 	
 	#General
-	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>20, text =>_("Album cover size"));
+	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',40,200, step=>10, page=>20, text =>_("Album cover size"));
 	my $gMergeButton;
 	$gMergeButton = ::NewIconButton('gtk-dialog-warning','Merge fields',
 			sub {
@@ -236,24 +236,18 @@ sub new
 	$self->signal_connect(map => \&SongChanged);
 	$self->set_spacing(2);
 
-	my ($Hvbox) = CreateHistorySite($self);
-	my ($Ovbox) = CreateOverviewSite($self,$options);	
-	my ($Svbox) = CreateStatisticsSite($self);
+	($self->{site_overview}) = CreateOverviewSite($self,$options); 
+	($self->{site_history}) = CreateHistorySite($self); 
+	($self->{site_statistics}) = CreateStatisticsSite($self);
 	my $toolbar = CreateToolbar($self,$options);
 
-	$self->{site_overview} = $Ovbox; 
-	$self->{site_history} =  $Hvbox; 
-	$self->{site_statistics} = $Svbox;
-
 	my $infobox = Gtk2::HBox->new; 	$infobox->set_spacing(0);
-	$infobox->pack_start($Hvbox,1,1,0);
-	$infobox->pack_start($Ovbox,1,1,0);
-	$infobox->pack_start($Svbox,1,1,0);
+	$infobox->pack_start($self->{site_history},1,1,0);
+	$infobox->pack_start($self->{site_overview},1,1,0);
+	$infobox->pack_start($self->{site_statistics},1,1,0);
 	
-	#starting site is always 'history'
-	# TODO: remember last?
-	$Ovbox->set_no_show_all(1);
-	$Svbox->set_no_show_all(1);
+	$self->{site_overview}->set_no_show_all(1);
+	$self->{site_statistics}->set_no_show_all(1);
 
 	$self->pack_start($toolbar,0,0,0);
 	$self->pack_start($infobox,1,1,0);
