@@ -9,11 +9,8 @@
 # TODO:
 # - mainchart with top artist & their top albums?
 # - do we really need to save whole label with playchart.history?
-# - perhaps disable 'merge'-button while on action
-# - README: mention that images are from gnome-colors (http://code.google.com/p/gnome-colors/), GNU GPL v2
 #
 # BUGS:
-# - [remove?] gmb-artist doesn't show
 # 
 
 =gmbplugin HISTORYSTATS
@@ -155,7 +152,7 @@ sub prefbox
 	my @frame=(Gtk2::Frame->new(" General options "),Gtk2::Frame->new(" History "),Gtk2::Frame->new(" Overview "),Gtk2::Frame->new(" Statistics "));
 	
 	#General
-	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>25, text =>_("Album cover size"));
+	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>20, text =>_("Album cover size"));
 	my $gMergeButton;
 	$gMergeButton = ::NewIconButton('gtk-dialog-warning','Merge fields',
 			sub {
@@ -172,17 +169,17 @@ sub prefbox
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc');
 	my $hCheck2 = ::NewPrefCheckButton(OPT.'UseHistoryFilter','Show history only from selected filter');
 	my $hCheck3 = ::NewPrefCheckButton(OPT.'LogHistoryToFile','Log playhistory to file');
-	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,1000, step=>1, page=>10, text =>_("Limit history to "));
+	my $hAmount = ::NewPrefSpinButton(OPT.'AmountOfHistoryItems',1,200, step=>1, page=>10, text =>_("Limit history to "));
 	my @historylimits = ('items','days');
 	my $hCombo = ::NewPrefCombo(OPT.'HistoryLimitMode',\@historylimits);
 	my $hEntry1 = ::NewPrefEntry(OPT.'HistoryTimeFormat','Format for time: ', tip => "Available fields are: \%d, \%m, \%y, \%h (12h), \%H (24h), \%M, \%S \%p (am/pm-indicator)");
 	my $hEntry2 = ::NewPrefEntry(OPT.'HistoryItemFormat','Format for tracks: ', tip => "You can use all fields from gmusicbrowsers syntax (see http://gmusicbrowser.org/layout_doc.html)");
-	my $hAmount2 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedPerc',1,240, step=>1, page=>10, text =>_("Count album as played after "));
-	my $hAmount3 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedMin',1,100, step=>1, page=>10, text =>_("% or "));
+	my $hAmount2 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedPerc',1,100, step=>1, page=>10, text =>_("Count album as played after "));
+	my $hAmount3 = ::NewPrefSpinButton(OPT.'HistAlbumPlayedMin',1,240, step=>1, page=>10, text =>_("% or "));
 	my $hLabel1 = Gtk2::Label->new(' minutes');
 
 	# Overview
-	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,20, step=>1, page=>2, text =>_("Items in toplists: "));
+	my $oAmount = ::NewPrefSpinButton(OPT.'OverViewTopAmount',1,10, step=>1, page=>2, text =>_("Items in toplists: "));
 	my $oLabel1 = Gtk2::Label->new('Show toplists for (changing requires restart of plugin):');
 	$oLabel1->set_alignment(0,0.5);
 	my $oCheck1 = ::NewPrefCheckButton(OPT.'OVTHartist','Artists');
@@ -198,7 +195,7 @@ sub prefbox
 	my $oCheck6 = ::NewPrefCheckButton(OPT.'ShowOverviewIcon','Illustrate changes in main chart with icons');
 	
 	# Statistics
-	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,10000, step=>5, page=>50, text =>_("Limit amount of shown items to "));
+	my $sAmount = ::NewPrefSpinButton(OPT.'AmountOfStatItems',10,500, step=>5, page=>50, text =>_("Limit amount of shown items to "));
 	my $sCheck1 = ::NewPrefCheckButton(OPT.'ShowArtistForAlbumsAndTracks','Show artist for albums and tracks in list');
 	my $sCheck4 = ::NewPrefCheckButton(OPT.'PerAlbumInsteadOfTrack','Calculate groupstats per album instead of per track');
 	my @sum = (values %statupdatemodes);
