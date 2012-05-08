@@ -1,0 +1,65 @@
+'History/Stats' is a plugin for gmusicbrowser. Please note, that it doesn't work on gmusicbrowser v1.1.9 or older!
+
+
+** 1. How to install **
+
+
+1) Copy 'historystats.pm' to ~/.config/gmusicbrowser/plugins (OR /usr/share/gmusicbrowser/plugins)
+2) If you wish to use included icons, copy all files from 'icons'-folder to ~/.config/gmusicbrowser/pix (OR /usr/share/gmusicbrowser/pix). They are from project 'gnome-colors' (http://code.google.com/p/gnome-colors/), released under GNU GPL v2.
+
+3) Restart gmb
+4) Enable History/Stats from Preferences -> Plugins
+5) History/Stats - plugin can be added to any Context-item on gmusicbrowser layout through right-clicking menu with mouse or straight from .layout-file by adding item called HistoryStats.
+
+
+** 2. Different pages **
+
+
+* 2.1) History has information on your recently played tracks and albums. You can set treshold on how much 'playtime' is required for track or album to qualify for list.
+
+* 2.2) Overview can show 1-4 top charts and 'main chart' with possibility to see changes during specified timeperiod (see below for more info)
+
+* 2.3) Statistics can show quite a lot of different stats. Note that statistics are always shown from your currently selected filter (or from whole library if no filter is selected).
+
+
+** 3. Options **
+
+
+I'll just focus here on things that may not be obvious.
+
+* Log playhistory to file : Playhistory is saved track-by-track in ~/.config/gmusicbrowser/playhistory.log
+
+* Count albums as played after XX %: percentage is calculated from length after each played track
+
+* Format for time:
+	Available items: %d: day, %m: month, %y: year, %H: hour (24-h), %h: hour (12-h), %M: minute, %S: second, %p: am/pm-indicator
+
+* Format for tracks: All items from 'gmusicbrowser-syntax' should work, see http://gmusicbrowser.org/layout_doc.html (%-letters)
+
+* Calculate groupstats per album instead of per track: handles average-calculating based on amount of albums instead of single tracks, this evens out differences between albums from same group (artist/genre etc) that have different amount of tracks
+
+* Show scaled value (0-100) of WRandom-item instead of real: purely cosmetical option to show propabilities in cleaner form in statistics/Weighted random
+
+
+** 4. Important to note
+
+
+* 4.1. Playhistory vs. lastplayed
+	History and statistics for specific timeperiod are calculated from new 'playhistory'-field, so you must 'merge' existing statistics if you wish to see proper statistics from the past. Since older 'lastplay'-field only keeps last play, results are not accurate (for example, you've played track three times last month, but 'lastplay' only shows most recent of those while 'playhistory keeps all them in memory) but in my opinion that is still better than nothing. Of course you don't have to merge anything if you don't want to, it's up to you.
+
+* 4.2. Main Chart
+	You can select either artist, album or track to be shown in Main chart, in specific timeperiod. Position/playcount movement are calculated from 'previous' selected timeperiod: for example, if you have selected to show 'artist' from '2 weeks' you'll see playcounts from last 14 days, and the changes in list are compared to playcounts from 15-28 days from now.
+
+* 4.3. What's the deal with '1 week'/'last week'?
+	As it says, 'last week' and 'last month' mean literally last week and last month. '1 week' instead means basically '7 days from now', so it changes depending on when you'll check while 'last week' only changes on monday at 00:01 (no option to change week starting day yet, give me a mail if you'd like that to be implemented).
+
+
+** 5. Unexpected behaviour / suggestions
+
+
+Please report any problems and/or suggestions for features either by mail (laite@gmx.com) or find me in IRC (freenode) #gmusicbrowser.
+
+
+- 
+Thanks,
+laite
