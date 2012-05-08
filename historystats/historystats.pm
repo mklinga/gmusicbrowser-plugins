@@ -13,7 +13,7 @@
 # - README: mention that images are from gnome-colors (http://code.google.com/p/gnome-colors/), GNU GPL v2
 #
 # BUGS:
-# - gmb-artist doesn't show?
+# - [remove?] gmb-artist doesn't show
 # 
 
 =gmbplugin HISTORYSTATS
@@ -156,7 +156,17 @@ sub prefbox
 	
 	#General
 	my $gAmount1 = ::NewPrefSpinButton(OPT.'CoverSize',50,200, step=>10, page=>25, text =>_("Album cover size"));
-	my $gMergeButton = ::NewIconButton('gtk-dialog-warning','Merge fields',\&MergeFields,undef,'Please check README and make sure you understand what this does BEFORE pressing this!');	
+	my $gMergeButton;
+	$gMergeButton = ::NewIconButton('gtk-dialog-warning','Merge fields',
+			sub {
+				if (ConfirmMerging() eq 'ok')
+				{
+					$gMergeButton->set_sensitive(0);
+					MergeFields();
+				}
+			},undef,'Please check README and make sure you understand what this does BEFORE pressing this!');	
+	
+	$gMergeButton->set_sensitive(1) if (!$merging);
 
 	# History
 	my $hCheck1 = ::NewPrefCheckButton(OPT.'RequirePlayConditions','Add only songs that count as played', tip => 'You can set treshold for these conditions in Preferences->Misc');
@@ -1287,6 +1297,7 @@ sub AddToHistory
 	return 1;
 }
 
+#TODO: should we have some limit for history?
 sub LogHistory
 {
 	my ($ID,$playtime) = @_;
@@ -1353,10 +1364,9 @@ sub HasBeenInChart
 {
 	my ($field,$ID,$starttime) = @_;
 
-	return 1 if ((defined $ChartHistory{$field}->{$ID}) and ($ChartHistory{$field}->{$ID} < $starttime));
-		
-	return 0;
+	return ((defined $ChartHistory{$field}->{$ID}) and ($ChartHistory{$field}->{$ID} < $starttime))? 1 : 0;
 }
+
 sub Random::MakeSingleScoreFunction
 {	my $self=shift;
 	my @Score;
@@ -1428,7 +1438,6 @@ sub ConfirmMerging
 sub MergeFields
 {
 	return if ($merging);
-	return unless (ConfirmMerging() eq 'ok');
 
 	$merging = 1;
 	my ($dh) = Songs::BuildHash('id', $::Library, undef, 'lastplay');
