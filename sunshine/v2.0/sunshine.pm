@@ -1528,13 +1528,16 @@ sub LayoutButtonMenu
 	my $self = shift;
 	
 	my $menu = Gtk2::Menu->new;
+	
+	#Launch Sunshine (same as left-clicking the button)
  	my $launchitem = Gtk2::ImageMenuItem->new('Launch Sunshine');
  	my $image = Gtk2::Image->new_from_pixbuf($self->render_icon('gtk-apply', 'menu'));
  	$launchitem->set_image($image);
- 	$launchitem->signal_connect (activate => \&LaunchSunshine);
+ 	$launchitem->signal_connect (activate => sub {LaunchSunshine();});
  	$menu->append($launchitem);
 	$menu->append(Gtk2::SeparatorMenuItem->new);
 
+	#helper method
 	my $append=sub
 	 {	my ($menu,$name,$type)=@_;
 		my $item = Gtk2::MenuItem->new_with_label($name);
@@ -1542,8 +1545,8 @@ sub LayoutButtonMenu
 		$menu->append($item);
 	 };
 
+	#Launch Sleep / Launch Wake 
 	my @Items;
-
 	my $sleepmenu= Gtk2::Menu->new;
 	my $sitem = Gtk2::MenuItem->new("Launch Sleepmode");
 	push @Items, $SleepSchemes{$_}->{label} for (keys %SleepSchemes);
@@ -1560,14 +1563,40 @@ sub LayoutButtonMenu
 	$menu->append($sitem);
 	$menu->append($witem);
 
+	#Kill Individual - menu shows only when there are active alarms
+	if (scalar@ActiveAlarms)
+	{
+		my $activemenu= Gtk2::Menu->new;
+ 		my $aitem = Gtk2::ImageMenuItem->new('Kill Individual');
+ 		$image = Gtk2::Image->new_from_pixbuf($self->render_icon('gtk-delete', 'menu'));
+	 	$aitem->set_image($image);
+
+		my $append2=sub
+		 {	my ($menu,$name,$alarmref)=@_;
+			my $item = Gtk2::MenuItem->new_with_label($name);
+			$item->signal_connect (activate => sub 
+				{ 
+					RemoveAlarm($alarmref);
+					UpdateStatusTexts();
+				});
+			$menu->append($item);
+		 };
+
+		for (@ActiveAlarms) { 
+			$append2->($activemenu,$_->{label},$_);
+		}
+		
+		$aitem->set_submenu($activemenu);
+		$menu->append($aitem);
+	}
+
+	#Stop Everything
 	$menu->append(Gtk2::SeparatorMenuItem->new);
  	my $stopitem = Gtk2::ImageMenuItem->new('Stop Everything');
  	$image = Gtk2::Image->new_from_pixbuf($self->render_icon('gtk-stop', 'menu'));
  	$stopitem->set_image($image);
  	$stopitem->signal_connect (activate => \&StopSunshine);
  	$menu->append($stopitem);
-
-
 
 	$menu->show_all;
 	my $event=Gtk2->get_current_event;
