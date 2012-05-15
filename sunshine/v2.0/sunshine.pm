@@ -8,6 +8,7 @@
 # published by the Free Software Foundation.
 
 # TODO:
+# - Make sure there is no bugs because of launching scheme that is not selected from prefs!
 #
 # BUGS:
 #
@@ -15,12 +16,12 @@
 
 =gmbplugin SUNSHINE2
 name	Sunshine
-title	Sunshine 2.0
+title	Sunshine 2.1
 desc	For scheduling pleasant nights and sharp-starting mornings
 =cut
 
 package GMB::Plugin::SUNSHINE2;
-my $VNUM = '2.0';
+my $VNUM = '2.1';
 
 use strict;
 use warnings;
@@ -41,8 +42,8 @@ my %sunshine_button=
 	stock	=> 'plugin-sunshine',
 	tip	=> " Sunshine v".$VNUM." \n LClick - Launch enabled Alarmmodes \n MClick - Force-launch Sleepmode \n RClick - Force-launch Wakemode",
 	click1 => sub {LaunchSunshine();},
-	click2 => sub {LaunchSunshine(force => 'Sleep');},
-	click3 => sub {LaunchSunshine(force => 'Wake');},
+#	click2 => sub {LaunchSunshine(force => 'Sleep');},
+	click3 => \&LayoutButtonMenu,
 	autoadd_type	=> 'button main',
 );
 
@@ -1238,15 +1239,11 @@ sub GetShortestTimeTo
 		
 		if (defined $1) {$Weekday = $dayvalues{$1}} 
 		else {$Weekday = ((($Hour*3600)+($Min*60)+(0)) < (($cHour*3600)+($cMin*60)+$cSec))? ($cWeekday+1)%7 : $cWeekday;}
-		my $Monthday = ($Weekday == $cWeekday)? $cMday : ($cMday+1);
-
+		my $Monthday = ($Weekday < $cWeekday)? ($cMday+7-($cWeekday-$Weekday)) : ($cMday+($Weekday-$cWeekday));
 		my $NextTime = ::mktime(0,$Min,$Hour,$Monthday,$cMon,$cYear);
+		$NextTime += (7*24*60*60) if ($NextTime < $Now); #if time we got is smaller than 'now', then next occurance is a week later
 
-		if ($Next) { $Next = $NextTime if ($Next > $NextTime);}
-		else { 
-			$Next = $NextTime;
-			$Next += (7*24*60*60) if ($Next < $Now); #if time we got is smaller than 'now', then next occurance is a week later
-		}
+		$Next = $NextTime if ((!$Next) or ($Next > $NextTime));
 	}
 
 	return ($Next-$Now);
@@ -1397,14 +1394,14 @@ sub CalcSleepLength
 sub LaunchSunshine
 {
 	my (%opts) = @_;
-	my ($Alarm_ref,$force,$silent) = @opts{qw/Alarm_ref force silent/} if (%opts);	
+	my ($Alarm_ref,$force,$silent,$forcedRealScheme) = @opts{qw/Alarm_ref force silent realscheme/} if (%opts);	
 	$force ||= '';
 
 	return unless (($::Options{OPT.'SleepEnabled'}) or ($::Options{OPT.'WakeEnabled'}) or (defined $force));
 
 	if (($force eq 'Sleep') or (($::Options{OPT.'SleepEnabled'}) and ($force ne 'Wake')))
 	{
-		my $realScheme = GetRealScheme('Sleep',$::Options{OPT.'LastActiveSleepScheme'});
+		my $realScheme = $forcedRealScheme || GetRealScheme('Sleep',$::Options{OPT.'LastActiveSleepScheme'});
 		my %Alarm = %{$Alarm_ref || $SleepSchemes{$realScheme}};
 
 		CheckRemovableAlarms(type => 'Sleep',alarmhandle => $Alarm{alarmhandle},silent => $silent);
@@ -1426,7 +1423,7 @@ sub LaunchSunshine
 			if ((defined $Alarm{waitingforlaunchtime}) and ($Alarm{waitingforlaunchtime} == 2)) { RemoveAlarm(\%Alarm); }
 
 			#set initialvalues
-			$Alarm{initialalbum} = join " ",Songs::Get($::SongID,qw/album_artist album/);
+			$Alarm{initialalbum} = ($::SongID)? join " ",Songs::Get($::SongID,qw/album_artist album/) : '';
 			$Alarm{passedtracks} = $Alarm{passedtime} = 0;
 
 			# try to calc length for sleepmode
@@ -1465,7 +1462,7 @@ sub LaunchSunshine
 	
 	if (($force eq 'Wake') or (($::Options{OPT.'WakeEnabled'}) and ($force ne 'Sleep')))
 	{
-		my $realScheme = GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
+		my $realScheme = $forcedRealScheme || GetRealScheme('Wake',$::Options{OPT.'LastActiveWakeScheme'});
 		my %Alarm = %{$Alarm_ref || $WakeSchemes{$realScheme}};
 
 		CheckRemovableAlarms(type => 'Wake', schemekey => $Alarm{schemekey});
@@ -1524,6 +1521,58 @@ sub StopSunshine
 	Notify('All sleep- and wakemodes deactivated.');
 	
 	return 1;		
+}
+
+sub LayoutButtonMenu
+{	
+	my $self = shift;
+	
+	my $menu = Gtk2::Menu->new;
+ 	my $launchitem = Gtk2::ImageMenuItem->new('Launch Sunshine');
+ 	my $image = Gtk2::Image->new_from_pixbuf($self->render_icon('gtk-apply', 'menu'));
+ 	$launchitem->set_image($image);
+ 	$launchitem->signal_connect (activate => \&LaunchSunshine);
+ 	$menu->append($launchitem);
+	$menu->append(Gtk2::SeparatorMenuItem->new);
+
+	my $append=sub
+	 {	my ($menu,$name,$type)=@_;
+		my $item = Gtk2::MenuItem->new_with_label($name);
+		$item->signal_connect (activate => sub { LaunchSunshine(force => $type, realscheme => GetRealScheme($type,$name));});
+		$menu->append($item);
+	 };
+
+	my @Items;
+
+	my $sleepmenu= Gtk2::Menu->new;
+	my $sitem = Gtk2::MenuItem->new("Launch Sleepmode");
+	push @Items, $SleepSchemes{$_}->{label} for (keys %SleepSchemes);
+	$append->($sleepmenu,$_,'Sleep') for (sort @Items);
+	$sitem->set_submenu($sleepmenu);
+
+	@Items = ();
+	my $wakemenu= Gtk2::Menu->new;
+	my $witem = Gtk2::MenuItem->new("Launch Wakemode");
+	push @Items, $WakeSchemes{$_}->{label} for (keys %WakeSchemes);
+	$append->($wakemenu,$_,'Wake') for (sort @Items);
+	$witem->set_submenu($wakemenu);
+
+	$menu->append($sitem);
+	$menu->append($witem);
+
+	$menu->append(Gtk2::SeparatorMenuItem->new);
+ 	my $stopitem = Gtk2::ImageMenuItem->new('Stop Everything');
+ 	$image = Gtk2::Image->new_from_pixbuf($self->render_icon('gtk-stop', 'menu'));
+ 	$stopitem->set_image($image);
+ 	$stopitem->signal_connect (activate => \&StopSunshine);
+ 	$menu->append($stopitem);
+
+
+
+	$menu->show_all;
+	my $event=Gtk2->get_current_event;
+	my ($button,$pos)= $event->isa('Gtk2::Gdk::Event::Button') ? ($event->button,\&::menupos) : (0,undef);
+	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
 }
 
 
