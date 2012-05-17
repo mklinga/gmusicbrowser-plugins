@@ -8,8 +8,8 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - Make sure there is no bugs because of launching scheme that is not selected from prefs!
-#
+# - customizable fade beginning time
+# - check there's no Advanced_VolumeFadeInPerc when done ^
 # BUGS:
 #
 # 
@@ -32,7 +32,8 @@ use constant
 use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SleepEnabled => 1, WakeEnabled => 1,
-	 A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause', Advanced_VolumeFadeInPerc => 100);
+	 A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause', Advanced_VolumeFadeStart => 0, 
+	 Advanced_VolumeFadeEnd => 100);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
@@ -385,7 +386,26 @@ sub ShowAdvancedSettings
 				{$::Options{OPT.'Advanced_WakeCommand'} = $SleepWakeCommands{$_}->{command}; last;}}
 		});
 
-	my $volumefadeinperc = ::NewPrefSpinButton(OPT.'Advanced_VolumeFadeInPerc',10,100, text1 => 'Finish volumefade in ', text2=> '% of fadelength');
+	my $volumefadestart; my $volumefadeend; 
+	$volumefadestart = ::NewPrefSpinButton(OPT.'Advanced_VolumeFadeStart',0,90,cb => sub{ 
+			if ($::Options{OPT.'Advanced_VolumeFadeStart'} > $::Options{OPT.'Advanced_VolumeFadeEnd'})
+			{
+				$::Options{OPT.'Advanced_VolumeFadeStart'} = $::Options{OPT.'Advanced_VolumeFadeEnd'}-1;
+				$volumefadestart->set_value($::Options{OPT.'Advanced_VolumeFadeStart'});
+			}
+	});
+	 $volumefadeend = ::NewPrefSpinButton(OPT.'Advanced_VolumeFadeEnd',10,100, cb => sub { 
+			if ($::Options{OPT.'Advanced_VolumeFadeStart'} > $::Options{OPT.'Advanced_VolumeFadeEnd'})
+			{
+				$::Options{OPT.'Advanced_VolumeFadeEnd'} = $::Options{OPT.'Advanced_VolumeFadeStart'}+1;
+				$volumefadeend->set_value($::Options{OPT.'Advanced_VolumeFadeEnd'});
+			}
+	});
+	my $fadelabel1 = Gtk2::Label->new('Start fade at ');
+	my $fadelabel2 = Gtk2::Label->new('% of time');
+	my $fadelabel3 = Gtk2::Label->new('End fade at ');
+	my $fadelabel4 = Gtk2::Label->new('% of time');
+		
 	my $multiplealarms = ::NewPrefCheckButton(OPT.'Advanced_MultipleAlarms','Allow multiple alarms', tip => 'If unchecked, Sunshine will allow only one sleep- and one wake-alarm at time. Old alarms will be removed when new is started.');
 	my $keepalarms = ::NewPrefCheckButton(OPT.'Advanced_KeepAlarms','Keep alarms between sessions', tip => 'If unchecked, Sunshine will disable all active alarms when gmusicbrowser is shut down.');
 	my $morenots = ::NewPrefCheckButton(OPT.'Advanced_MoreNotifications','More notifications!', tip => 'Nice pop-up every now and then, now who wouldn\'t like that?');
@@ -405,7 +425,7 @@ sub ShowAdvancedSettings
 	unless ($s) {$::Options{OPT.'Advanced_Albumrandom'} = 0; $ar->set_active(0);}
 	
 	my $vbox = ::Vpack($label1,[$activealarmskilllabel,'_',$activealarmskillbox,$activealarmskillbutton],[$multiplealarms,$keepalarms],[$morenots,$ar],[$ignorelastcount,$dontfinishlast],
-		[$skipalarmifplaying],$volumefadeinperc,$manualsleeptime,[$sleepcommand,$wakecommand]);
+		[$skipalarmifplaying],[$fadelabel1,$volumefadestart,$fadelabel2],[$fadelabel3,$volumefadeend,$fadelabel4],$manualsleeptime,[$sleepcommand,$wakecommand]);
 
 	$Dialog->get_content_area()->add($vbox);
 	$Dialog->set_default_response ('cancel');	
@@ -1079,14 +1099,26 @@ sub SleepInterval
 	${$ActiveAlarms[$Alarm{activealarmid}]}{passedtime} = $Alarm{passedtime} if (defined $Alarm{activealarmid}); 	
 
 	if ($Alarm{svolumefadecheck})	{
-		if (::GetVol() < $Alarm{svolumefadeto}) {::UpdateVol(::GetVol()+1);}
-		elsif (::GetVol() > $Alarm{svolumefadeto}) {::UpdateVol(::GetVol()-1);}
-		elsif (!$Alarm{newintervalset})
+		my $currentVol = ::GetVol();
+		if (defined $Alarm{realfadeinterval}){
+			#we have started fading late, now it's time to set 'real' interval 
+			Glib::Source->remove($Alarm{alarmhandle});
+			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{realfadeinterval},sub {SleepInterval(\%Alarm);});
+			delete $Alarm{realfadeinterval};
+		}
+		
+		if ($currentVol != $Alarm{svolumefadeto}) {
+			my $volchange = $Alarm{fadeaddition} || 1;
+			my $nextvol = ($currentVol > $Alarm{svolumefadeto})? ($currentVol-$volchange) : ($currentVol+$volchange);
+			if (abs($currentVol-$Alarm{svolumefadeto}) < $volchange) {$nextvol = $Alarm{svolumefadeto};}
+			::UpdateVol($nextvol);
+		}
+		if ((!$Alarm{newintervalset}) and ($currentVol == $Alarm{svolumefadeto}))
 		{
 			#we have finished volumefading, so we set interval to finishingtime+1 
 			my $newinterval = ($Alarm{finishingtime}-time)+1;
 			Glib::Source->remove($Alarm{alarmhandle});
-			$Alarm{alarmhandle}=Glib::Timeout->add($newinterval,sub {SleepInterval(\%Alarm);});
+			$Alarm{alarmhandle}=Glib::Timeout->add($newinterval*1000,sub {SleepInterval(\%Alarm);});
 			$Alarm{newintervalset} = 1;
 		}
 	}
@@ -1391,6 +1423,54 @@ sub CalcSleepLength
 
 	return $modelength;
 }
+
+sub CalcSleepFadeIntervals
+{
+	my %Alarm = %{$_[0]};
+	
+	if ($Alarm{svolumefadecheck})
+	{
+		#adv_volumefadestart = [0,90], adv_volumefadeto = [10,100] 
+		# fadestart is always smaller or equal to fadeto 
+		my $starttime = ($::Options{OPT.'Advanced_VolumeFadeStart'}/100)*$Alarm{modelength};
+		my $availableTime = ($::Options{OPT.'Advanced_ManualFadeTime'})? $::Options{OPT.'Advanced_ManualTimeSpin'} : $Alarm{modelength}; 
+		$availableTime *= ($::Options{OPT.'Advanced_VolumeFadeEnd'}-$::Options{OPT.'Advanced_VolumeFadeStart'})/100;
+
+		## (-1) in 'from' means we use whatever the volume currently is
+		my $fromvol = ($Alarm{svolumefadefrom} == -1)? ::GetVol() : $Alarm{svolumefadefrom};
+		my $volumechange = abs($Alarm{svolumefadeto}-$fromvol);#fade might be to either direction
+
+		$Alarm{interval} = $starttime*1000;
+		#real fade-interval is time between fade end and start divided by needed change
+		if ($volumechange)
+		{
+			$Alarm{realfadeinterval} = ($availableTime/$volumechange)*1000;
+			
+			#don't want to update more than once/second (condition is same to: realfadeinterval < 1000)
+			if ($availableTime < $volumechange)
+			{
+				$Alarm{realfadeinterval} = 1000;
+				if ($availableTime){
+					#we end here up with 'too large' addition, condition we check in SleepInterval()
+					$Alarm{fadeaddition} = 1+int($volumechange/$availableTime);
+				}
+				else {$Alarm{fadeaddition} = $volumechange;} #if start- and end-percentage are same, availabletime = 0
+			}
+		}
+
+		# update volume unless we are using (-1) OR if we're relaunching between sessions and have already reached goal (and it's currently set)
+		if ($Alarm{svolumefadefrom} > 0) { 
+			::UpdateVol($Alarm{svolumefadefrom}) unless (($Alarm{relaunch}) and (::GetVol() == $Alarm{volumefadeto}));
+		}
+	}
+	else{ $Alarm{interval} = 1000*($Alarm{modelength}+1);}
+	
+	#%Alarm is only a temporary representation, so must send changes back
+	%{$_[0]} = %Alarm;
+
+	return 1;
+}
+
 sub LaunchSunshine
 {
 	my (%opts) = @_;
@@ -1435,23 +1515,7 @@ sub LaunchSunshine
 
 			$Alarm{startingtime} = time;
 			$Alarm{finishingtime} = time+$Alarm{modelength};
-			
-			if ($Alarm{svolumefadecheck})
-			{
-				## (-1) in 'from' means we use whatever the volume currently is
-				my $fromvol = ($Alarm{svolumefadefrom} == -1)? ::GetVol() : $Alarm{svolumefadefrom};
-				if ($::Options{OPT.'Advanced_ManualFadeTime'}) { $Alarm{interval} = $::Options{OPT.'Advanced_ManualTimeSpin'};}
-				else {$Alarm{interval} = int(0.5+(1000*$Alarm{modelength}/(abs($Alarm{svolumefadeto}-$fromvol)+1)));}
-				
-				$Alarm{interval} = int(($Alarm{interval}*$::Options{OPT.'Advanced_VolumeFadeInPerc'})/100);#volumefadeinperc <=> [10,100]
-				$Alarm{interval} = 1000 if ($Alarm{interval} < 1000);
-				
-				# update volume unless we are using (-1) OR if we're relaunching between sessions and have already reached goal (and it's currently set)
-				if ($Alarm{svolumefadefrom} > 0) { 
-					::UpdateVol($Alarm{svolumefadefrom}) unless (($Alarm{relaunch}) and (::GetVol() == $Alarm{volumefadeto}));
-				}
-			}
-			else{ $Alarm{interval} = 1000*($Alarm{modelength}+1);}
+			CalcSleepFadeIntervals(\%Alarm);
 
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
 			AddAlarm(\%Alarm,$silent);
