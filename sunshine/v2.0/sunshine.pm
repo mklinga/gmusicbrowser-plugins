@@ -1239,7 +1239,7 @@ sub GetShortestTimeTo
 		
 		if (defined $1) {$Weekday = $dayvalues{$1}} 
 		else {$Weekday = ((($Hour*3600)+($Min*60)+(0)) < (($cHour*3600)+($cMin*60)+$cSec))? ($cWeekday+1)%7 : $cWeekday;}
-		my $Monthday = ($Weekday < $cWeekday)? ($cMday+7-($cWeekday-$Weekday)) : ($cMday+($Weekday-$cWeekday));
+		my $Monthday = $cMday+($Weekday-$cWeekday);
 		my $NextTime = ::mktime(0,$Min,$Hour,$Monthday,$cMon,$cYear);
 		$NextTime += (7*24*60*60) if ($NextTime < $Now); #if time we got is smaller than 'now', then next occurance is a week later
 
@@ -1453,8 +1453,8 @@ sub LaunchSunshine
 			}
 			else{ $Alarm{interval} = 1000*($Alarm{modelength}+1);}
 
-			AddAlarm(\%Alarm,$silent);
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{interval},sub {SleepInterval(\%Alarm);});
+			AddAlarm(\%Alarm,$silent);
 	 		Notify("Launched '".$Alarm{label}."'.\nGoing to sleep at ".localtime($Alarm{finishingtime})) unless ($silent);
 		}
 		else {warn "SUNSHINE: Something's wrong in the neighborhood";}
