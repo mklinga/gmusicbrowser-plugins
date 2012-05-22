@@ -8,8 +8,7 @@
 # published by the Free Software Foundation.
 
 # TODO:
-# - customizable fade beginning time
-# - check there's no Advanced_VolumeFadeInPerc when done ^
+# 
 # BUGS:
 #
 # 
@@ -41,7 +40,7 @@ my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
 my %sunshine_button=
 (	class	=> 'Layout::Button',
 	stock	=> 'plugin-sunshine',
-	tip	=> " Sunshine v".$VNUM." \n LClick - Launch enabled Alarmmodes \n MClick - Force-launch Sleepmode \n RClick - Force-launch Wakemode",
+	tip	=> " Sunshine v".$VNUM." \n LClick - Launch enabled Alarmmodes \n RClick - Context Menu",
 	click1 => sub {LaunchSunshine();},
 #	click2 => sub {LaunchSunshine(force => 'Sleep');},
 	click3 => \&LayoutButtonMenu,
