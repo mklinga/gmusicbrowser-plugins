@@ -15,6 +15,9 @@ title	Laitetweaks
 # Use if freely, don't oppress.
 #   -laite
 
+# TODO
+#
+
 package GMB::Plugin::LAITETWEAKS;
 use strict;
 use warnings;
@@ -27,7 +30,7 @@ use base 'Gtk2::Box';
 use base 'Gtk2::Dialog';
 use utf8;
 
-::SetDefaultOptions(OPT, TimeAgo => 1, QueueStraight => 0, QueueAlbum => 0, IntelligentLabelTotal => 1);
+::SetDefaultOptions(OPT, TimeAgo => 1, QueueStraight => 0, QueueAlbum => 0, IntelligentLabelTotal => 1, FilterThis => 1);
 
 sub TimeAgo
 {
@@ -126,6 +129,19 @@ sub EnableOptions
 		$LabelTotal::Modes{intelligent}{delay} = 500;
 	}
 	
+	if ($::Options{OPT.'FilterThis'})
+	{
+		for (@FilterPane::cMenu) 
+		{
+			if (($_->{label}) and ($_->{label} =~ /^Play$/)) { 
+				$_->{code} = sub { ::Select(filter=>$_[0]{filter});}; 
+				$_->{label} = "Filter this";
+				$_->{stockicon} = 'gmb-filter';
+				$_->{id} = 'filter';
+				last; 
+			}
+		}
+	}
 }
 
 sub Start
@@ -157,6 +173,7 @@ sub prefbox
 	my $check3=::NewPrefCheckButton(OPT."QueueStraight",'Always queue with:', horizontal=>1,cb => \&EnableOptions,widget=>$pmcombo);
 
 	my $check4=::NewPrefCheckButton(OPT."IntelligentLabelTotal",'Add Filter/selected mode to LabelTotal', horizontal=>1,cb => \&EnableOptions);
+	my $check5=::NewPrefCheckButton(OPT."FilterThis",'Show option to filter group from filterpane instead of playing it ', horizontal=>1,cb => \&EnableOptions);
 
 	
 	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$button);	
