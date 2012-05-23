@@ -176,7 +176,7 @@ sub prefbox
 	my $check5=::NewPrefCheckButton(OPT."FilterThis",'Show option to filter group from filterpane instead of playing it ', horizontal=>1,cb => \&EnableOptions);
 
 	
-	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$button);	
+	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$check5,$button);	
 	
 	return $vbox;
 }
