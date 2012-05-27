@@ -19,14 +19,15 @@ package GMB::Plugin::LASTFM_PCGET;
 use strict;
 use warnings;
 use constant
-{	CLIENTID => 'gmb', VERSION => '0.2',
+{	CLIENTID => 'gmusicbrowser / last.fm_pcget', VERSION => '0.2',
 	OPT => 'PLUGIN_LASTFM_PCGET_',#used to identify the plugin's options
-	APIKEY => 'f39afc8f749e2bde363fc8d3cfd02aae',
+	APIKEY => '58b7cf77be819f5473bffee8d781d9c0',
 };
 
 ::SetDefaultOptions(OPT, pcvalues => 'always', multiple => 'split_evenly',checkcorrections => 1, titlechange => 'change_all', artistchange => 'change_all');
 
 use Digest::MD5 'md5_hex';
+use LWP::Simple;
 require $::HTTP_module;
 
 my $self=bless {},__PACKAGE__;
@@ -45,6 +46,8 @@ my @checks;
 my @banned;
 my $s2;
 my $LOVED=0;
+my $token;
+
 
 my %button=
 (	class	=> 'Layout::Button',
@@ -116,6 +119,109 @@ sub prefbox
 	
 	return $fi;
 }
+
+sub ToggleLoved
+{
+	if (not defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'})
+	{
+		my$dialog = Gtk2::MessageDialog->new (undef,
+                                      'destroy-with-parent',
+                                      'question', # message type
+                                      'yes-no', # which set of buttons?
+                                      "You need last.fm sessionkey for this action.\nDo you want to configure it now?");
+		my $response = $dialog->run;		
+		GetSessionKey() if ($response eq 'yes');
+		$dialog->destroy;
+	}
+	else
+	{
+		
+	}
+}
+
+sub GetSessionKey
+{	
+	my $user=$::Options{OPT.'USER'};
+	return 0 unless defined $user && $user ne '';
+
+	my $signature = md5_hex("api_key".APIKEY.'methodauth.gettoken'.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
+	Send(\&HandleLastfmToken,'http://ws.audioscrobbler.com/2.0/?method=auth.gettoken&api_key='.APIKEY);
+
+}
+
+sub HandleLastfmToken
+{
+	my @response = @_;
+	foreach my $line (@response) {
+		if ($line =~ m/<token>(.+)<\/token>/){ $token = $1; last;}
+	}
+	return 0 unless (defined $token);
+
+	my $dialog = Gtk2::Dialog->new ('Confirmation', undef,[qw/modal destroy-with-parent/]);
+	$dialog->set_position('center-always');
+	$dialog->set_border_width(4);
+	
+    my $label = Gtk2::Label->new("This property needs to have permission to your last.fm data in order to work.\nPlease give your permission in last.fm internet page BEFORE pressing continue!\nYou can do this in following address:");
+    my $label2 = Gtk2::Label->new;
+    $label2->set_markup('<span underline="single" color="blue">'.::PangoEsc('http://www.last.fm/api/auth/?api_key='.APIKEY.'&token='.$token).'</span>'); 
+    $label2->set_ellipsize('middle');
+    $label2->set_max_width_chars(50);
+    
+    my $next = Gtk2::Button->new('I have accepted permission in last.fm, continue!');
+    $next->set_sensitive(0);
+    my $runbutton = Gtk2::Button->new('Open in browser');
+    
+    $runbutton->signal_connect(clicked => sub {
+    	::main::openurl('http://www.last.fm/api/auth/?api_key='.APIKEY.'&token='.$token);
+    	$next->set_sensitive(1);
+    });
+
+	$next->signal_connect(clicked => sub {
+		$dialog->destroy;
+		
+		#then final authing
+		my $signature = md5_hex("api_key".APIKEY.'methodauth.getsessiontoken'.$token.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
+		Send(\&HandleLastfmSessionKey,'http://ws.audioscrobbler.com/2.0/?method=auth.getsession&api_key='.APIKEY.'&token='.$token.'&api_sig='.$signature);		
+	});
+    
+    my $dform = ::Vpack($label,$label2);
+    $dform->add(::Hpack('-',$next,'-',$runbutton));
+	$dialog->get_content_area ()->add ($dform);
+	$dialog->set_default_response(1);
+	$dialog->show_all;
+
+	$dialog->run;
+	$dialog->destroy();
+}
+
+sub HandleLastfmSessionKey
+{
+	my @resp = @_;
+	my $key;
+	
+	for my $line (@resp) 
+	{
+		if ($line =~ m/<key>(.+)<\/key>/){ $key = $1; last;}
+	}
+	
+	if (defined $key){
+		$::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'} = $key;
+		Log('Successfully acquired last.fm session key for user: '.$::Options{OPT.'USER'}.'!');		
+	}
+	else { Log('ERROR! No sessionkey found! Did you give permission for it?'); return 0;}
+
+	return 1;
+}
+
+sub Send
+{	my ($response_cb,$url,$post)=@_;
+	my $cb=sub
+	{	my @response=(defined $_[0])? split "\012",$_[0] : ();
+		&$response_cb(@response);
+	};
+	$waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => $post);
+}
+
 
 sub SongChanged
 {
@@ -294,18 +400,17 @@ sub SetValue
 	{
 		$num++;
 		my $songoc = Songs::Get($id,'playcount');
+		my ($art,$alb,$tit) = Songs::Get($id,qw/artist album title/);
 		$pre = '['.($num).'/'.(scalar (keys %tochange)).'] ';
 
 		if ((not defined $songoc) or ($tochange{$id} != $songoc))
 		{
 			Songs::Set($id,'playcount' => $tochange{$id});
-			Log($pre."Set playcount to ".$tochange{$id}." for ".Songs::Get($id,'artist')." - ".Songs::Get($id,'album')." - ".Songs::Get($id,'title'));
+			Log($pre."Set playcount to ".$tochange{$id}." for ".$art." - ".$alb." - ".$tit);
 		}
-		else { Log($pre."Nothing to change for ".$artist." - ".$album." - ".$title) }
+		else { Log($pre."Nothing to change for ".$art." - ".$alb." - ".$tit) }
 	}
 	
-	if (!$num) {Log('No previous playcount found for '.$artist.' - '.$title);}
-
 	return 1;
 }
 
@@ -320,7 +425,8 @@ sub Sync()
 {
 	return if ($waiting);
 
-	my $user=$::Options{OPT.'USER'};
+	my $user = $::Options{OPT.'USER'};
+	my $love = 0; #by default we show no love
 
 	if ($user eq '') { return;}
 
@@ -334,16 +440,22 @@ sub Sync()
 	{	
 		$waiting=undef;
 		my @r=(defined $_[0])? split "\012",$_[0] : ();
+		my $foundpc=0;
 		foreach my $a (@r) 
 		{
 			if ( $a =~ m/<userplaycount>(\d+)<\/userplaycount>/){
 				SetValue($::SongID,$artist,$album,$title,$1);
+				$foundpc=1;
 			}
 		
 			if ( $a =~ m/<userloved>(\d+)<\/userloved>/)	{
-				SetLoved($1);
+				$love = $1;
 			}
 		}
+		
+		if (!$foundpc) { Log('No previous playcount for '.$artist.' - '.$title);}
+		SetLoved($love);
+		
 		if ($::Options{OPT.'checkcorrections'} == 1) {checkCorrection();}
 	};
 	my $waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => '');
