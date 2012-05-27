@@ -1,31 +1,30 @@
 # Gmusicbrowser: Copyright (C) 2005-2011 Quentin Sculo <squentin@free.fr>
-# laiteplay: Copyright (C) 2011- Markus Klinga <laite@gmx.com>
+# Lastfm_pcGet: Copyright (C) Markus Klinga (laite) <laite@gmx.com>
 #
-# This file is part of laiteplay, an individual fork of Gmusicbrowser.
-# laiteplay is free software; you can redistribute it and/or modify
+# This file is a plugin to Gmusicbrowser.
+# It is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 3, as
 # published by the Free Software Foundation.
 
 
 =gmbplugin LASTFM_PCGET
 name	lastfm_pcGet
-title	playcount fetcher
+title	playcount fetcher (v0.2)
 desc	Downloads playcount for currently playing song
 =cut
 
 #TODO
-#utf8 recieved forms??
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
 use warnings;
 use constant
-{	CLIENTID => 'gmb', VERSION => '0.1',
+{	CLIENTID => 'gmb', VERSION => '0.2',
 	OPT => 'PLUGIN_LASTFM_PCGET_',#used to identify the plugin's options
 	APIKEY => 'f39afc8f749e2bde363fc8d3cfd02aae',
 };
 
-::SetDefaultOptions(OPT, checkcorrections => 1);
+::SetDefaultOptions(OPT, pcvalues => 'always', multiple => 'split_evenly',checkcorrections => 1, titlechange => 'change_all', artistchange => 'change_all');
 
 use Digest::MD5 'md5_hex';
 require $::HTTP_module;
@@ -44,11 +43,23 @@ use utf8;
 
 my @checks;
 my @banned;
-
 my $s2;
+my $LOVED=0;
+
+my %button=
+(	class	=> 'Layout::Button',
+	state	=> sub {($LOVED==1)? 'loved' : 'not_loved'},
+	stock	=> {loved => 'lastfm_heart', not_loved => 'lastfm_heart_empty' },
+	tip	=> "Love this track",	
+	click1	=> \&ToggleLoved,
+	autoadd_type	=> 'button main',
+	event	=> 'lastfm_LovedStatus',
+);
+ 
 
 sub Start
 {
+	Layout::RegisterWidget(lastfmLoveButton=>\%button);
 	::Watch($self,PlayingSong=> \&SongChanged);
 	loadCorrections();
 	loadBanned();
@@ -57,6 +68,7 @@ sub Stop
 {
 	$waiting->abort if ($waiting);
 	::UnWatch_all($self);
+	Layout::RegisterWidget('lastfmLoveButton');
 }
 
 sub prefbox
@@ -67,7 +79,6 @@ sub prefbox
 	my $sg2=Gtk2::SizeGroup->new('horizontal');
 	my $entry1=::NewPrefEntry(OPT.'USER',_"Username: ", sizeg1 => $sg1,sizeg2=>$sg2);
 	
-
 	my $listcombo= ::NewPrefCombo( OPT.'pcvalues', { always => 'Always set last.fm value', biggest => 'Set bigger amount', smallest => 'Set smaller amount',});
 	my $l=Gtk2::Label->new('How to deal with different playcount values: ');
 
@@ -119,7 +130,7 @@ sub Log
 {	my $text=$_[0];
 	$Log->set( $Log->prepend,0, localtime().'  '.$text );
 	warn "$text\n" if $::debug;
-	if (my $iter=$Log->iter_nth_child(undef,50)) { $Log->remove($iter); }
+	if (my $iter=$Log->iter_nth_child(undef,200)) { $Log->remove($iter); }
 }
 
 sub loadCorrections()
@@ -175,9 +186,6 @@ sub checkCorrection()
 			if (my $utf8=Encode::decode_utf8($correcttrack)) {$correcttrack=$utf8}
 			if (my $utf8=Encode::decode_utf8($correctartist)) {$correctartist=$utf8}
 			
-			$correcttrack =~ s/\&amp\;/\&/g;
-			$correctartist =~ s/\&amp\;/\&/g;
-			
 			my $new_correction = Songs::Get($::SongID,'fullfilename')."\t".$correctartist."\t".$correcttrack."\n";
 			my $is_banned = 0;
 
@@ -213,6 +221,101 @@ sub findSimilar
 	
 	return \@final;
 }
+
+sub GetPcValueSetting
+{
+	my ($newvalue,$oldvalue) = shift;
+	
+	$oldvalue = 0 unless (defined $oldvalue);
+	if ($::Options{OPT.'pcvalues'} eq 'always') { return $newvalue; }
+	elsif ($::Options{OPT.'pcvalues'} eq 'biggest') { return ($newvalue > $oldvalue)? $newvalue : $oldvalue;}
+	elsif ($::Options{OPT.'pcvalues'} eq 'smallest') {return ($newvalue < $oldvalue)? $newvalue : $oldvalue; }
+	
+	Log('Error in GetPcValueSetting! Returning zero.');
+	return 0; 
+}
+
+sub DistributeEvenly
+{
+	my ($value,$items,$songid) = @_;
+	
+	$songid = -1 unless (defined $songid);
+	my $whole = int($value/scalar@$items);
+	my $rest = $value%scalar@$items;
+	my %valuehash;
+
+	foreach (@$items)
+	{
+		if (($rest > 0) and ($_ != $songid)) { 
+			$valuehash{$_} = $whole+1; 
+			$rest--; 
+		}
+		else { 
+			$valuehash{$_} = $whole;
+		}
+	}
+	
+	return \%valuehash;
+}
+
+sub SetValue
+{
+	my ($songid,$artist,$album,$title,$newvalue) = @_;
+	
+	my $multifilter=findSimilar(Filter->newadd(1,'title:s:'.$title, 'artist:s:'.$artist)->filter,$artist,$title);
+	my %tochange;
+	
+	if ($::Options{OPT.'multiple'} eq 'playing') { 
+		$tochange{$songid} = GetPcValueSetting($newvalue,Songs::Get($songid,'playcount'));
+	}
+	elsif ($::Options{OPT.'multiple'} eq 'split_evenly') {
+		my $sum = 0;
+		$sum += (Songs::Get($_,'playcount') || 0) for (@$multifilter);
+		my $value = GetPcValueSetting($newvalue,$sum);
+		%tochange = %{DistributeEvenly($value,$multifilter,$songid)};
+	}
+	elsif ($::Options{OPT.'multiple'} eq 'separate') {
+		for (@$multifilter){
+			$tochange{$_} = GetPcValueSetting($newvalue,Songs::Get($_,'playcount'));
+		}
+	}
+	elsif ($::Options{OPT.'multiple'} eq 'as_one')
+	{	
+		my $avg = 0;
+		$avg += (Songs::Get($_,'playcount') || 0) for (@$multifilter);
+		$avg /= scalar@$multifilter;
+		for (@$multifilter){
+			$tochange{$_} = GetPcValueSetting($newvalue,$avg);
+		}
+	}
+	
+	my $num=0; my $pre='';
+	for my $id (keys %tochange)
+	{
+		$num++;
+		my $songoc = Songs::Get($id,'playcount');
+		$pre = '['.($num).'/'.(scalar (keys %tochange)).'] ';
+
+		if ((not defined $songoc) or ($tochange{$id} != $songoc))
+		{
+			Songs::Set($id,'playcount' => $tochange{$id});
+			Log($pre."Set playcount to ".$tochange{$id}." for ".Songs::Get($id,'artist')." - ".Songs::Get($id,'album')." - ".Songs::Get($id,'title'));
+		}
+		else { Log($pre."Nothing to change for ".$artist." - ".$album." - ".$title) }
+	}
+	
+	if (!$num) {Log('No previous playcount found for '.$artist.' - '.$title);}
+
+	return 1;
+}
+
+sub SetLoved
+{
+	my $loved = shift;
+	$LOVED=$loved;
+	::HasChanged('lastfm_LovedStatus');
+	return 1;
+}
 sub Sync()
 {
 	return if ($waiting);
@@ -226,173 +329,21 @@ sub Sync()
 	my $title = Songs::Get($::SongID,'title');
 
 	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getinfo&username='.$user.'&api_key='.APIKEY.'&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title);
-	my $foundupc = 0;
-	my $pcvalue = 0;
-	my $multiple = 0;
-
-	my $multifilter=findSimilar(Filter->newadd(1,'title:s:'.$title, 'artist:s:'.$artist)->filter,$artist,$title);
 	
-	#always => 'Always set last.fm value', 
-	#biggest => 'Set bigger amount', 
-	#smallest => 'Set smaller amount'
-	
-	#playing => 'Set only playing tracks playcount', 
-	#split_evenly => 'Split playcount evenly', 
-	#separate => 'Set every tracks playcount separately', 
-	#as_one => 'Handle different songs as one'
-	
-	if ($::Options{OPT.'pcvalues'} eq 'always') { $pcvalue = 1;}
-	elsif ($::Options{OPT.'pcvalues'} eq 'biggest') { $pcvalue = 2;}
-	elsif ($::Options{OPT.'pcvalues'} eq 'smallest') { $pcvalue = 3;}
-
-	if ($::Options{OPT.'multiple'} eq 'playing') { $multiple = 1;}
-	elsif ($::Options{OPT.'multiple'} eq 'split_evenly') { $multiple = 2;}
-	elsif ($::Options{OPT.'multiple'} eq 'separate') { $multiple = 3;}
-	elsif ($::Options{OPT.'multiple'} eq 'as_one') { $multiple = 4;}
-
-	
-	my $total = 0;
-	my $biggest = 0;
-	my $smallest = 0;
-	my $avg = 0;
-	
-	my $oc = 0;
-	my @changeID;
-	my @changevalue;
-	
-	foreach my $a (@$multifilter)
-	{	
-		my $pc = Songs::Get($a,'playcount');
-		$total += $pc;
-		if ($pc < $smallest) { $smallest = $pc; }
-		if ($pc > $biggest) { $biggest = $pc; }
-	}
-	
-	$avg = int(($total/scalar@$multifilter)+0.5);
-
-	if ($multiple == 1) { $oc = Songs::Get($::SongID,'playcount');}
-	elsif ($multiple == 2) 
-	{ 
-		if ($pcvalue == 1) {$oc = Songs::Get($::SongID,'playcount');}
-		elsif ($pcvalue == 2) {$oc = $biggest;}
-		elsif ($pcvalue == 3) {$oc = $smallest;}
-	}
-	elsif ($multiple == 4){ $oc = $avg	}
-
-
 	my $cb=sub
 	{	
 		$waiting=undef;
 		my @r=(defined $_[0])? split "\012",$_[0] : ();
 		foreach my $a (@r) 
 		{
-			if ( $a =~ m/<userplaycount>(\d+)<\/userplaycount>/)
-			{
-					$foundupc = 1;
-					my $userplaycount = $1;
-				
-					#always set last.fm value
-					if ($pcvalue == 1)
-					{
-						if ($multiple == 1)	{ if ($userplaycount != $oc) {push(@changeID,$::SongID); push(@changevalue,$userplaycount);}}
-						elsif ($multiple == 2)	#even split
-						{
-							if ((scalar@$multifilter == 1) and ($userplaycount != $oc)) {push(@changeID,$::SongID); push(@changevalue,$userplaycount);}
-							elsif (scalar@$multifilter > 1)
-							{
-								my $whole = int($userplaycount/scalar@$multifilter);
-								my $rest = $userplaycount%scalar@$multifilter;
-
-								foreach my $b (@$multifilter)
-								{
-									push(@changeID,$b); 
-									if (($rest > 0) and ($b != $::SongID)) { push(@changevalue,($whole+1)); $rest--; }
-									else { push(@changevalue,($whole));}
-								}
-							}
-						}
-						elsif (($multiple == 3) or ($multiple == 4))#separate or as_one
-						{
-							foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$userplaycount);	}
-						}
-					}
-					else #set biggest/smallest value
-					{
-						my $modifier = 1;#smallest
-						$modifier = -1 if ($pcvalue == 2);#biggest
-						
-						if ($multiple == 1)#current only
-						{
-							if ($modifier*($oc-$userplaycount) < 0) 
-							{ 
-								foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$oc);}							
-							}
-							else {foreach my $b (@$multifilter){push(@changeID,$b);push(@changevalue,$userplaycount);}}
-						}
-						elsif ($multiple == 2)#split even
-						{
-							my $whole;
-							my $rest;
-							if ($modifier*($oc-$userplaycount) < 0) 
-							{
-								$whole = int($oc/scalar@$multifilter);
-								$rest = $oc%scalar@$multifilter;
-							}
-							else
-							{
-								$whole = int($userplaycount/scalar@$multifilter);
-								$rest = $userplaycount%scalar@$multifilter;
-							}
-
-							foreach my $b (@$multifilter)
-							{
-								push(@changeID,$b); 
-								if (($rest > 0) and ($b != $::SongID)) { push(@changevalue,($whole+1)); $rest--; }
-								else { push(@changevalue,($whole));}
-							}
-						}
-						elsif ($multiple == 3)# each track separate
-						{
-							foreach my $b (@$multifilter)
-							{
-								my $curoc = Songs::Get($b,'playcount');
-								if ($modifier*($curoc-$userplaycount) > 0)
-								{
-									#only change if last.fm has wanted value 
-									push(@changeID,$b); 
-									push(@changevalue,$userplaycount);
-								}
-							}
-						}
-						elsif ($multiple == 4)#handle as one
-						{
-							my $curoc;
-							if ($modifier*($oc-$userplaycount) < 0)	{$curoc = $oc;}
-							else {$curoc = $userplaycount; }
-
-							foreach my $b (@$multifilter)
-							{
-								push(@changeID,$b); 
-								push(@changevalue,$curoc);
-							}
-						}
-					}				
+			if ( $a =~ m/<userplaycount>(\d+)<\/userplaycount>/){
+				SetValue($::SongID,$artist,$album,$title,$1);
+			}
+		
+			if ( $a =~ m/<userloved>(\d+)<\/userloved>/)	{
+				SetLoved($1);
 			}
 		}
-		
-		if ($foundupc == 0) {Log('No previous playcount found for '.$artist.' - '.$title);}
-		elsif (scalar@changeID > 0)
-		{
-			for (my $c=0;$c<(scalar@changeID);$c++)
-			{
-				Songs::Set($changeID[$c],'playcount',$changevalue[$c]);
-				my $num = '';
-				if (scalar@changeID > 1) { $num = '['.($c+1).'/'.scalar@changeID.'] '; }
-				Log($num."Set playcount to ".$changevalue[$c]." for ".Songs::Get($changeID[$c],'artist')." - ".Songs::Get($changeID[$c],'album')." - ".Songs::Get($changeID[$c],'title'));
-			}
-		}
-		else { Log("Nothing to change for ".$artist." - ".$album." - ".$title) }
-		
 		if ($::Options{OPT.'checkcorrections'} == 1) {checkCorrection();}
 	};
 	my $waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => '');
