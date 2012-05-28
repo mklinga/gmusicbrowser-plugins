@@ -14,19 +14,8 @@ desc	Downloads playcount for currently playing song
 =cut
 
 # TODO
-# - love tracks, example of POST:
-# 
-#         use HTTP::Request::Common qw(POST);
-#         use LWP::UserAgent;
-#         $ua = LWP::UserAgent->new;
-#
-#         my $req = POST 'http://www.perl.com/cgi-bin/BugGlimpse',
-#                      [ search => 'www', errors => 0 ];
-#
-#         print $ua->request($req)->as_string;
-
-
-
+# - sync label both ways
+# - unlove tracks with rclick
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -37,7 +26,8 @@ use constant
 	APIKEY => '58b7cf77be819f5473bffee8d781d9c0',
 };
 
-::SetDefaultOptions(OPT, pcvalues => 'always', multiple => 'split_evenly',checkcorrections => 1, titlechange => 'change_all', artistchange => 'change_all');
+::SetDefaultOptions(OPT, pcvalues => 'always', multiple => 'split_evenly',checkcorrections => 1, titlechange => 'change_all', 
+		artistchange => 'change_all', synclovedwithlabel => 0, labeltosync => 'Loved');
 
 use utf8;
 use Digest::MD5 'md5_hex';
@@ -53,7 +43,7 @@ my @corrections;
 my @checks; my @banned;
 my $s2; 
 my $LOVED=0; my $token;
-
+my $SONGTOLOVE = -1;
 
 my %button=
 (	class	=> 'Layout::Button',
@@ -84,6 +74,7 @@ sub prefbox
 {
 	my $vbox=Gtk2::VBox->new(::FALSE, 2);
 	my $vbox2=Gtk2::VBox->new(::FALSE, 2);
+	my $vbox3=Gtk2::VBox->new(::FALSE, 2);
 	my $sg1=Gtk2::SizeGroup->new('horizontal');
 	my $sg2=Gtk2::SizeGroup->new('horizontal');
 	my $entry1=::NewPrefEntry(OPT.'USER',_"Username: ", sizeg1 => $sg1,sizeg2=>$sg2);
@@ -109,18 +100,24 @@ sub prefbox
 
 	my $listcombo4= ::NewPrefCombo( OPT.'artistchange', {change_one => 'Change only for the noted track', change_all => 'Change all tracks from artist',});
 	my $l4=Gtk2::Label->new('When correcting artist: ');
-	
 
+	#track-love
+	my $lcheck1 = ::NewPrefCheckButton(OPT.'synclovedwithlabel','Sync last.fm loved tracks with label ');	
+	my $lentry1 = ::NewPrefEntry(OPT.'labeltosync', undef, sizeg1 => $sg1,sizeg2=>$sg2);
+	
 	my $frame1=Gtk2::Frame->new(_" Playcount fetching ");
 	my $frame2=Gtk2::Frame->new(_" Track/Artist correction ");
+	my $frame3=Gtk2::Frame->new(_" Track loving ");
 
 	$vbox=::Vpack($entry1,[$l,$listcombo],[$l2,$listcombo2]);
 	$vbox2=::Vpack($check,[$l3,$listcombo3,$l4,$listcombo4],[$button2,$cl]);
+	$vbox3=::Vpack([$lcheck1,$lentry1]);
 
 	$frame1->add($vbox);
 	$frame2->add($vbox2);
+	$frame3->add($vbox3);
 	
-	my $fi = ::Vpack( $frame2, $frame1);
+	my $fi = ::Vpack( $frame2, $frame3, $frame1);
 	$fi->add(::LogView($Log));
 	
 	return $fi;
@@ -149,13 +146,13 @@ sub SendLoveRequest
 {
 	return unless ((defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'}) and (defined $::Options{OPT.'USER'}));
 	
+	$SONGTOLOVE = $::SongID; #save this here in case it takes too much time to process request
+	
 	my $sk = $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'};
 	my $user = $::Options{OPT.'USER'};
 	my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
-#warn "Attempting to love ".$artist.' - '.$title.' with user: '.$user.', api_key: '.APIKEY.' and session key: '.$sk;	
 	my $signature = md5_hex("api_key".APIKEY.'artist'.$artist.'methodtrack.lovesk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
-#warn 'Signature made from '."api_key".APIKEY.'artist'.$artist.'methodtrack.lovesk'.$sk.'track'.$title;
-#warn 'Signature ='.$signature;	
+
 	my $post = 'method=track.love&track='.$title.'&artist='.$artist.'&api_key='.APIKEY.'&sk='.$sk.'&api_sig='.$signature;
 	
 	Send(\&HandleLoveRequest,'http://ws.audioscrobbler.com/2.0/',$post);	
@@ -171,10 +168,11 @@ sub HandleLoveRequest
 	
 	 if ($allIsWell) {
 	 	SetLoved(1);
-	 	Log('Loved track '.Songs::Get($::SongID,'artist').' - '.Songs::Get($::SongID,'title').' successfully!');
+	 	Log('Loved track '.Songs::Get($SONGTOLOVE,'artist').' - '.Songs::Get($SONGTOLOVE,'title').' successfully!');
 	 }
 	 else { Log('ERROR: Something went wrong when tried to love track.');}
 	
+	$SONGTOLOVE = -1;
 	return $allIsWell;
 }
 
@@ -455,9 +453,20 @@ sub SetValue
 
 sub SetLoved
 {
-	my $loved = shift;
-	$LOVED=$loved;
-	::HasChanged('lastfm_LovedStatus');
+	my ($loved,$songid) = @_;
+	
+	$songid ||= $SONGTOLOVE;
+	
+	if ($loved != $LOVED){
+		$LOVED = $loved;
+		::HasChanged('lastfm_LovedStatus');
+	}
+	if (($::Options{OPT.'synclovedwithlabel'}) and ($songid != -1))
+	{
+		my $action = ($LOVED)? '+' : '-';
+		Songs::Set($songid, $action.'label' => $::Options{OPT.'labeltosync'});
+	}
+
 	return 1;
 }
 sub Sync()
@@ -493,7 +502,7 @@ sub Sync()
 		}
 		
 		if (!$foundpc) { Log('No previous playcount for '.$artist.' - '.$title);}
-		SetLoved($love);
+		SetLoved($love,$::SongID);
 		
 		if ($::Options{OPT.'checkcorrections'} == 1) {checkCorrection();}
 	};
