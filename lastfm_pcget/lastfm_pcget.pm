@@ -13,7 +13,20 @@ title	playcount fetcher (v0.2)
 desc	Downloads playcount for currently playing song
 =cut
 
-#TODO
+# TODO
+# - love tracks, example of POST:
+# 
+#         use HTTP::Request::Common qw(POST);
+#         use LWP::UserAgent;
+#         $ua = LWP::UserAgent->new;
+#
+#         my $req = POST 'http://www.perl.com/cgi-bin/BugGlimpse',
+#                      [ search => 'www', errors => 0 ];
+#
+#         print $ua->request($req)->as_string;
+
+
+
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -26,8 +39,8 @@ use constant
 
 ::SetDefaultOptions(OPT, pcvalues => 'always', multiple => 'split_evenly',checkcorrections => 1, titlechange => 'change_all', artistchange => 'change_all');
 
+use utf8;
 use Digest::MD5 'md5_hex';
-use LWP::Simple;
 require $::HTTP_module;
 
 my $self=bless {},__PACKAGE__;
@@ -37,16 +50,9 @@ my $oldID = -1;
 my $Datafile = $::HomeDir.'lastfm_corrections';
 my $Banfile = $::HomeDir.'lastfm_corrections.banned';
 my @corrections;
-
-use utf8;
-#use base 'Gtk2::Dialog';
-#use base 'Gtk2::Box';
-
-my @checks;
-my @banned;
-my $s2;
-my $LOVED=0;
-my $token;
+my @checks; my @banned;
+my $s2; 
+my $LOVED=0; my $token;
 
 
 my %button=
@@ -135,8 +141,41 @@ sub ToggleLoved
 	}
 	else
 	{
-		
+		SendLoveRequest();
 	}
+}
+
+sub SendLoveRequest
+{
+	return unless ((defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'}) and (defined $::Options{OPT.'USER'}));
+	
+	my $sk = $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'};
+	my $user = $::Options{OPT.'USER'};
+	my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
+#warn "Attempting to love ".$artist.' - '.$title.' with user: '.$user.', api_key: '.APIKEY.' and session key: '.$sk;	
+	my $signature = md5_hex("api_key".APIKEY.'artist'.$artist.'methodtrack.lovesk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
+#warn 'Signature made from '."api_key".APIKEY.'artist'.$artist.'methodtrack.lovesk'.$sk.'track'.$title;
+#warn 'Signature ='.$signature;	
+	my $post = 'method=track.love&track='.$title.'&artist='.$artist.'&api_key='.APIKEY.'&sk='.$sk.'&api_sig='.$signature;
+	
+	Send(\&HandleLoveRequest,'http://ws.audioscrobbler.com/2.0/',$post);	
+}
+
+sub HandleLoveRequest
+{
+	my @response = @_;
+	my $allIsWell=0;
+	foreach my $line (@response) {
+		$allIsWell = 1 if ($line =~ m/lfm status=\"ok\"/);
+	}
+	
+	 if ($allIsWell) {
+	 	SetLoved(1);
+	 	Log('Loved track '.Songs::Get($::SongID,'artist').' - '.Songs::Get($::SongID,'title').' successfully!');
+	 }
+	 else { Log('ERROR: Something went wrong when tried to love track.');}
+	
+	return $allIsWell;
 }
 
 sub GetSessionKey
@@ -408,7 +447,7 @@ sub SetValue
 			Songs::Set($id,'playcount' => $tochange{$id});
 			Log($pre."Set playcount to ".$tochange{$id}." for ".$art." - ".$alb." - ".$tit);
 		}
-		else { Log($pre."Nothing to change for ".$art." - ".$alb." - ".$tit) }
+		else { Log($pre."Nothing to change (playcount ".$tochange{$id}.") for ".$art." - ".$alb." - ".$tit) }
 	}
 	
 	return 1;
