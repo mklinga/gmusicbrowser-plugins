@@ -10,12 +10,10 @@
 =gmbplugin LASTFM_PCGET
 name	lastfm_pcGet
 title	playcount fetcher (v0.2)
-desc	Downloads playcount for currently playing song
+desc	Downloads playcount, tag correction and loved-status for currently playing song
 =cut
 
 # TODO
-# - sync label both ways
-# - unlove tracks with rclick
 
 package GMB::Plugin::LASTFM_PCGET;
 use strict;
@@ -44,13 +42,15 @@ my @checks; my @banned;
 my $s2; 
 my $LOVED=0; my $token;
 my $SONGTOLOVE = -1;
+my $REQUESTED_METHOD;
 
 my %button=
 (	class	=> 'Layout::Button',
 	state	=> sub {($LOVED==1)? 'loved' : 'not_loved'},
 	stock	=> {loved => 'lastfm_heart', not_loved => 'lastfm_heart_empty' },
 	tip	=> "Love this track",	
-	click1	=> \&ToggleLoved,
+	click1	=> sub {ToggleLoved(1)},
+	click3	=> sub {ToggleLoved(0)},
 	autoadd_type	=> 'button main',
 	event	=> 'lastfm_LovedStatus',
 );
@@ -125,6 +125,8 @@ sub prefbox
 
 sub ToggleLoved
 {
+	my $love = shift;
+
 	if (not defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'})
 	{
 		my$dialog = Gtk2::MessageDialog->new (undef,
@@ -138,24 +140,22 @@ sub ToggleLoved
 	}
 	else
 	{
-		SendLoveRequest();
-	}
-}
+		$REQUESTED_METHOD = ($love)? 'love' : 'unlove';
+	
+		return unless ((defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'}) and (defined $::Options{OPT.'USER'}));
+		
+		$SONGTOLOVE = $::SongID; #save this here in case it takes too much time to process request
+	
+		my $sk = $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'};
+		my $user = $::Options{OPT.'USER'};
+		my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
+		my $signature = md5_hex("api_key".APIKEY.'artist'.$artist.'methodtrack.'.$REQUESTED_METHOD.'sk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
 
-sub SendLoveRequest
-{
-	return unless ((defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'}) and (defined $::Options{OPT.'USER'}));
+		my $post = 'method=track.'.$REQUESTED_METHOD.'&track='.$title.'&artist='.$artist.'&api_key='.APIKEY.'&sk='.$sk.'&api_sig='.$signature;
 	
-	$SONGTOLOVE = $::SongID; #save this here in case it takes too much time to process request
-	
-	my $sk = $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'};
-	my $user = $::Options{OPT.'USER'};
-	my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
-	my $signature = md5_hex("api_key".APIKEY.'artist'.$artist.'methodtrack.lovesk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
-
-	my $post = 'method=track.love&track='.$title.'&artist='.$artist.'&api_key='.APIKEY.'&sk='.$sk.'&api_sig='.$signature;
-	
-	Send(\&HandleLoveRequest,'http://ws.audioscrobbler.com/2.0/',$post);	
+		Send(\&HandleLoveRequest,'http://ws.audioscrobbler.com/2.0/',$post);
+		
+	}	
 }
 
 sub HandleLoveRequest
@@ -167,14 +167,15 @@ sub HandleLoveRequest
 	}
 	
 	 if ($allIsWell) {
-	 	SetLoved(1);
-	 	Log('Loved track '.Songs::Get($SONGTOLOVE,'artist').' - '.Songs::Get($SONGTOLOVE,'title').' successfully!');
+	 	SetLoved($REQUESTED_METHOD);
+	 	Log('Successfully '.$REQUESTED_METHOD.'d track '.Songs::Get($SONGTOLOVE,'artist').' - '.Songs::Get($SONGTOLOVE,'title').'!');
 	 }
 	 else { Log('ERROR: Something went wrong when tried to love track.');}
 	
 	$SONGTOLOVE = -1;
 	return $allIsWell;
 }
+
 
 sub GetSessionKey
 {	
@@ -235,25 +236,41 @@ sub HandleLastfmSessionKey
 {
 	my @resp = @_;
 	my $key;
+	my $pict = 'info'; 
+	my $message = 'Session key was acquired successfully!';
+	my $topic = 'Last.fm - plugin configured';
 	
-	for my $line (@resp) 
-	{
+	for my $line (@resp) {
 		if ($line =~ m/<key>(.+)<\/key>/){ $key = $1; last;}
 	}
 	
 	if (defined $key){
 		$::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'} = $key;
-		Log('Successfully acquired last.fm session key for user: '.$::Options{OPT.'USER'}.'!');		
+		Log('Successfully acquired last.fm session key for user: '.$::Options{OPT.'USER'}.'!');
 	}
-	else { Log('ERROR! No sessionkey found! Did you give permission for it?'); return 0;}
+	else { 
+		Log('ERROR! No sessionkey found! Did you give permission for it?');
+		$message = 'Sessionkey couldn\'t be acquired! Are you sure you gave your permission for it?';
+		$topic = 'ERROR!';
+		$pict = 'error';
+	}
 
-	return 1;
+	my $dialog = Gtk2::MessageDialog->new( undef, [qw/modal destroy-with-parent/], $pict,'ok',$message );
+	$dialog->set_position('center-always');
+	$dialog->set_title($topic);
+	$dialog->show_all;
+
+	$dialog->run;
+	$dialog->destroy;
+
+	return (defined $key)? 1 : 0;
 }
 
 sub Send
 {	my ($response_cb,$url,$post)=@_;
 	my $cb=sub
 	{	my @response=(defined $_[0])? split "\012",$_[0] : ();
+		$waiting = undef;
 		&$response_cb(@response);
 	};
 	$waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => $post);
@@ -456,6 +473,8 @@ sub SetLoved
 	my ($loved,$songid) = @_;
 	
 	$songid ||= $SONGTOLOVE;
+warn $loved.' / '.$LOVED;	
+	if ($loved !~ /\d+/) { $loved = ($loved eq 'love')? 1 : 0;}
 	
 	if ($loved != $LOVED){
 		$LOVED = $loved;
@@ -463,7 +482,7 @@ sub SetLoved
 	}
 	if (($::Options{OPT.'synclovedwithlabel'}) and ($songid != -1))
 	{
-		my $action = ($LOVED)? '+' : '-';
+		my $action = ($loved)? '+' : '-';
 		Songs::Set($songid, $action.'label' => $::Options{OPT.'labeltosync'});
 	}
 
@@ -502,6 +521,7 @@ sub Sync()
 		}
 		
 		if (!$foundpc) { Log('No previous playcount for '.$artist.' - '.$title);}
+		
 		SetLoved($love,$::SongID);
 		
 		if ($::Options{OPT.'checkcorrections'} == 1) {checkCorrection();}
