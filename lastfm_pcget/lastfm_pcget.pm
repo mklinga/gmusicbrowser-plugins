@@ -25,7 +25,7 @@ use constant
 };
 
 ::SetDefaultOptions(OPT, pcvalues => 'always', multiple => 'split_evenly',checkcorrections => 1, titlechange => 'change_all', 
-		artistchange => 'change_all', synclovedwithlabel => 0, labeltosync => 'Loved');
+		artistchange => 'change_all', synclovedwithlabel => 0, labeltosync => 'Loved', syncmethod => 'from_lastfm');
 
 use utf8;
 use Digest::MD5 'md5_hex';
@@ -98,12 +98,13 @@ sub prefbox
 	my $listcombo3= ::NewPrefCombo( OPT.'titlechange', { change_one => 'Change only the noted track', change_all => 'Change all songs with same artist/title',});
 	my $l3=Gtk2::Label->new('When correcting track title: ');
 
-	my $listcombo4= ::NewPrefCombo( OPT.'artistchange', {change_one => 'Change only for the noted track', change_all => 'Change all tracks from artist',});
+	my $listcombo4= ::NewPrefCombo( OPT.'artistchange', {change_one => 'Change only for the noted track', change_all => 'Change all tracks from artist'});
 	my $l4=Gtk2::Label->new('When correcting artist: ');
 
 	#track-love
 	my $lcheck1 = ::NewPrefCheckButton(OPT.'synclovedwithlabel','Sync last.fm loved tracks with label ');	
 	my $lentry1 = ::NewPrefEntry(OPT.'labeltosync', undef, sizeg1 => $sg1,sizeg2=>$sg2);
+	my $lcombo1 = ::NewPrefCombo(OPT.'syncmethod', {from_lastfm => 'Sync only from last.fm to local database', from_local => 'Sync only from local database to last.fm', both_ways_and => 'Sync with method "last.fm AND local"', both_ways_or => 'Sync with method "last.fm OR local"'});
 	
 	my $frame1=Gtk2::Frame->new(_" Playcount fetching ");
 	my $frame2=Gtk2::Frame->new(_" Track/Artist correction ");
@@ -111,7 +112,7 @@ sub prefbox
 
 	$vbox=::Vpack($entry1,[$l,$listcombo],[$l2,$listcombo2]);
 	$vbox2=::Vpack($check,[$l3,$listcombo3,$l4,$listcombo4],[$button2,$cl]);
-	$vbox3=::Vpack([$lcheck1,$lentry1]);
+	$vbox3=::Vpack([$lcheck1,$lentry1, $lcombo1]);
 
 	$frame1->add($vbox);
 	$frame2->add($vbox2);
@@ -168,6 +169,8 @@ sub HandleLoveRequest
 	
 	 if ($allIsWell) {
 	 	SetLoved($REQUESTED_METHOD);
+		my $action = ($REQUESTED_METHOD eq 'love')? '+' : '-';
+	 	Songs::Set($SONGTOLOVE, $action.'label' => $::Options{OPT.'labeltosync'});
 	 	Log('Successfully '.$REQUESTED_METHOD.'d track '.Songs::Get($SONGTOLOVE,'artist').' - '.Songs::Get($SONGTOLOVE,'title').'!');
 	 }
 	 else { Log('ERROR: Something went wrong when tried to love track.');}
@@ -237,7 +240,7 @@ sub HandleLastfmSessionKey
 	my @resp = @_;
 	my $key;
 	my $pict = 'info'; 
-	my $message = 'Session key was acquired successfully!';
+	my $message = "Session key was acquired successfully!\nYou can now start loving and unloving tracks!";
 	my $topic = 'Last.fm - plugin configured';
 	
 	for my $line (@resp) {
@@ -468,30 +471,22 @@ sub SetValue
 	return 1;
 }
 
+#this is called on songchange and when loverequest has been (successfully) handled
 sub SetLoved
 {
-	my ($loved,$songid) = @_;
+	my $loved = shift;
 	
-	$songid ||= $SONGTOLOVE;
-warn $loved.' / '.$LOVED;	
 	if ($loved !~ /\d+/) { $loved = ($loved eq 'love')? 1 : 0;}
 	
 	if ($loved != $LOVED){
 		$LOVED = $loved;
 		::HasChanged('lastfm_LovedStatus');
 	}
-	if (($::Options{OPT.'synclovedwithlabel'}) and ($songid != -1))
-	{
-		my $action = ($loved)? '+' : '-';
-		Songs::Set($songid, $action.'label' => $::Options{OPT.'labeltosync'});
-	}
 
 	return 1;
 }
 sub Sync()
 {
-	return if ($waiting);
-
 	my $user = $::Options{OPT.'USER'};
 	my $love = 0; #by default we show no love
 
@@ -522,12 +517,72 @@ sub Sync()
 		
 		if (!$foundpc) { Log('No previous playcount for '.$artist.' - '.$title);}
 		
-		SetLoved($love,$::SongID);
-		
+		SetLoved($love);
+		SyncLabel($love,$::SongID) if ($::Options{OPT.'synclovedwithlabel'});
+
 		if ($::Options{OPT.'checkcorrections'} == 1) {checkCorrection();}
 	};
 	my $waiting=Simple_http::get_with_cb(cb => $cb,url => $url,post => '');
 }
+
+# 'loved' here comes from last.fm
+sub SyncLabel
+{
+	my ($loved,$songid) = @_;
+	$songid ||= $SONGTOLOVE;
+	my $local_loved = HasSyncLabel($songid);
+	return 0 unless ($songid > -1);
+	return 1 if ($loved == $local_loved); #no need to change anything if they're the same already
+	
+	my $which = 0;
+	
+	#last.fm value must be changed
+	$which = 1 if (($::Options{OPT.'syncmethod'} eq 'both_ways_and') and ($loved)); # 0 && 1 = 0 [local && lastfm = for last.fm]
+	$which = 1 if (($::Options{OPT.'syncmethod'} eq 'both_ways_or') and (!$loved)); # 1 || 0 = 1 
+	$which = 1 if ($::Options{OPT.'syncmethod'} eq 'from_local'); # 0 > 1 = 0
+
+	#local value must change
+	$which = 2 if (($::Options{OPT.'syncmethod'} eq 'both_ways_and') and (!$loved)); # 1 && 0 = 0 [local && lastfm = for LOCAL]
+	$which = 2 if (($::Options{OPT.'syncmethod'} eq 'both_ways_or') and ($loved)); # 0 || 1 = 1 
+	$which = 2 if ($::Options{OPT.'syncmethod'} eq 'from_lastfm');
+	
+	return 1 if (!$which); #nothing to change after all
+
+	if ($which == 1)
+	{
+		if (defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'}) #don't do anything if user hasn't configured sk yet
+		{
+			Log('Syncing local label for '.Songs::Get($songid,'artist').' - '.Songs::Get($songid,'title').' to last.fm!');
+			ToggleLoved(!$loved);
+		}
+	}
+	else 
+	{
+		Log('Syncing last.fm loved track - status to local label for '.Songs::Get($songid,'artist').' - '.Songs::Get($songid,'title').'!');
+		my $action = ($local_loved)? '-' : '+';
+		Songs::Set($songid, $action.'label' => $::Options{OPT.'labeltosync'});
+	}
+	
+	return 1;
+}
+
+sub HasSyncLabel
+{
+	my $songid = shift;
+	my ($dh) = Songs::BuildHash('id', $::Library, undef, 'label');
+	my $found = 0;
+	
+	for (@{$$dh{$songid}})
+	{
+		if ($_ eq $::Options{OPT.'labeltosync'}) {
+			$found = 1;
+			last;
+		}
+	}
+	
+	return $found;
+}
+
 sub Correct
 {
 	$s2 = Gtk2::Dialog->new(_"last.fm suggestions",undef,'destroy-with-parent');
