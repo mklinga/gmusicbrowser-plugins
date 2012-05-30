@@ -182,6 +182,7 @@ my $handle; my $volumehandle;
 my $EditingScheme=0;
 my $oldID=-1;#prevent double-call to SongChanged
 my $createdPrefs = 0;
+my $dlogfirst=1;
 
 sub Start
 {
@@ -1091,11 +1092,8 @@ sub CheckIfSleepFinished
 sub SleepInterval
 {
 	my %Alarm = %{$_[0]};
-	
 	$Alarm{passedtime} = time-$Alarm{startingtime};
-
-	#also send changes straight to activealarms, because SongChanged checks from there only
-	${$ActiveAlarms[$Alarm{activealarmid}]}{passedtime} = $Alarm{passedtime} if (defined $Alarm{activealarmid}); 	
+	Dlog('** Sleepinterval ('.$Alarm{label}.'), passedtime: '.$Alarm{passedtime});	
 
 	if ($Alarm{svolumefadecheck})	{
 		my $currentVol = ::GetVol();
@@ -1103,6 +1101,7 @@ sub SleepInterval
 			#we have started fading late, now it's time to set 'real' interval 
 			Glib::Source->remove($Alarm{alarmhandle});
 			$Alarm{alarmhandle}=Glib::Timeout->add($Alarm{realfadeinterval},sub {SleepInterval(\%Alarm);});
+			Dlog('Switched to realfadeinterval: '.$Alarm{realfadeinterval});	
 			delete $Alarm{realfadeinterval};
 		}
 		
@@ -1111,6 +1110,7 @@ sub SleepInterval
 			my $nextvol = ($currentVol > $Alarm{svolumefadeto})? ($currentVol-$volchange) : ($currentVol+$volchange);
 			if (abs($currentVol-$Alarm{svolumefadeto}) < $volchange) {$nextvol = $Alarm{svolumefadeto};}
 			::UpdateVol($nextvol);
+			Dlog('Updated volume from '.$currentVol.' -> '.$nextvol);	
 		}
 		if ((!$Alarm{newintervalset}) and ($currentVol == $Alarm{svolumefadeto}))
 		{
@@ -1119,14 +1119,23 @@ sub SleepInterval
 			Glib::Source->remove($Alarm{alarmhandle});
 			$Alarm{alarmhandle}=Glib::Timeout->add($newinterval*1000,sub {SleepInterval(\%Alarm);});
 			$Alarm{newintervalset} = 1;
+			Dlog('Finished volume fading, set new interval: '.$newinterval.'. Next occures at '.localtime(time+$newinterval));	
 		}
 	}
 
 	my $finished = CheckIfSleepFinished(\%Alarm);	
 	if (($finished) and (!$::Options{OPT.'Advanced_DontFinishLastInTimed'})){$Alarm{isfinished} = 1;}
-
+	
+	Dlog('Alarm{isfinished} = '.$Alarm{isfinished}) if ($Alarm{isfinished});
 	#%Alarm is only a temporary representation, so must send changes back
 	%{$_[0]} = %Alarm;
+
+	#also send changes straight to activealarms, because SongChanged checks from there only
+	if (defined $Alarm{activealarmid}){
+		${$ActiveAlarms[$Alarm{activealarmid}]}{passedtime} = $Alarm{passedtime}; 	
+		${$ActiveAlarms[$Alarm{activealarmid}]}{isfinished} = $Alarm{isfinished};
+		${$ActiveAlarms[$Alarm{activealarmid}]}{alarmhandle} = $Alarm{alarmhadle};
+	} 	
 
 	if (($finished) and ($::Options{OPT.'Advanced_DontFinishLastInTimed'})){GoSleep(\%Alarm);}
 	
@@ -1137,17 +1146,23 @@ sub SongChanged
 	return if ($oldID == $::SongID);
 	$oldID = $::SongID;
 	
+	Dlog('** Song has changed');
 	return unless (scalar@ActiveAlarms);
 	my @SleepNow;
 
 	foreach (@ActiveAlarms)
 	{
 		my %Alarm = %{$_};
+		Dlog('Checking alarm '.$Alarm{label});
+		
 		if ($Alarm{type} eq 'Sleep')
 		{
 			$Alarm{passedtracks}++;	$Alarm{passedtime} = time-$Alarm{startingtime};
 
 			my $finished = CheckIfSleepFinished(\%Alarm);
+			Dlog('finished = '.$finished);
+			Dlog('Alarm{isfinished} = '.($Alarm{isfinished} || 0));
+			
 			if (($finished) and (not defined $Alarm{isfinished}))	
 			{				
 				my @handledalarms;
@@ -1182,6 +1197,7 @@ sub SongChanged
 	}
 	
 	#do this here, since GoSleep removes items from @activeAlarms, might cause problems in loop^ with multiple alarms
+	Dlog(scalar@SleepNow.' alarms are going to be launched now');
 	if (scalar@SleepNow) {GoSleep($_) for (@SleepNow);}
 
 	return 1;
@@ -1393,33 +1409,50 @@ sub CalcSleepLength
 {
 	my %Alarm = %{$_[0]};
 	my $modelength=undef;
+
+	my @asleeps; 
+	if ($Alarm{multisleepmodeison}) { @asleeps = @{$Alarm{multisleepmodes}} }
+	else { push @asleeps, $Alarm{sleepmode};}   
 	
-	if ($Alarm{multisleepmodeison})
+	Dlog('** CalcSleepLength for alarm '.$Alarm{label}.' (checking '.scalar@asleeps.' modes)');
+		
+	for my $al (@asleeps)
 	{
-		# if multisleepreqall == 1 we want longest, otherwise shortest
-		for (@{$Alarm{multisleepmodes}})
+		my $l = eval($SleepModes{$al}{CalcLength});
+		
+		if (($::SongID) and (($al eq 'queue') or ($al eq 'albumchange') or ($al eq 'simplecount'))){
+			$l += Songs::Get($::SongID,'length');
+			$l -= $::PlayTime if ($::PlayTime);
+		}
+		elsif (($::SongID) and ($al eq 'simpletime'))
 		{
-			my $l = eval($SleepModes{$_}{CalcLength});
-			if (($::SongID) and (($_ eq 'queue') or ($_ eq 'albumchange') or ($_ eq 'simplecount'))){
-				$l += Songs::Get($::SongID,'length');
-				$l -= $::PlayTime if ($::PlayTime);
+			my $stops=0; my $sc=0;
+			while (($stops < $l) and ($sc < 50))
+			{
+				$stops = 0; $sc++;
+				my @nt = ::GetNextSongs($sc);
+				$stops += Songs::Get($_,'length') for (@nt);
 			}
+			
+			if ($stops > $l)
+			{ 
+				Dlog('It seems that there are '.$sc.' songs to be played before sleeping.');
+				#$l += ($stops-$l);
+			}
+			else { Dlog('!! CalcSleepLength couldn\'t find enough songs for alarm \''.$Alarm{label}.'\'(tried '.$sc.' before giving up)');}
+		}
 
-			if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [1: '.$_.']';}
-			elsif (not defined $modelength) {$modelength=$l;}
+		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [1: '.$al.']';}
+		elsif (not defined $modelength) {$modelength=$l;}
 
+		if ($Alarm{multisleepmodeison}){
+			# if multisleepreqall == 1 we want longest, otherwise shortest
 			$modelength = $l if (($Alarm{multisleepmoderequireall}) and ($modelength < $l));
 			$modelength = $l if ((!$Alarm{multisleepmoderequireall}) and ($modelength > $l));
-		}
-	}
-	else 
-	{
-		$modelength = eval($SleepModes{$Alarm{sleepmode}}{CalcLength});
-		if ($@) {warn 'SUNSHINE: Error in CalcSleepLength [2: '.$Alarm{sleepmode}.']';}
-
-		$modelength += (Songs::Get($::SongID,'length') - $::PlayTime) if (($::SongID) and (($Alarm{sleepmode} eq 'queue') or ($Alarm{sleepmode} eq 'albumchange') or ($Alarm{sleepmode} eq 'simplecount')));
+		}		
 	}
 
+	Dlog('Final modelength = '.$modelength);
 	return $modelength;
 }
 
@@ -1458,8 +1491,10 @@ sub CalcSleepFadeIntervals
 		}
 
 		# update volume unless we are using (-1) OR if we're relaunching between sessions and have already reached goal (and it's currently set)
-		if ($Alarm{svolumefadefrom} > 0) { 
-			::UpdateVol($Alarm{svolumefadefrom}) unless (($Alarm{relaunch}) and (::GetVol() == $Alarm{volumefadeto}));
+		if ($Alarm{svolumefadefrom} > -1) {
+			unless (($Alarm{relaunch}) and (::GetVol() == $Alarm{volumefadeto})){
+				::UpdateVol($Alarm{svolumefadefrom});
+			}
 		}
 	}
 	else{ $Alarm{interval} = 1000*($Alarm{modelength}+1);}
@@ -1767,4 +1802,21 @@ sub FilterMenu
 	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
 }
 
+sub Dlog
+{
+	my $t = shift;
+	my $DlogFile = $::HomeDir.'sunshine.log';
+	my $method = ($dlogfirst)? '>' : '>>';
+	$dlogfirst = 0;
+	
+	my $content = '['.localtime(time).'] '.$t."\n";
+	
+	open my $fh,$method,$DlogFile or warn "Error opening '$DlogFile' for writing : $!\n";
+	print $fh $content   or warn "Error writing to '$DlogFile' : $!\n";
+	close $fh;
+
+	return 1;	
+	
+	
+}
 1
