@@ -354,6 +354,9 @@ sub checkCorrection()
 			if (my $utf8=Encode::decode_utf8($correcttrack)) {$correcttrack=$utf8}
 			if (my $utf8=Encode::decode_utf8($correctartist)) {$correctartist=$utf8}
 			
+			$correcttrack =~ s/\&amp\;/\&/g;
+			$correctartist =~ s/\&amp\;/\&/g;
+			
 			my $new_correction = Songs::Get($::SongID,'fullfilename')."\t".$correctartist."\t".$correcttrack."\n";
 			my $is_banned = 0;
 
