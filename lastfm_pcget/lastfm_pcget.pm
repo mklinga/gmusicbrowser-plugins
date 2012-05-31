@@ -28,6 +28,7 @@ use constant
 		artistchange => 'change_all', synclovedwithlabel => 0, labeltosync => 'Loved', syncmethod => 'from_lastfm');
 
 use utf8;
+use Encode;
 use Digest::MD5 'md5_hex';
 require $::HTTP_module;
 
@@ -150,10 +151,14 @@ sub ToggleLoved
 		my $sk = $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'};
 		my $user = $::Options{OPT.'USER'};
 		my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
-		my $signature = md5_hex("api_key".APIKEY.'artist'.$artist.'methodtrack.'.$REQUESTED_METHOD.'sk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d');
 
+		my $signature = "api_key".APIKEY.'artist'.$artist.'methodtrack.'.$REQUESTED_METHOD.'sk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d';
+		utf8::encode($signature);
+		$signature = md5_hex($signature);
+		
 		my $post = 'method=track.'.$REQUESTED_METHOD.'&track='.$title.'&artist='.$artist.'&api_key='.APIKEY.'&sk='.$sk.'&api_sig='.$signature;
-	
+		utf8::encode($post);
+		
 		Send(\&HandleLoveRequest,'http://ws.audioscrobbler.com/2.0/',$post);
 		
 	}	
@@ -323,7 +328,7 @@ sub checkCorrection()
 	my $artist = Songs::Get($::SongID,'artist');
 	my $title = Songs::Get($::SongID,'title');
 
-	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getcorrection&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title).'&api_key=b25b959554ed76058ac220b7b2e0a026';
+	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getcorrection&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title).'&api_key='.APIKEY;
 
 	my $correcttrack = '';
 	my $correctartist = '';
