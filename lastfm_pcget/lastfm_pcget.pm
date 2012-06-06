@@ -176,7 +176,7 @@ sub HandleLoveRequest
 	 	SetLoved($REQUESTED_METHOD);
 		my $action = ($REQUESTED_METHOD eq 'love')? '+' : '-';
 	 	Songs::Set($SONGTOLOVE, $action.'label' => $::Options{OPT.'labeltosync'});
-	 	Log('Successfully '.$REQUESTED_METHOD.'d track '.Songs::Get($SONGTOLOVE,'artist').' - '.Songs::Get($SONGTOLOVE,'title').'!');
+	 	Log('Successfully '.$REQUESTED_METHOD.'d track '.Songs::Get($SONGTOLOVE,'artist').' - '.Songs::Get($SONGTOLOVE,'title'));
 	 }
 	 else { Log('ERROR: Something went wrong when tried to love track.');}
 	
@@ -259,7 +259,7 @@ sub HandleLastfmSessionKey
 	else { 
 		Log('ERROR! No sessionkey found! Did you give permission for it?');
 		$message = 'Sessionkey couldn\'t be acquired! Are you sure you gave your permission for it?';
-		$topic = 'ERROR!';
+		$topic = 'ERROR';
 		$pict = 'error';
 	}
 
@@ -325,9 +325,8 @@ sub checkCorrection()
 {
 	return if ($waiting);
 
-	my $artist = Songs::Get($::SongID,'artist');
-	my $title = Songs::Get($::SongID,'title');
-
+	my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
+	warn $artist.' ---- '.$title;
 	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getcorrection&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title).'&api_key='.APIKEY;
 
 	my $correcttrack = '';
@@ -366,6 +365,9 @@ sub checkCorrection()
 
 			if ($is_banned == 0)
 			{
+				my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
+				my $crr = (($artist eq $correctartist) or ($title eq $correcttrack))? (($artist ne $correctartist)? 'ARTIST' : 'TITLE') : ('ARTIST & TITLE');
+				Log('New correction found for '.$crr.': '.$artist.' - '.$title.'  ->  '.$correctartist.' - '.$correcttrack);
 				push(@corrections,$new_correction); 
 				saveCorrections();
 			} 
@@ -560,13 +562,13 @@ sub SyncLabel
 	{
 		if (defined $::Options{OPT.$::Options{OPT.'USER'}.'sessionkey'}) #don't do anything if user hasn't configured sk yet
 		{
-			Log('Syncing local label for '.Songs::Get($songid,'artist').' - '.Songs::Get($songid,'title').' to last.fm!');
+			Log('Syncing local label for '.Songs::Get($songid,'artist').' - '.Songs::Get($songid,'title').' to last.fm');
 			ToggleLoved(!$loved);
 		}
 	}
 	else 
 	{
-		Log('Syncing last.fm loved track - status to local label for '.Songs::Get($songid,'artist').' - '.Songs::Get($songid,'title').'!');
+		Log('Syncing last.fm loved track - status to local label for '.Songs::Get($songid,'artist').' - '.Songs::Get($songid,'title'));
 		my $action = ($local_loved)? '-' : '+';
 		Songs::Set($songid, $action.'label' => $::Options{OPT.'labeltosync'});
 	}
