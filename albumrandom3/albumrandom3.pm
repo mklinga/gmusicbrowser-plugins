@@ -20,7 +20,7 @@ use strict;
 use warnings;
 use utf8;
 
-my $AR_VNUM = 'pre-3.0';
+my $AR_VNUM = '3.0';
 my $AR_ICON = 'plugin-albumrandom3';
 my $AlbumrandomIsOn = 0;
 my $handle={};
@@ -57,13 +57,11 @@ sub prefbox
 {
 	my $vbox;
 	
-	my @p;
-	push @p, $_ for (sort keys %{$::Options{SavedWRandoms}});
+	my @p = (sort keys %{$::Options{SavedWRandoms}});
 	my $pmcombo= ::NewPrefCombo( OPT.'JustOneRandomMode', \@p);
 	my $pmcheck = ::NewPrefCheckButton(OPT.'UseJustOneMode','Weight always with playmode: ');
 	
-	@p = ();
-	push @p, $_ for (sort keys %{$::Options{SavedSorts}});
+	@p = (sort keys %{$::Options{SavedSorts}});
 	my $pmcombo2= ::NewPrefCombo( OPT.'StraightPlayMode', \@p);
 	my $pmcheck2 = ::NewPrefCheckButton(OPT.'UseSpecificStraightMode','Play albums always with playmode: ');
 
@@ -106,20 +104,6 @@ sub SongChanged
 	}
 }
 
-sub Random::MakeGroupScoreFunction_Average
-{	my ($self,$field)=@_;
-	my ($keycode,$multi)= Songs::LookupCode($field, 'hash','hashm', [ID => '$_']);
-	unless ($keycode || $multi) { warn "MakeGroupScoreFunction error : can't find code for field $field\n"; return } #return dummy sub ?
-	($keycode,my $keyafter)= split / +---- +/,$keycode||$multi,2;
-	if ($keyafter) { warn "MakeGroupScoreFunction with field $field is not supported yet\n"; return } #return dummy sub ?
-	my ($before,$score)=$self->make;
-	my $calcIDscore= $multi ? 'my $IDscore='.$score.'; for my $key ('.$keycode.') {$score{$key}+=$IDscore}' : "\$score\{$keycode}\{score}+=$score; \$score\{$keycode}\{items}+=1;";
-	my $code= $before.'; sub { my %score; for (@{$_[0]}) { '.$calcIDscore.' } return \%score; }';
-	my $sub=eval $code;
-	if ($@) { warn "Error in eval '$code' :\n$@"; return }
-	return $sub;
-}
-
 sub GetNextAlbum
 {
 	my $m = ($::Options{OPT.'UseJustOneMode'})? $::Options{OPT.'JustOneRandomMode'} : $::Options{OPT.'RandomMode'}; 
@@ -146,39 +130,36 @@ sub GetNextAlbum
 		$total += $probhash{$gid};
 	}
 
-	my $found=-1;
+	my $found;
 	my $goneprob=0;
 	my $random = rand($total);
 
-	for my $gid (keys %probhash)
+	for my $gid (keys %probhash) # always (keys %probhash <= keys %$h)
 	{
 		$goneprob += $probhash{$gid};
 		if ($goneprob > $random) { $found = $gid; last;};
 	}
- 	return 0 unless ($found > -1);
+ 	return 0 unless (defined $found);
  	
-	my $tracklist=AA::GetIDs('album',$found);
-	my $strplaymode = $::Options{Sort}; 
-	if ($::Options{OPT.'UseSpecificStraightMode'}){	
-		$strplaymode = $::Options{SavedSorts}{$::Options{OPT.'StraightPlayMode'}}
-	}
-	elsif ($::Options{Sort}=~m/random|shuffle/) {
+	my $strplaymode = ($::Options{OPT.'UseSpecificStraightMode'})? $::Options{SavedSorts}{$::Options{OPT.'StraightPlayMode'}} : $::Options{Sort}; 
+	if ($strplaymode =~ m/random|shuffle/) {
 			$strplaymode = $::Options{SavedSorts}{$::Options{Sort_LastOrdered}} || $::Options{SavedSorts}{$::Options{OPT.'StraightPlayMode'}};
 	} 
 
 	$CUR_GID = $found;
+	my $tracklist=AA::GetIDs('album',$found);
 	::Enqueue(Songs::FindFirst($tracklist,$strplaymode));
 	::Select('sort' => $strplaymode) unless ($strplaymode eq $::Options{Sort});
 	
 	return 1;
 }
 
-sub AddARToPlayer()
+sub AddARToPlayer
 {
-	# sort - widgets
+	# 'Sort' widget
 	$::Command{MenuPlayOrder}[0] = sub {GMB::Plugin::ALBUMRANDOM3::ARSortMenu();};
 	
-	# playmode - icon
+	# playmode - icon handling
 	${$Layout::Widgets{Sort}->{stock}}{albumrandom} = $AR_ICON;
 	$Layout::Widgets{Sort}->{event} = 'Sort SavedWRandoms SavedSorts AlbumrandomOn';
 	$Layout::Widgets{Sort}->{'state'} = sub 
@@ -199,12 +180,12 @@ sub ToggleAlbumrandom
 	my $toggle = shift; 
 	$toggle = (($AlbumrandomIsOn)? 0 : 1) unless (defined $toggle);
 
-	$AlbumrandomIsOn = $toggle; 
+	$AlbumrandomIsOn = $toggle;
 	::HasChanged('AlbumrandomOn');
 	if ($AlbumrandomIsOn){
 		if (!GetNextAlbum()) { ToggleAlbumrandom(0);}
 	}
-	
+
 	return 1;
 }
 
@@ -304,6 +285,18 @@ sub ARSortMenu
 	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
 }
 
-
+sub Random::MakeGroupScoreFunction_Average
+{	my ($self,$field)=@_;
+	my ($keycode,$multi)= Songs::LookupCode($field, 'hash','hashm', [ID => '$_']);
+	unless ($keycode || $multi) { warn "MakeGroupScoreFunction error : can't find code for field $field\n"; return } #return dummy sub ?
+	($keycode,my $keyafter)= split / +---- +/,$keycode||$multi,2;
+	if ($keyafter) { warn "MakeGroupScoreFunction with field $field is not supported yet\n"; return } #return dummy sub ?
+	my ($before,$score)=$self->make;
+	my $calcIDscore= $multi ? 'my $IDscore='.$score.'; for my $key ('.$keycode.') {$score{$key}+=$IDscore}' : "\$score\{$keycode}\{score}+=$score; \$score\{$keycode}\{items}+=1;";
+	my $code= $before.'; sub { my %score; for (@{$_[0]}) { '.$calcIDscore.' } return \%score; }';
+	my $sub=eval $code;
+	if ($@) { warn "Error in eval '$code' :\n$@"; return }
+	return $sub;
+}
 
 1
