@@ -38,6 +38,8 @@ use constant
 
 my %ContinueModes = ( continue_from => 'Continue with current album', disable_ar => 'Turn off albumrandom', create_new => 'Generate new album');
 
+sub IsAlbumrandomAvailable { return 1;}
+
 sub Start
 {
 	$::Options{OPT.'JustOneRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (defined $::Options{OPT.'JustOneRandomMode'});
