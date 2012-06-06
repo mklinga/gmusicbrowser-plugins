@@ -419,8 +419,13 @@ sub ShowAdvancedSettings
 	my $label1 = Gtk2::Label->new("Please note that some of these settings might have non-obvious effects!\nCheck the README before changing unless you know what you're doing.");
 
 	#disable albumrandom-option if can't find plugin
-	eval('GMB::Plugin::ALBUMRANDOM::IsAlbumrandomOn()');
-	my $s = ($@)? 0 : 1;
+	eval('GMB::Plugin::ALBUMRANDOM3::IsAlbumrandomAvailable()');
+	my $s;
+	if ($@) { 
+		eval('GMB::Plugin::ALBUMRANDOM::IsAlbumrandomOn()');
+		$s = ($@)? 0 : 1;
+	}
+	else {$s = 1;}
 	$ar->set_sensitive($s);
 	unless ($s) {$::Options{OPT.'Advanced_Albumrandom'} = 0; $ar->set_active(0);}
 	
@@ -1338,9 +1343,13 @@ sub WakeUp
 		if ($::Options{OPT.'Advanced_Albumrandom'}) 
 		{ 
 			#if we can't launch albumrandom, just go with regular wake
-			eval('GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum()');
-   			if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
-   			else {::NextSong(); ::Play();}
+			eval('GMB::Plugin::ALBUMRANDOM3::GetNextAlbum()');
+			if ($@){
+				eval('GMB::Plugin::ALBUMRANDOM::GenerateRandomAlbum()');
+   				if ($@){Notify('SUNSHINE: Error! Can\'t launch Albumrandom! Are you sure it\'s enabled?');eval($::Options{OPT.'Advanced_WakeCommand'}); }
+   				else {::NextSong(); ::Play();}
+			}
+			else {::NextSong(); ::Play();}
 		}
 		else {eval($::Options{OPT.'Advanced_WakeCommand'});}
 	}
