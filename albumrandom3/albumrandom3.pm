@@ -70,7 +70,7 @@ sub prefbox
 	@p = values %ContinueModes;
 	my $pmcombo3= ::NewPrefCombo( OPT.'OnUserAction', \@p);
 	my $pmlabel3=Gtk2::Label->new('When manually changing to a different album: ');
-	
+
 	$vbox = ::Vpack([$pmcheck,$pmcombo],[$pmcheck2,$pmcombo2],[$pmlabel3,$pmcombo3]);
 	return $vbox;
 }
@@ -175,6 +175,11 @@ sub AddARToPlayer
 				else { 'sorted'}
 			}
 		};
+	$Layout::Widgets{Sort}->{click3} = sub {
+		if ($AlbumrandomIsOn){ ToggleAlbumrandom();}
+		else { ::ToggleSort(); }
+	}; 
+
 }
 
 sub ToggleAlbumrandom
