@@ -36,7 +36,7 @@ use constant
 
 ::SetDefaultOptions(OPT, UseJustOneMode => 1, OnUserAction => 'continue_from', UseSpecificStraightMode => 0);
 
-my %ContinueModes = ( continue_from => 'Continue with current album', disable_ar => 'Turn off albumrandom', create_new => 'Generate new album');
+my %ContinueModes = ( continue_from => _('Continue with current album'), disable_ar => _('Turn off albumrandom'), create_new => _('Generate new album'));
 
 sub IsAlbumrandomAvailable { return 1;}
 
@@ -44,6 +44,9 @@ sub Start
 {
 	$::Options{OPT.'JustOneRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (defined $::Options{OPT.'JustOneRandomMode'});
 	$::Options{OPT.'StraightPlayMode'} = ((sort keys %{$::Options{SavedSorts}})[0]) unless (defined $::Options{OPT.'StraightPlayMode'});
+
+	$::Command{OPT.'ToggleAlbumrandom'}=[sub {ToggleAlbumrandom();},_("PLUGIN/ALBUMRANDOM3: Toggle Albumrandom ON/OFF")];
+	$::Command{OPT.'GetNewAlbum'}=[sub {GetNextAlbum();},_("PLUGIN/ALBUMRANDOM3: Get new album")];
 	AddARToPlayer();
 	::Watch($handle, PlayingSong => \&SongChanged);
 
@@ -61,15 +64,15 @@ sub prefbox
 	
 	my @p = (sort keys %{$::Options{SavedWRandoms}});
 	my $pmcombo= ::NewPrefCombo( OPT.'JustOneRandomMode', \@p);
-	my $pmcheck = ::NewPrefCheckButton(OPT.'UseJustOneMode','Weight always with playmode: ');
+	my $pmcheck = ::NewPrefCheckButton(OPT.'UseJustOneMode',_('Weight always with playmode: '));
 	
 	@p = (sort keys %{$::Options{SavedSorts}});
 	my $pmcombo2= ::NewPrefCombo( OPT.'StraightPlayMode', \@p);
-	my $pmcheck2 = ::NewPrefCheckButton(OPT.'UseSpecificStraightMode','Play albums always with playmode: ');
+	my $pmcheck2 = ::NewPrefCheckButton(OPT.'UseSpecificStraightMode',_('Play albums always with playmode: '));
 
 	@p = values %ContinueModes;
 	my $pmcombo3= ::NewPrefCombo( OPT.'OnUserAction', \@p);
-	my $pmlabel3=Gtk2::Label->new('When manually changing to a different album: ');
+	my $pmlabel3=Gtk2::Label->new(_('When manually changing to a different album: '));
 
 	$vbox = ::Vpack([$pmcheck,$pmcombo],[$pmcheck2,$pmcombo2],[$pmlabel3,$pmcombo3]);
 	return $vbox;
@@ -108,6 +111,8 @@ sub SongChanged
 
 sub GetNextAlbum
 {
+	return 0 unless ($AlbumrandomIsOn);
+	
 	my $m = ($::Options{OPT.'UseJustOneMode'})? $::Options{OPT.'JustOneRandomMode'} : $::Options{OPT.'RandomMode'}; 
 	
 	if ((not defined $LASTUSED_WR) or (not defined $sub) or ($m ne $LASTUSED_WR))
@@ -218,12 +223,12 @@ sub ARSortMenu
 	 };
 
 	my $submenu= Gtk2::Menu->new;
-	my $sitem = Gtk2::MenuItem->new(_"Weighted Random");
+	my $sitem = Gtk2::MenuItem->new(_("Weighted Random"));
 	for my $name (sort keys %{$::Options{SavedWRandoms}})
 	{	$append->($submenu,$name, $::Options{SavedWRandoms}{$name} );
 	}
 	my $editcheck=(!$found && $check=~m/^random:/);
-	$append->($submenu,_"Custom...", undef, $editcheck, sub
+	$append->($submenu,_("Custom..."), undef, $editcheck, sub
 		{	::EditWeightedRandom(undef,$::Options{Sort},undef, \&::Select_sort);
 		});
 	$sitem->set_submenu($submenu);
@@ -233,7 +238,7 @@ sub ARSortMenu
 	## albumrandom
 	if ($::Options{OPT.'UseJustOneMode'})
 	{
-		my $aritem = Gtk2::CheckMenuItem->new_with_label('Albumrandom');
+		my $aritem = Gtk2::CheckMenuItem->new_with_label(_('Albumrandom'));
 		$aritem->set_draw_as_radio(1);
 		$aritem->set_active(1) if ($AlbumrandomIsOn);
 		$aritem->signal_connect (activate => sub {ToggleAlbumrandom();} );
@@ -242,7 +247,7 @@ sub ARSortMenu
 	else
 	{
 		my $arsubmenu= Gtk2::Menu->new;
-		my $aritem = Gtk2::MenuItem->new(_"Albumrandom");
+		my $aritem = Gtk2::MenuItem->new(_("Albumrandom"));
 	
 		for my $name (sort keys %{$::Options{SavedWRandoms}}) 
 		{	
@@ -261,15 +266,15 @@ sub ARSortMenu
 		$menu->prepend($aritem);
 	}
 
-	$append->($menu,_"Shuffle",'shuffle') unless $check eq 'shuffle';
+	$append->($menu,_("Shuffle"),'shuffle') unless $check eq 'shuffle';
 
 	if ($check=~m/shuffle/)
-	{ my $item=Gtk2::MenuItem->new(_"Re-shuffle");
+	{ my $item=Gtk2::MenuItem->new(_("Re-shuffle"));
 	  $item->signal_connect(activate => $callback, $check );
 	  $menu->append($item);
 	}
 
-	{ my $item=Gtk2::CheckMenuItem->new(_"Repeat");
+	{ my $item=Gtk2::CheckMenuItem->new(_("Repeat"));
 	  $item->set_active($::Options{Repeat});
 	  $item->set_sensitive(0) if $::RandomMode;
 	  $item->signal_connect(activate => sub { ::SetRepeat($_[0]->get_active); } );
@@ -278,11 +283,11 @@ sub ARSortMenu
 
 	$menu->append(Gtk2::SeparatorMenuItem->new); #separator between random and non-random modes
 
-	$append->($menu,_"List order", '' ) if defined $::ListMode;
+	$append->($menu,_("List order"), '' ) if (defined $::ListMode);
 	for my $name (sort keys %{$::Options{SavedSorts}})
 	{	$append->($menu,$name, $::Options{SavedSorts}{$name} );
 	}
-	$append->($menu,_"Custom...",undef,!$found,sub
+	$append->($menu,_("Custom..."),undef,!$found,sub
 		{	::EditSortOrder(undef,$::Options{Sort},undef, \&::Select_sort );
 		});
 	$menu->show_all;
