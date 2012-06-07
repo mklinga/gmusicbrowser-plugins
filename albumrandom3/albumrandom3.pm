@@ -32,7 +32,7 @@ my $LAST_ACTIVE_SORT;
 my $sub;
 
 use constant
-{	OPT	=> 'PLUGIN_ALBUMRANDOM_',
+{	OPT	=> 'PLUGIN_ALBUMRANDOM3_',
 };
 
 ::SetDefaultOptions(OPT, UseJustOneMode => 1, OnUserAction => 'continue_from', UseSpecificStraightMode => 0);
