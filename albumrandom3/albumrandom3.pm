@@ -28,6 +28,7 @@ my $handle={};
 my $CUR_GID=-1;
 my $oldsongid=-1;
 my $LASTUSED_WR;
+my $LAST_ACTIVE_SORT;
 my $sub;
 
 use constant
@@ -181,7 +182,7 @@ sub AddARToPlayer
 			}
 		};
 	$Layout::Widgets{Sort}->{click3} = sub {
-		if ($AlbumrandomIsOn){ ToggleAlbumrandom();}
+		if ($AlbumrandomIsOn){ ::Select('sort' => $LAST_ACTIVE_SORT); ToggleAlbumrandom();}
 		else { ::ToggleSort(); }
 	}; 
 
@@ -195,6 +196,7 @@ sub ToggleAlbumrandom
 	$AlbumrandomIsOn = $toggle;
 	::HasChanged('AlbumrandomOn');
 	if ($AlbumrandomIsOn){
+		$LAST_ACTIVE_SORT = $::Options{Sort};
 		if (!GetNextAlbum()) { ToggleAlbumrandom(0);}
 	}
 
