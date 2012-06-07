@@ -182,7 +182,7 @@ sub AddARToPlayer
 			}
 		};
 	$Layout::Widgets{Sort}->{click3} = sub {
-		if ($AlbumrandomIsOn){ ::Select('sort' => $LAST_ACTIVE_SORT); ToggleAlbumrandom();}
+		if ($AlbumrandomIsOn){ ToggleAlbumrandom();}
 		else { ::ToggleSort(); }
 	}; 
 
@@ -198,6 +198,9 @@ sub ToggleAlbumrandom
 	if ($AlbumrandomIsOn){
 		$LAST_ACTIVE_SORT = $::Options{Sort};
 		if (!GetNextAlbum()) { ToggleAlbumrandom(0);}
+	}
+	else {
+		::Select('sort' => $LAST_ACTIVE_SORT);
 	}
 
 	return 1;
