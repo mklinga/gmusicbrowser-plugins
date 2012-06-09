@@ -248,6 +248,8 @@ sub Stop
 	::UnWatch($handle,'PlayingSong');
 	Glib::Source->remove($handle) if $handle; $handle=undef;	
 	Glib::Source->remove($notifyhandle) if $notifyhandle; $notifyhandle=undef;	
+	$QuickMode{isactive} = 0;
+	Glib::Source->remove($QuickMode{handle}) if $QuickMode{handle};	$QuickMode{handle}=undef; 
 	Glib::Source->remove(${$_}{alarmhandle}) for (@ActiveAlarms);
 		
 }
@@ -1598,6 +1600,11 @@ sub UpdateStatusTexts
 	return unless ($createdPrefs);
 	my @ts = ("  Sleepmode:\t","  Wakemode:\t");
 
+	if ($QuickMode{isactive}){
+		my $tsindex = ($QuickMode{fademode} eq 'Sleep')? 0 : 1;
+		$ts[$tsindex] .= 'QuickMode';
+	}
+
 	for (0..$#ActiveAlarms)
 	{
 		my %Al = %{$ActiveAlarms[$_]};
@@ -1630,6 +1637,8 @@ sub StopSunshine
 	Glib::Source->remove(${$_}{alarmhandle}) for (@ActiveAlarms);
 	@{$::Options{OPT.'ActiveAlarms'}} = @ActiveAlarms = ();	
 	Glib::Source->remove($volumehandle) if (defined $volumehandle);
+	Glib::Source->remove($QuickMode{handle}) if $QuickMode{handle};	$QuickMode{handle}=undef;
+	$QuickMode{isactive} = 0;
 	UpdateStatusTexts();
 	Notify('All sleep- and wakemodes deactivated.');
 	
@@ -1649,6 +1658,7 @@ sub ToggleQuickMode
 		$QuickMode{isactive} = 0;
 		
 		LaunchNewQuickMode() if ($toggle);
+		UpdateStatusTexts();
 	}
 	
 	return 1;
@@ -1705,7 +1715,7 @@ sub NewQuickModeDialog
 	my $l5 = Gtk2::Label->new(_('Launchmode'));
 	my $spin1 = ::NewPrefSpinButton(OPT.'QuickMode_fadefrom',0,100);
 	my $spin2 = ::NewPrefSpinButton(OPT.'QuickMode_fadeto',0,100);
-	my $spin3 = ::NewPrefSpinButton(OPT.'QuickMode_fadeinmin',0,1440);
+	my $spin3 = ::NewPrefSpinButton(OPT.'QuickMode_fadeinmin',1,1440);
 	my @p = ('Sleep', 'Wake');
 	my $combo1= ::NewPrefCombo( OPT.'QuickMode_launchmode', \@p);
 
@@ -1740,9 +1750,9 @@ sub LayoutButtonMenu
  	$launchitem->signal_connect (activate => sub {LaunchSunshine();});
  	$menu->append($launchitem);
 
-	my $qitem = Gtk2::CheckMenuItem->new_with_label(_('Quicklaunch'));
-	$qitem->set_draw_as_radio(1);
-	$qitem->set_active(1) if ($QuickMode{isactive});
+ 	my $limage = Gtk2::Image->new_from_pixbuf($self->render_icon('gtk-add', 'menu'));
+	my $qitem = Gtk2::ImageMenuItem->new(_('Quicklaunch'));
+	$qitem->set_image($limage);
 	$qitem->signal_connect (activate => sub { ToggleQuickMode();} );
 	$menu->append($qitem);
 	
@@ -1775,7 +1785,7 @@ sub LayoutButtonMenu
 	$menu->append($witem);
 
 	#Kill Individual - menu shows only when there are active alarms
-	if (scalar@ActiveAlarms)
+	if ((scalar@ActiveAlarms) or ($QuickMode{isactive}))
 	{
 		my $activemenu= Gtk2::Menu->new;
  		my $aitem = Gtk2::ImageMenuItem->new('Kill Individual');
@@ -1795,6 +1805,14 @@ sub LayoutButtonMenu
 
 		for (@ActiveAlarms) { 
 			$append2->($activemenu,$_->{label},$_);
+		}
+		
+		if ($QuickMode{isactive})
+		{
+			$activemenu->append(Gtk2::SeparatorMenuItem->new) if (scalar@ActiveAlarms);
+			my $item = Gtk2::MenuItem->new_with_label($QuickMode{label});
+			$item->signal_connect (activate => sub { ToggleQuickMode(0); });
+			$activemenu->append($item);
 		}
 		
 		$aitem->set_submenu($activemenu);
