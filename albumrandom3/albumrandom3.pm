@@ -14,6 +14,8 @@ desc	Albumrandom plays albums according to set weighted random.
 
 
 # TODO
+# - activate after re-launch?
+#
 
 package GMB::Plugin::ALBUMRANDOM3;
 use strict;
@@ -22,7 +24,6 @@ use utf8;
 
 my $AR_VNUM = '3.0';
 my $AR_ICON = 'plugin-albumrandom3';
-my $AlbumrandomIsOn = 0;
 my $handle={};
 
 my $CUR_GID=-1;
@@ -30,12 +31,14 @@ my $oldsongid=-1;
 my $LASTUSED_WR;
 my $LAST_ACTIVE_SORT;
 my $sub;
+my $timedep; 
+my $timetorecreate = 1;
 
 use constant
 {	OPT	=> 'PLUGIN_ALBUMRANDOM3_',
 };
 
-::SetDefaultOptions(OPT, UseJustOneMode => 1, OnUserAction => 'continue_from', UseSpecificStraightMode => 0);
+::SetDefaultOptions(OPT, UseJustOneMode => 1, OnUserAction => 'continue_from', UseSpecificStraightMode => 0, KeepStatusBetweenSessions => 0);
 
 my %ContinueModes = ( continue_from => _('Continue with current album'), disable_ar => _('Turn off albumrandom'), create_new => _('Generate new album'));
 
@@ -43,6 +46,8 @@ sub IsAlbumrandomAvailable { return 1;}
 
 sub Start
 {
+	$::Options{OPT.'AlbumrandomIsOn'} = 0 unless ($::Options{OPT.'KeepStatusBetweenSessions'});
+	
 	$::Options{OPT.'JustOneRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (defined $::Options{OPT.'JustOneRandomMode'});
 	$::Options{OPT.'StraightPlayMode'} = ((sort keys %{$::Options{SavedSorts}})[0]) unless (defined $::Options{OPT.'StraightPlayMode'});
 
@@ -50,11 +55,13 @@ sub Start
 	$::Command{OPT.'GetNewAlbum'}=[sub {GetNextAlbum();},_("PLUGIN/ALBUMRANDOM3: Get new album")];
 	AddARToPlayer();
 	::Watch($handle, PlayingSong => \&SongChanged);
+	
+	ToggleAlbumrandom(1,0) if ($::Options{OPT.'AlbumrandomIsOn'});
 
 }
 sub Stop
 {
-	$AlbumrandomIsOn = 0;
+	$::Options{OPT.'AlbumrandomIsOn'} = 0 unless ($::Options{OPT.'KeepStatusBetweenSessions'});	
 	::HasChanged('AlbumrandomOn');
 	::UnWatch($handle,'PlayingSong');	
 }
@@ -75,13 +82,15 @@ sub prefbox
 	my $pmcombo3= ::NewPrefCombo( OPT.'OnUserAction', \@p);
 	my $pmlabel3=Gtk2::Label->new(_('When manually changing to a different album: '));
 
-	$vbox = ::Vpack([$pmcheck,$pmcombo],[$pmcheck2,$pmcombo2],[$pmlabel3,$pmcombo3]);
+	my $pmcheck4 = ::NewPrefCheckButton(OPT.'KeepStatusBetweenSessions',_('Keep albumrandom on/off even between sessions'));
+
+	$vbox = ::Vpack([$pmcheck,$pmcombo],[$pmcheck2,$pmcombo2],[$pmlabel3,$pmcombo3], $pmcheck4);
 	return $vbox;
 }
 
 sub SongChanged
 {
-	return unless ($AlbumrandomIsOn);
+	return unless ($::Options{OPT.'AlbumrandomIsOn'});
 	return if ($oldsongid == $::SongID);
 	return if (scalar@$::Queue);
 	
@@ -112,16 +121,18 @@ sub SongChanged
 
 sub GetNextAlbum
 {
-	return 0 unless ($AlbumrandomIsOn);
+	return 0 unless ($::Options{OPT.'AlbumrandomIsOn'});
 	
-	my $m = ($::Options{OPT.'UseJustOneMode'})? $::Options{OPT.'JustOneRandomMode'} : $::Options{OPT.'RandomMode'}; 
-	
-	if ((not defined $LASTUSED_WR) or (not defined $sub) or ($m ne $LASTUSED_WR))
+	my $m = ($::Options{OPT.'UseJustOneMode'})? $::Options{OPT.'JustOneRandomMode'} : $::Options{OPT.'RandomMode'};
+
+	if ((not defined $LASTUSED_WR) or (not defined $sub) or ($m ne $LASTUSED_WR) or (($timetorecreate) and (time > $timetorecreate)))
 	{
 		my $R = Random->new($::Options{SavedWRandoms}{$m});
-		$sub = $R->MakeGroupScoreFunction_Average('album');
+		($sub,$timedep) = $R->MakeGroupScoreFunction_Average('album');
 		$LASTUSED_WR = $m;
+		$timetorecreate = ($timedep)? (time+10*60) : 0;
 	}
+
 	my $h=$sub->($::ListPlay);
 	my %probhash;
 	
@@ -172,7 +183,7 @@ sub AddARToPlayer
 	$Layout::Widgets{Sort}->{event} = 'Sort SavedWRandoms SavedSorts AlbumrandomOn';
 	$Layout::Widgets{Sort}->{'state'} = sub 
 		{
-			if ($AlbumrandomIsOn) {'albumrandom'}
+			if ($::Options{OPT.'AlbumrandomIsOn'}) {'albumrandom'}
 			else
 			{
 				my $s=$::Options{'Sort'};
@@ -182,22 +193,24 @@ sub AddARToPlayer
 			}
 		};
 	$Layout::Widgets{Sort}->{click3} = sub {
-		if ($AlbumrandomIsOn){ ToggleAlbumrandom();}
+		if ($::Options{OPT.'AlbumrandomIsOn'}){ ToggleAlbumrandom();}
 		else { ::ToggleSort(); }
 	}; 
+	$Layout::Widgets{Sort}->{click2} = sub { GetNextAlbum() if ($::Options{OPT.'AlbumrandomIsOn'}); };
 
 }
 
 sub ToggleAlbumrandom
 {
-	my $toggle = shift; 
-	$toggle = (($AlbumrandomIsOn)? 0 : 1) unless (defined $toggle);
+	my ($toggle,$getnext) = @_; 
+	$toggle = (($::Options{OPT.'AlbumrandomIsOn'})? 0 : 1) unless (defined $toggle);
+	$getnext = 1 unless (defined $getnext);
 
-	$AlbumrandomIsOn = $toggle;
+	$::Options{OPT.'AlbumrandomIsOn'} = $toggle;
 	::HasChanged('AlbumrandomOn');
-	if ($AlbumrandomIsOn){
+	if ($::Options{OPT.'AlbumrandomIsOn'}){
 		$LAST_ACTIVE_SORT = $::Options{Sort};
-		if (!GetNextAlbum()) { ToggleAlbumrandom(0);}
+		if (($getnext) and (!GetNextAlbum())) { ToggleAlbumrandom(0);}
 	}
 	else {
 		::Select('sort' => $LAST_ACTIVE_SORT);
@@ -245,7 +258,7 @@ sub ARSortMenu
 	{
 		my $aritem = Gtk2::CheckMenuItem->new_with_label(_('Albumrandom'));
 		$aritem->set_draw_as_radio(1);
-		$aritem->set_active(1) if ($AlbumrandomIsOn);
+		$aritem->set_active(1) if ($::Options{OPT.'AlbumrandomIsOn'});
 		$aritem->signal_connect (activate => sub {ToggleAlbumrandom();} );
 		$menu->prepend($aritem);
 	}
@@ -258,7 +271,7 @@ sub ARSortMenu
 		{	
 			my $item = Gtk2::CheckMenuItem->new_with_label($name);
 			$item->set_draw_as_radio(1);
-			my $true = (($AlbumrandomIsOn) and ($name eq $::Options{OPT.'RandomMode'}))? 1 : 0;
+			my $true = (($::Options{OPT.'AlbumrandomIsOn'}) and ($name eq $::Options{OPT.'RandomMode'}))? 1 : 0;
 			$item->set_active($true);
 			$item->signal_connect (activate => sub 
 				{ 
@@ -313,7 +326,8 @@ sub Random::MakeGroupScoreFunction_Average
 	my $code= $before.'; sub { my %score; for (@{$_[0]}) { '.$calcIDscore.' } return \%score; }';
 	my $sub=eval $code;
 	if ($@) { warn "Error in eval '$code' :\n$@"; return }
-	return $sub;
+	
+	return $sub,$self->{time_computed};
 }
 
 1
