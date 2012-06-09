@@ -32,10 +32,16 @@ use Gtk2::Notify -init, ::PROGRAM_NAME;
 
 ::SetDefaultOptions(OPT, ShowNotifications => 0, ShowButton => 1, SleepEnabled => 1, WakeEnabled => 1,
 	 A_SleepCommandBox => 'Play/Pause', A_WakeCommandBox => 'Play/Pause', Advanced_VolumeFadeStart => 0, 
-	 Advanced_VolumeFadeEnd => 100);
+	 Advanced_VolumeFadeEnd => 100, QuickMode_fadefrom => 100, QuickMode_fadeto => 0, QuickMode_fadeinmin => 10, 
+	 QuickMode_launchmode => 'Sleep');
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my @daynames = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat' );
+
+my %QuickMode = (
+	label => 'QuickMode', fadetime => 15, fademode => 'Sleep', fadevolstart => '100', fadevolend => '0', 
+	isactive => 0, handle => undef	
+);
 
 my %sunshine_button=
 (	class	=> 'Layout::Button',
@@ -419,9 +425,9 @@ sub ShowAdvancedSettings
 	my $label1 = Gtk2::Label->new("Please note that some of these settings might have non-obvious effects!\nCheck the README before changing unless you know what you're doing.");
 
 	#disable albumrandom-option if can't find plugin
-	eval('GMB::Plugin::ALBUMRANDOM3::IsAlbumrandomAvailable()');
 	my $s;
-	if ($@) { 
+	eval('GMB::Plugin::ALBUMRANDOM3::IsAlbumrandomAvailable()');
+	if ($@) {
 		eval('GMB::Plugin::ALBUMRANDOM::IsAlbumrandomOn()');
 		$s = ($@)? 0 : 1;
 	}
@@ -1630,6 +1636,97 @@ sub StopSunshine
 	return 1;		
 }
 
+sub ToggleQuickMode
+{
+	my $toggle = shift;
+	$toggle = (($QuickMode{isactive})? 0 : 1) unless (defined $toggle);
+	
+	if ((!$toggle) or (NewQuickModeDialog() eq 'ok')) 
+	{
+		Glib::Source->remove($QuickMode{handle}) if ($QuickMode{handle}); 
+		$QuickMode{handle}=undef;
+		Notify('Quickmode has been stopped') unless ($toggle);
+		$QuickMode{isactive} = 0;
+		
+		LaunchNewQuickMode() if ($toggle);
+	}
+	
+	return 1;
+}
+
+sub LaunchNewQuickMode
+{
+	my $fadediff = abs($::Options{OPT.'QuickMode_fadefrom'}-$::Options{OPT.'QuickMode_fadeto'});
+	my $qmtime = $::Options{OPT.'QuickMode_fadeinmin'}*60*1000;
+
+	$qmtime /= ($fadediff+1) if ($fadediff);
+
+	$QuickMode{handle}=Glib::Timeout->add($qmtime,sub 
+	{ 
+		my $curVol = ::GetVol();
+		if ($QuickMode{fadevolend} != $curVol){
+			::UpdateVol(($QuickMode{fadevolend} < $curVol)? ($curVol-1) : ($curVol+1) );
+		}
+		else {
+			eval($::Options{OPT.'Advanced_SleepCommand'}) if ($QuickMode{fademode} eq 'Sleep');
+			$QuickMode{isactive} = 0;
+			return 0;
+		}
+		return 1;		
+	});
+
+	$QuickMode{fadetime} = $qmtime;
+	$QuickMode{fadevolstart} = $::Options{OPT.'QuickMode_fadefrom'};
+	$QuickMode{fadevolend} = $::Options{OPT.'QuickMode_fadeto'};
+	$QuickMode{fademode} = $::Options{OPT.'QuickMode_launchmode'};
+	$QuickMode{isactive} = 1;
+
+	::UpdateVol($QuickMode{fadevolstart}) if ($QuickMode{fadevolstart} != ::GetVol());
+
+	eval($::Options{OPT.'Advanced_WakeCommand'}) if ($QuickMode{fademode} eq 'Wake');
+	Notify("Launched '".$QuickMode{label}."'.\nGoing to ".lc($QuickMode{fademode})." at ".localtime(time+($::Options{OPT.'QuickMode_fadeinmin'}*60)));
+
+	return 1;
+}
+
+sub NewQuickModeDialog
+{
+	my $QMDialog = Gtk2::Dialog->new(_('Launch new Quickmode'), undef, 'modal');
+	
+	$QMDialog->add_buttons('gtk-cancel' => 'cancel','gtk-ok' => 'ok');
+	my $text;
+	
+	$QMDialog->set_position('center-always');
+	
+	my $l1 = Gtk2::Label->new(_('Fade volume from'));
+	my $l2 = Gtk2::Label->new(_('to'));
+	my $l3 = Gtk2::Label->new(_('Fade in '));
+	my $l4 = Gtk2::Label->new(_('minutes'));
+	my $l5 = Gtk2::Label->new(_('Launchmode'));
+	my $spin1 = ::NewPrefSpinButton(OPT.'QuickMode_fadefrom',0,100);
+	my $spin2 = ::NewPrefSpinButton(OPT.'QuickMode_fadeto',0,100);
+	my $spin3 = ::NewPrefSpinButton(OPT.'QuickMode_fadeinmin',0,1440);
+	my @p = ('Sleep', 'Wake');
+	my $combo1= ::NewPrefCombo( OPT.'QuickMode_launchmode', \@p);
+
+	my $but1 = ::NewIconButton('gtk-refresh',undef,sub { 
+		my $curVol = ::GetVol(); 
+		$::Options{OPT.'QuickMode_fadefrom'} = $curVol; 
+		$spin1->set_value($curVol);}
+	,undef);
+
+	my $vbox = ::Vpack(['_',$l1,$but1,$spin1,$l2,$spin2],[$l3,'_',$spin3,$l4],[$l5,'_',$combo1]);
+
+	$QMDialog->get_content_area()->add($vbox);
+	$QMDialog->set_default_response ('cancel');
+	$QMDialog->show_all;
+
+	my $response = $QMDialog->run;
+
+	$QMDialog->destroy();
+	return $response;
+}
+
 sub LayoutButtonMenu
 {	
 	my $self = shift;
@@ -1642,6 +1739,13 @@ sub LayoutButtonMenu
  	$launchitem->set_image($image);
  	$launchitem->signal_connect (activate => sub {LaunchSunshine();});
  	$menu->append($launchitem);
+
+	my $qitem = Gtk2::CheckMenuItem->new_with_label(_('Quicklaunch'));
+	$qitem->set_draw_as_radio(1);
+	$qitem->set_active(1) if ($QuickMode{isactive});
+	$qitem->signal_connect (activate => sub { ToggleQuickMode();} );
+	$menu->append($qitem);
+	
 	$menu->append(Gtk2::SeparatorMenuItem->new);
 
 	#helper method
