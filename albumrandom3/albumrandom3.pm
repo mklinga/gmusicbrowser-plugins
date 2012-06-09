@@ -211,6 +211,7 @@ sub ToggleAlbumrandom
 	if ($::Options{OPT.'AlbumrandomIsOn'}){
 		$LAST_ACTIVE_SORT = $::Options{Sort};
 		if (($getnext) and (!GetNextAlbum())) { ToggleAlbumrandom(0);}
+		else { $CUR_GID = Songs::Get_gid($::SongID,'album');}
 	}
 	else {
 		::Select('sort' => $LAST_ACTIVE_SORT);
