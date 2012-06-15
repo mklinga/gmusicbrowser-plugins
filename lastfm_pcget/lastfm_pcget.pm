@@ -155,10 +155,11 @@ sub ToggleLoved
 		my $signature = "api_key".APIKEY.'artist'.$artist.'methodtrack.'.$REQUESTED_METHOD.'sk'.$sk.'track'.$title.'bfe7a3fd2eacbd28336cc0dfc9b2dd4d';
 		utf8::encode($signature);
 		$signature = md5_hex($signature);
+		$artist =~ s/&/\%26/; $title =~ s/&/\%26/;
 		
 		my $post = 'method=track.'.$REQUESTED_METHOD.'&track='.$title.'&artist='.$artist.'&api_key='.APIKEY.'&sk='.$sk.'&api_sig='.$signature;
 		utf8::encode($post);
-		
+
 		Send(\&HandleLoveRequest,'http://ws.audioscrobbler.com/2.0/',$post);
 		
 	}	
@@ -326,7 +327,6 @@ sub checkCorrection()
 	return if ($waiting);
 
 	my ($artist,$title) = Songs::Get($::SongID,qw/artist title/);
-	warn $artist.' ---- '.$title;
 	my $url = 'http://ws.audioscrobbler.com/2.0/?method=track.getcorrection&artist='.::url_escapeall($artist).'&track='.::url_escapeall($title).'&api_key='.APIKEY;
 
 	my $correcttrack = '';
