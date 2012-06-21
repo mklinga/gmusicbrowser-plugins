@@ -9,6 +9,7 @@
 # TODO:
 # - mainchart with top artist & their top albums?
 # - do we really need to save whole label with playchart.history?
+# - add 'best position ever' to main chart (with 'go-to-top'-icon)?
 #
 # BUGS:
 # 
@@ -229,8 +230,8 @@ sub new
 {
 	my ($class,$options)=@_;
 	my $self = bless Gtk2::VBox->new(0,0), $class;
-	my $group= $options->{group};
 	my $fontsize=$self->style->font_desc;
+	$self->{group} = $options->{group};
 	$self->{fontsize} = $fontsize->get_size / Gtk2::Pango->scale;
 	$self->{site} = 'history';
 	$self->signal_connect(map => \&SongChanged);
@@ -291,7 +292,7 @@ sub CreateHistorySite
 	$Htreeview->set_rules_hint(1);
 	$Htreeview->signal_connect(button_press_event => \&ContextPress);
 	my $Hselection = $Htreeview->get_selection;
-	$Hselection->signal_connect(changed => \&SelectionChanged);
+	$Hselection->signal_connect(changed => \&SelectionChanged,$self);
 	$Htreeview->{store}=$Hstore;
 	$self->{hstore}=$Hstore;
 
@@ -318,7 +319,7 @@ sub CreateHistorySite
 	$Htreeview_albums->set_rules_hint(1);
 	$Htreeview_albums->signal_connect(button_press_event => \&ContextPress);
 	my $Hselection_a = $Htreeview_albums->get_selection;
-	$Hselection_a->signal_connect(changed => \&SelectionChanged);
+	$Hselection_a->signal_connect(changed => \&SelectionChanged,$self);
 	$Htreeview_albums->{store}=$Hstore_albums;
 	$self->{hstore_albums}=$Hstore_albums;
 
@@ -383,7 +384,7 @@ sub CreateOverviewSite
 		$Otoptreeviews[$_]->set_headers_visible(1);
 		$Otoptreeviews[$_]->signal_connect(button_press_event => \&ContextPress);
 		$Otopselection[$_] = $Otoptreeviews[$_]->get_selection;
-		$Otopselection[$_]->signal_connect(changed => \&SelectionChanged);
+		$Otopselection[$_]->signal_connect(changed => \&SelectionChanged,$self);
 		
 		$Otoptreeviews[$_]->{store}=$Ostore_toplists[$_];
 		
@@ -435,7 +436,7 @@ sub CreateOverviewSite
 	$Otreeview->signal_connect(button_press_event => \&ContextPress);
 	$Otreeview->signal_connect(map => sub {$Otreeview->get_column(1)->set_title("Top ".$::Options{OPT.'OverviewTop40Item'}.' ('.$::Options{OPT.'OverviewTop40Mode'}.')');});
 	my $Oselection = $Otreeview->get_selection;
-	$Oselection->signal_connect(changed => \&SelectionChanged);
+	$Oselection->signal_connect(changed => \&SelectionChanged,$self);
 	$Otreeview->{store}=$Ostore;
 	$self->{ostore_main}=$Ostore;
 
@@ -600,7 +601,7 @@ sub CreateStatisticsSite
 	$Streeview->set_rules_hint($::Options{OPT.'LastfmStyleHistogram'});
 	my $Sselection = $Streeview->get_selection;
 	$Sselection->set_mode('multiple');
-	$Sselection->signal_connect(changed => \&SelectionChanged);
+	$Sselection->signal_connect(changed => \&SelectionChanged,$self);
 	
 	$Streeview->signal_connect(button_press_event => \&ContextPress);
 	$Streeview->{store}=$Sstore;
@@ -1206,8 +1207,7 @@ sub ContextPress
 
 sub SelectionChanged
 {
-	my $treeselection = shift;
-	
+	my ($treeselection,$self) = @_;
 	return unless ($::Options{OPT.'SetFilterOnLeftClick'});
 	
 	my $treeview = $treeselection->get_tree_view;
@@ -1233,7 +1233,7 @@ sub SelectionChanged
 	my $fnew = Filter->newadd(0, @Filters) if (scalar@Filters);
 	my $filt = (defined $::SelectedFilter)? Filter->newadd(1,$::SelectedFilter,$fnew) : $fnew; 
 
-	::SetFilter($treeview,$filt,1);
+	::SetFilter($treeview,$filt,1,$self->{group});
 	
 	return 1;
 }
