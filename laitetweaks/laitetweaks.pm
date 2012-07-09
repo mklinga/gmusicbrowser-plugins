@@ -11,7 +11,7 @@ name	Laitetweaks
 title	Laitetweaks
 =cut
 
-# This plugin is merely a 'holding place' for my personal tweaks
+# This plugin is merely a 'holding place' for my personal tweaks and quirks.
 # Use if freely, don't oppress.
 #   -laite
 
@@ -30,7 +30,18 @@ use base 'Gtk2::Box';
 use base 'Gtk2::Dialog';
 use utf8;
 
-::SetDefaultOptions(OPT, TimeAgo => 1, QueueStraight => 0, QueueAlbum => 0, IntelligentLabelTotal => 1, FilterThis => 1);
+::SetDefaultOptions(OPT, TimeAgo => 1, QueueStraight => 0, QueueAlbum => 0, IntelligentLabelTotal => 1, FilterThis => 1, LabelCycle => 'example//another example',
+			UseLabelCycle => 1);
+
+my %albumstatbutton=
+(	class	=> 'Layout::Button',
+	stock	=> 'gmb-album',
+	tip	=> "Left click to cycle labels",
+	click1	=> sub { CycleAlbumLabels(); },
+	#click2	=> \&RecalculateButton,
+	#click3 => \&ToggleInfinite,
+	autoadd_type	=> 'button main',
+);
 
 sub TimeAgo
 {
@@ -99,12 +110,12 @@ sub intellimode_Update
 
 sub RateWholeAlbum
 {
-	my $ratechange=shift;
+	my $ratechange = shift || 10;
 
 	return unless ($::SongID);
 
 	my $rate = Songs::Get($::SongID,'rating');
-	$rate = ($ratechange > 0)? ($rate+10) : ($rate-10);
+	$rate = ($ratechange < 0)? ($rate-10) : ($rate+10);
 
 	$rate = ::min(100,$rate); $rate = ::max(0,$rate);
 
@@ -115,6 +126,42 @@ sub RateWholeAlbum
 	{
 		Songs::Set($_,rating=>$rate);
 	}
+}
+
+sub CycleAlbumLabels
+{
+	return unless ($::SongID);
+
+	my @cyclelabels = split '//',$::Options{OPT.'LabelCycle'};
+	return unless (scalar@cyclelabels);
+		
+	my ($dh) = Songs::BuildHash('id',$::Library,undef,'label');
+	my @labels = @{$$dh{$::SongID}};
+	my $new;
+	my %du;
+
+	$du{$cyclelabels[$_]} = $_ for (0..$#cyclelabels);
+	(my $old) = grep { defined $du{$_} } @labels;
+
+	if (defined $old) {
+		# if we have 'last in cycle' we just remove it wihout adding new
+		$new = $cyclelabels[$du{$old}+1] unless ($du{$old} == $#cyclelabels);
+	}
+	else {
+		# if we can't find any label, we'll add the first one
+		$new=$cyclelabels[0];
+	}
+
+	my $gid = Songs::Get_gid($::SongID,'album');
+	my $IDs = AA::GetIDs('album',$gid);
+	
+	for my $song (@$IDs)
+	{
+		Songs::Set($song,'-label' => $old) if (defined $old);
+		Songs::Set($song,'+label' => $new) if (defined $new);
+	}
+
+	return 1;
 }
 
 ######################################################
@@ -170,9 +217,12 @@ sub Start
 		$::Options{OPT.'SortMode'} = $modes[0];
 	}
 	EnableOptions();
+
+	Layout::RegisterWidget(CycleLabels=>\%albumstatbutton) if ($::Options{OPT.'UseLabelCycle'});
 }
 sub Stop
 {
+	Layout::RegisterWidget('CycleLabels') if ($::Options{OPT.'UseLabelCycle'});
 		
 }
 
@@ -193,8 +243,11 @@ sub prefbox
 	my $check4=::NewPrefCheckButton(OPT."IntelligentLabelTotal",'Add Filter/selected mode to LabelTotal', horizontal=>1,cb => \&EnableOptions);
 	my $check5=::NewPrefCheckButton(OPT."FilterThis",'Show option to filter group from filterpane instead of playing it ', horizontal=>1,cb => \&EnableOptions);
 
+	my $label1 = Gtk2::Label->new('');
+	my $check6=::NewPrefCheckButton(OPT."UseLabelCycle",'Use labelcycle', horizontal=>1);
+	my $entry1 = ::NewPrefEntry(OPT.'LabelCycle','Labels (separate with //):');
 	
-	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$check5,$button);	
+	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$check5,[$check6,'_',$entry1],$button);	
 	
 	return $vbox;
 }
