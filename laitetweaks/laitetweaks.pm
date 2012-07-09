@@ -97,7 +97,25 @@ sub intellimode_Update
 	return _("Filter : "), $array, $filter->explain;
 }
 
+sub RateWholeAlbum
+{
+	my $ratechange=shift;
 
+	return unless ($::SongID);
+
+	my $rate = Songs::Get($::SongID,'rating');
+	$rate = ($ratechange > 0)? ($rate+10) : ($rate-10);
+
+	$rate = ::min(100,$rate); $rate = ::max(0,$rate);
+
+	my $gid = Songs::Get_gid($::SongID,'album');
+	my $IDs = AA::GetIDs('album',$gid);
+
+	for (@$IDs)
+	{
+		Songs::Set($_,rating=>$rate);
+	}
+}
 
 ######################################################
 sub EnableOptions
