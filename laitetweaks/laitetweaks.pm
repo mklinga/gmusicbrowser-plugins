@@ -35,7 +35,7 @@ use utf8;
 
 my %albumstatbutton=
 (	class	=> 'Layout::Button',
-	stock	=> 'gmb-album',
+	stock	=> 'plugin-ltcycle',
 	tip	=> "Left click to cycle labels",
 	click1	=> sub { CycleAlbumLabels(); },
 	#click2	=> \&RecalculateButton,
