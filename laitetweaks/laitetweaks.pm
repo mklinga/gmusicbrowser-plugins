@@ -31,7 +31,7 @@ use base 'Gtk2::Dialog';
 use utf8;
 
 ::SetDefaultOptions(OPT, TimeAgo => 1, QueueStraight => 0, QueueAlbum => 0, IntelligentLabelTotal => 1, FilterThis => 1, LabelCycle => 'example//another example',
-			UseLabelCycle => 1);
+			UseLabelCycle => 1, UseRateButtons => 1);
 
 my %albumstatbutton=
 (	class	=> 'Layout::Button',
@@ -40,6 +40,20 @@ my %albumstatbutton=
 	click1	=> sub { CycleAlbumLabels(); },
 	#click2	=> \&RecalculateButton,
 	#click3 => \&ToggleInfinite,
+	autoadd_type	=> 'button main',
+);
+my %plusbutton=
+(	class	=> 'Layout::Button',
+	stock	=> 'gtk-add',
+	tip	=> "Rating +1",
+	click1	=> sub { RateWholeAlbum(+10); },
+	autoadd_type	=> 'button main',
+);
+my %minusbutton=
+(	class	=> 'Layout::Button',
+	stock	=> 'gtk-remove',
+	tip	=> "Rating -1",
+	click1	=> sub { RateWholeAlbum(-10); },
 	autoadd_type	=> 'button main',
 );
 
@@ -122,10 +136,9 @@ sub RateWholeAlbum
 	my $gid = Songs::Get_gid($::SongID,'album');
 	my $IDs = AA::GetIDs('album',$gid);
 
-	for (@$IDs)
-	{
-		Songs::Set($_,rating=>$rate);
-	}
+	Songs::Set($IDs,rating=>$rate) if (scalar@$IDs);
+
+	return 1;
 }
 
 sub CycleAlbumLabels
@@ -155,11 +168,8 @@ sub CycleAlbumLabels
 	my $gid = Songs::Get_gid($::SongID,'album');
 	my $IDs = AA::GetIDs('album',$gid);
 	
-	for my $song (@$IDs)
-	{
-		Songs::Set($song,'-label' => $old) if (defined $old);
-		Songs::Set($song,'+label' => $new) if (defined $new);
-	}
+	Songs::Set($IDs,'-label' => $old) if (defined $old);
+	Songs::Set($IDs,'+label' => $new) if (defined $new);
 
 	return 1;
 }
@@ -219,10 +229,14 @@ sub Start
 	EnableOptions();
 
 	Layout::RegisterWidget(CycleLabels=>\%albumstatbutton) if ($::Options{OPT.'UseLabelCycle'});
+	Layout::RegisterWidget(RatingPlusButton=>\%plusbutton) if ($::Options{OPT.'UseRateButtons'});
+	Layout::RegisterWidget(RatingMinusButton=>\%minusbutton) if ($::Options{OPT.'UseRateButtons'});
 }
 sub Stop
 {
 	Layout::RegisterWidget('CycleLabels') if ($::Options{OPT.'UseLabelCycle'});
+	Layout::RegisterWidget('RatingPlusButton') if ($::Options{OPT.'UseRateButtons'});
+	Layout::RegisterWidget('RatingMinusButton') if ($::Options{OPT.'UseRateButtons'});
 		
 }
 
@@ -247,7 +261,9 @@ sub prefbox
 	my $check6=::NewPrefCheckButton(OPT."UseLabelCycle",'Use labelcycle', horizontal=>1);
 	my $entry1 = ::NewPrefEntry(OPT.'LabelCycle','Labels (separate with //):');
 	
-	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$check5,[$check6,'_',$entry1],$button);	
+	my $check7=::NewPrefCheckButton(OPT."UseRateButtons",'Use ratebuttons', horizontal=>1);
+
+	$vbox = ::Vpack($check1,$check2,,$check3,$check4,$check5,[$check6,'_',$entry1],$check7,$button);	
 	
 	return $vbox;
 }
