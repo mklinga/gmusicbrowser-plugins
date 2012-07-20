@@ -30,18 +30,20 @@ use constant
 
 use utf8;
 
-::SetDefaultOptions(OPT, Sleep_UseFade => 1, Sleep_FadeTo => 0, Sleep_TrackCount => 5, Sleep_TimeCount => 30,
-		Wake_UseFade => 1, Wake_FadeTo => 100, Wake_FadeMin => 30, Wake_LaunchHour => 6, Wake_LaunchMin => 30,
+::SetDefaultOptions(OPT, Sleep_UseFade => 1, Simplefade_FadeTo => 50, Sleep_FadeTo => 0, Sleep_TrackCount => 5, Sleep_TimeCount => 30,
+		Wake_UseFade => 1, Wake_FadeTo => 100, Simplefade_FadeMin => 30, Wake_FadeMin => 30, Wake_LaunchHour => 6, Wake_LaunchMin => 30,
 	ShowMultipleSleepConditions => 0, FadeCombo => _('Linear'), WakeFadeCombo => _('Linear'), FadeDelayCombo => _('No Delay'),
-	SleepFadeCurve => 1, WakeFadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1);
+	SleepFadeCurve => 1, WakeFadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1, Simplefade_FadeCurve => 1,
+	Button1Item => 'Sleep', Button2Item => 'Simplefade', Button3Item => 'Wake');
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
 (	class	=> 'Layout::Button',
 	stock	=> 'plugin-sunshine3',
 	tip	=> " Sunshine v".$VNUM,
-	click1 => sub {Launch('Sleep');},
-	click3 => sub {Launch('Wake');},
+	click1 => sub {Launch($::Options{OPT.'Button1Item'});},
+	click2 => sub {Launch($::Options{OPT.'Button2Item'});},
+	click3 => sub {Launch($::Options{OPT.'Button3Item'});},
 	autoadd_type	=> 'button main',
 );
 
@@ -121,7 +123,17 @@ sub prefbox
 	@p = (_('No Delay'), _('Small Delay'), _('Long Delay'));
 	my $FadeDelayCombo = ::NewPrefCombo(OPT.'FadeDelayCombo',\@p, cb => sub { $::Options{OPT.'FadeDelayPerc'} = $FadeDelays{$::Options{OPT.'FadeDelayCombo'}}; });
 
-	my $vbox=::Vpack($scCheck,[$l1,$FadeModeCombo,$l2,$FadeDelayCombo],[$l3,$WakeFadeModeCombo]);
+	my $frame = Gtk2::Frame->new(" Icon actions ");
+	@p = ('Sleep','Wake','Simplefade');
+	my $lb1 = Gtk2::Label->new('Left-click: ');
+	my $but1combo = ::NewPrefCombo(OPT.'Button1Item',\@p );
+	my $lb2 = Gtk2::Label->new('Middle-click: ');
+	my $but2combo = ::NewPrefCombo(OPT.'Button2Item',\@p );
+	my $lb3 = Gtk2::Label->new('Right-click: ');
+	my $but3combo = ::NewPrefCombo(OPT.'Button3Item',\@p );
+	$frame->add(::Vpack([$lb1,$but1combo],[$lb2,$but2combo],[$lb3,$but3combo]));
+
+	my $vbox=::Vpack($scCheck,[$l1,$FadeModeCombo,$l2,$FadeDelayCombo],[$l3,$WakeFadeModeCombo],$frame);
 	return $vbox;
 }
 
@@ -197,16 +209,27 @@ sub WakeUp
 sub Launch
 {
 	my $set = shift;
-	$set = 'Sleep' unless ($set =~ /^Wake$/);
+	$set = 'Sleep' unless ($set =~ /^Wake$|^Simplefade$/);
 
 	if (LaunchDialog($set) eq 'ok')
 	{
-		Dlog('Preparing to launch '.$set);
-		KillAlarm($set) if ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
-		#copy values from dialog to $Alarm{$set}
-		unless (SetupNewAlarm($set)) { Dlog('SetupNewAlarm FAILED!'); return 0;}
-		# launch the actual alarm
-		unless (CreateNewAlarm($set)) { Dlog('CreateNewAlarm FAILED!'); return 0;}
+		if ($set eq 'Simplefade')
+		{
+			unless (CreateFade($::Options{OPT.$set.'_FadeMin'}*60,$::Options{OPT.$set.'_FadeTo'},$::Options{OPT.'Simplefade_FadeCurve'},0))
+			{
+				Dlog('Failed');
+				return 0;
+			}
+		}
+		else
+		{
+			Dlog('Preparing to launch '.$set);
+			KillAlarm($set) if ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
+			#copy values from dialog to $Alarm{$set}
+			unless (SetupNewAlarm($set)) { Dlog('SetupNewAlarm FAILED!'); return 0;}
+			# launch the actual alarm
+			unless (CreateNewAlarm($set)) { Dlog('CreateNewAlarm FAILED!'); return 0;}
+		}
 	}
 
 	return 1;
@@ -223,7 +246,12 @@ sub LaunchDialog
 	my $vbox;
 	my $check1 = ::NewPrefCheckButton(OPT.$set.'_UseFade','Fade volume to');
 	my $l1 = Gtk2::Label->new(_('..: New '.$set.'alarm :..'));
-	my $warnlabel = ($Alarm{$set}->{IsOn})? Gtk2::Label->new(_('There is already an active Alarm!')) : undef;
+	my $warnlabel; my $killbutton;
+	if ($Alarm{$set}->{IsOn}) {
+		$warnlabel = Gtk2::Label->new(_('There is already an active Alarm!'));
+		$killbutton = Gtk2::Button->new('Kill');
+		$killbutton->signal_connect(clicked => sub {KillAlarm($set); KillFade(); $warnlabel->hide; $killbutton->hide;});
+	}
 	my $spin1 = ::NewPrefSpinButton(OPT.$set.'_FadeTo',0,100);
 	my $but1 = ::NewIconButton('gtk-refresh',undef,sub {
 		$::Options{OPT.$set.'_FadeTo'} = ::GetVol;
@@ -250,7 +278,7 @@ sub LaunchDialog
 			my $frame=Gtk2::Frame->new(" Sleep conditions ");
 			$frame->add(::Vpack($conditionchecks[0],$conditionchecks[1],['_',$conditionchecks[2],$entry1,$l3],['_',$conditionchecks[3],$entry2,$l4],[@radios]));
 
-			$vbox = ::Vpack($l1,$warnlabel,['_',$check1,$but1,$spin1],$frame);
+			$vbox = ::Vpack($l1,[$warnlabel,$killbutton],['_',$check1,$but1,$spin1],$frame);
 		}
 		else
 		{
@@ -280,23 +308,41 @@ sub LaunchDialog
 			my $scCombo = ::NewPrefCombo(OPT.'scCombo',\@scItems,cb => $refr);
 			my $l3 = Gtk2::Label->new(_('Sleepcondition: '));
 
-			$vbox = ::Vpack($l1,$warnlabel,['_',$check1,$but1,$spin1],[$l3,$scCombo,$scEntry]);
+			$vbox = ::Vpack($l1,[$warnlabel,$killbutton],['_',$check1,$but1,$spin1],[$l3,$scCombo,$scEntry]);
 			&$refr;
 		}
 
 	}
-	else
+	elsif ($set eq 'Wake')
 	{
 		my $check2 = ::NewPrefCheckButton(OPT.$set.'_LaunchDelayed','Launch at: ');
 		my $l3 = Gtk2::Label->new(_('in '));
 		my $l4 = Gtk2::Label->new(_('min'));
 		my $l6 = Gtk2::Label->new(_(':'));
-		my $spin3 = ::NewPrefSpinButton(OPT.$set.'_FadeMin',1,1440,wrap=>1);
+		my $spin3 = ::NewPrefSpinButton(OPT.$set.'_FadeMin',1,1440,wrap=>0);
 		my $spin4 = ::NewPrefSpinButton(OPT.$set.'_LaunchHour',0,24,wrap=>1);
 		my $spin5 = ::NewPrefSpinButton(OPT.$set.'_LaunchMin',0,59,wrap=>1);
 
-		$vbox = ::Vpack($l1,$warnlabel,['_',$check1,$but1,$spin1,$l3,'_',$spin3,$l4],
+		$vbox = ::Vpack($l1,[$warnlabel,$killbutton],['_',$check1,$but1,$spin1,$l3,'_',$spin3,$l4],
 				[$check2,$spin4,$l6,$spin5]);
+	}
+	else
+	{
+		my $l2 = Gtk2::Label->new('..: '._('New Fade').' :..');
+		my $l3 = Gtk2::Label->new(_(' Fade to: '));
+		my $l4 = Gtk2::Label->new(_('in '));
+		my $l5 = Gtk2::Label->new(_('min'));
+		my $l6 = Gtk2::Label->new(_(' Fadecurve'));
+		if ($fadehandle) {
+			$warnlabel = Gtk2::Label->new(_('There is already an ongoing fade!'));
+			$killbutton = Gtk2::Button->new('Kill');
+			$killbutton->signal_connect(clicked => sub {KillFade(); $warnlabel->hide; $killbutton->hide;});
+
+		}
+		my $spin2 = ::NewPrefSpinButton(OPT.$set.'_FadeMin',1,1440,wrap=>0);
+		my $spin3 = ::NewPrefSpinButton(OPT.$set.'_FadeCurve',0.1,10.0,digits => 1, tip=>'See README for detailed explanation on this');
+		$vbox = ::Vpack($l2,[$warnlabel,$killbutton],['_',$l3,$but1,$spin1,$l4,'_',$spin2,$l5],[$l6,$spin3]);
+
 	}
 
 	$LaunchDialog->get_content_area()->add($vbox);
@@ -365,6 +411,8 @@ sub CreateFade
 {
 	my ($sec,$to,$fadecurve,$fadeperc) = @_;
 	my $currentVol = ::GetVol();
+	$fadecurve ||= 1;
+	$fadeperc ||= 0;
 	my $delta = abs($to-$currentVol);
 
 	return 1 unless ($delta); #we have no reason to send 'fail' if there's nothing to fade, just skip it as successful
@@ -372,7 +420,7 @@ sub CreateFade
 	# Fadestack consists of two arrays (in an array): [0] relative time for next fade, and [1] amount of volume to change
 	@FadeStack = ();
 	if (defined $fadehandle) { Glib::Source->remove($fadehandle); Dlog('Stopped previous fade before finishing it'); }
-	Dlog('Creating new Fade! Delta: '.$delta.', Curve: '.$fadecurve);
+	Dlog('Creating new Fade! Delta: '.$delta.', Curve: '.$fadecurve.', Delay: '.($fadeperc*100));
 	Dlog('Smallest allowed fade interval: '.SMALLESTFADE);
 
 	# set fade delay here, if wanted
@@ -435,6 +483,15 @@ sub Fade
 	return 1;
 }
 
+sub KillFade
+{
+	Glib::Source->remove($fadehandle) if (defined $fadehandle);
+	$fadehandle = undef;
+	@FadeStack = ();
+
+	return 1;
+}
+
 sub CreateNewAlarm
 {
 	my $set = shift;
@@ -448,7 +505,7 @@ sub CreateNewAlarm
 		},1);
 		$Alarm{$set}->{LaunchDelayed} = 0;
 		$Alarm{$set}->{IsOn} = 1;
-		Dlog('Waiting for the right time to launch Wake-alarm (in '.$timetolaunch.' seconds');
+		Dlog('Waiting for ['.$Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin}.'] to launch Wake-alarm (in '.$timetolaunch.' seconds)');
 		return 2; # we'll be back after a while
 	}
 
