@@ -7,7 +7,6 @@
 # published by the Free Software Foundation
 
 # TODO
-# - option to launch 'simple fade' without sleep/wake (middle button)
 #
 # BUGS
 # 
@@ -60,7 +59,7 @@ my %SleepConditions = (
 		'label' => _('On albumchange'),
 	       	'AddLabel' => '',
 		CalcLength => 'my $l=0; my $IDs = AA::GetIDs(qw/album/,Songs::Get_gid($::SongID,qw/album/));Songs::SortList($IDs,$::Options{Sort});splice (@$IDs, 0, Songs::Get($::SongID,qw/track/));$l += Songs::Get($_,qw/length/) for (@$IDs); return $l;',
-		IsFinished => 'return ($Alarm{InitialAlbum} ne (join " ",Songs::Get($::SongID,qw/album_artist album/)))',
+		IsFinished => 'return ($Alarm{Sleep}->{InitialAlbum} ne (join " ",Songs::Get($::SongID,qw/album_artist album/)))',
 	       	FinishOnNext => 0,
 		AddCurrent => 1},
 	'3_Count' => { 
@@ -80,7 +79,8 @@ my %SleepConditions = (
 );
 
 my %Alarm;
-my $handle; my $fadehandle;
+my $handle; 
+my $fadehandle;
 my $oldID=-1;
 my @FadeStack;
 my $dlogfirst=1;
@@ -162,6 +162,7 @@ sub CheckSleepConditions
 			$sccount++;
 			if (eval($SleepConditions{$_}->{IsFinished}))
 			{
+				Dlog('Sleep condition: '.$_.' is finished.');
 				$sleepnow++;
 				$finishonnext ++ if ($Alarm{Sleep}->{FinishOnNext});
 			} 
@@ -420,7 +421,7 @@ sub CreateFade
 	# Fadestack consists of two arrays (in an array): [0] relative time for next fade, and [1] amount of volume to change
 	@FadeStack = ();
 	if (defined $fadehandle) { Glib::Source->remove($fadehandle); Dlog('Stopped previous fade before finishing it'); }
-	Dlog('Creating new Fade! Delta: '.$delta.', Curve: '.$fadecurve.', Delay: '.($fadeperc*100));
+	Dlog('Creating new Fade! Delta: '.$delta.', Curve: '.$fadecurve.', Delay: '.$fadeperc);
 	Dlog('Smallest allowed fade interval: '.SMALLESTFADE);
 
 	# set fade delay here, if wanted
@@ -475,6 +476,7 @@ sub Fade
 	}
 
 	Glib::Source->remove($fadehandle) if (defined $fadehandle);
+	$fadehandle = undef;
 	return 0 unless (scalar@{$FadeStack[0]});
 
 	my $next = shift @{$FadeStack[0]};
@@ -485,6 +487,7 @@ sub Fade
 
 sub KillFade
 {
+	Dlog('Killing fade');
 	Glib::Source->remove($fadehandle) if (defined $fadehandle);
 	$fadehandle = undef;
 	@FadeStack = ();
@@ -523,6 +526,8 @@ sub CreateNewAlarm
 		else { Dlog('No time to fade! Setting volume ('.$Alarm{$set}->{FadeTo}.') immediately'); ::UpdateVol($Alarm{$set}->{FadeTo}) if (::GetVol() != $Alarm{$set}->{FadeTo});}
 	}
 
+	$Alarm{$set}->{IsOn} = 1;
+
 	if ($set eq 'Sleep')
 	{
 		$Alarm{$set}->{StartTime} = time;
@@ -530,8 +535,6 @@ sub CreateNewAlarm
 		$Alarm{$set}->{PassedTracks} = ($::TogPlay)? -1 : 0; # don't count  current song if it's already playing
 	}
 	else { WakeUp(); }
-
-	$Alarm{$set}->{IsOn} = 1;
 
 	# We only create sleep-timer (alarmhandle) if we wait for specific time, other cases are called from SongChanged
 	if (($set eq 'Sleep') and ($Alarm{$set}->{SC_4_Time}))	{
@@ -573,8 +576,6 @@ sub KillAlarm
 		Dlog('Killing '.$set.'-alarm');
 		next unless ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
 		Glib::Source->remove($Alarm{$set}->{alarmhandle}) if (defined $Alarm{$set}->{alarmhandle});
-		$Alarm{$set}->{alarmhandle} = undef;
-		$Alarm{$set}->{IsOn} = 0;
 		delete $Alarm{$set};
 	}
 
