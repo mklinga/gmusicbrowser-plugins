@@ -13,6 +13,7 @@
 # - prefbox
 #
 # BUGS
+# - after tracks doesn't work
 #
 =gmbplugin SUNSHINE3
 name	Sunshine3
@@ -88,14 +89,17 @@ my %LaunchCommands = (
 	'Nothing' => '',
 );
 
-my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand','UseFade','DelayMode','FinishingCommand', 'TimeCount','TrackCount');
+my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
+my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
+
+my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand','UseFade','DelayMode','FinishingCommand', 'TimeCount','TrackCount',
+	'DelayCurve','DelayPerc');
 
 my %Alarm;
 my $handle;
 my $fadehandle;
 my $oldID=-1;
 my @FadeStack;
-my $dlogfirst=1;
 
 sub Start
 {
@@ -103,6 +107,8 @@ sub Start
 	::Watch($handle, PlayingSong => \&SongChanged);
 
 	$::Options{OPT.'scCombo'} = $SleepConditions{'1_Queue'}->{label} unless (defined $::Options{OPT.'scCombo'});
+
+	Dlog('Warming up Sunshine v'.$VNUM, '>');
 
 }
 sub Stop
@@ -215,7 +221,7 @@ sub LaunchDialog
 
 	LoadPreset($set);
 
-	my $scheme = "[LA][IC][VF][DM][FC]";
+	my $scheme = "[LA][IC][VF][DM][DA][FC]";
 	my @commands = (sort keys %LaunchCommands);
 	my @p; 
 	push @p, $SleepConditions{$_}->{label}. $SleepConditions{$_}->{AddLabel} for (sort keys %SleepConditions);
@@ -258,13 +264,18 @@ sub LaunchDialog
 	};
 	my $combo2 = ::NewPrefCombo(OPT.'DelayMode',\@p, cb => $refr);
 	my $DELAY_MODE = ($scheme =~ /\[DM\]/)? [$l3,$combo2,$spin4] : undef;
+
+	# Advanced Delay Options
+	my $combo3 = ::NewPrefCombo(OPT.'FadeCurveCombo',[sort keys %DelayCurves], text => 'Curve: ', cb => sub { $::Options{OPT.'DelayCurve'} = $DelayCurves{$::Options{OPT.'FadeCurveCombo'}}});
+	my $combo4 = ::NewPrefCombo(OPT.'FadePercCombo',[sort keys %DelayPercs], text => 'Delay: ', cb => sub { $::Options{OPT.'DelayPerc'} = $DelayPercs{$::Options{OPT.'FadePercCombo'}}});
+	my $DELAY_ADVANCED = ($scheme =~ /\[DA\]/)? [$combo3,$combo4] : undef;
 	
 	# Finishing command
 	my $l4 = Gtk2::Label->new('Finishing command: ');
-	my $combo3 = ::NewPrefCombo(OPT.'FinishingCommand',\@commands);
-	my $FINISHING_COMMAND = ($scheme =~ /\[FC\]/)? [$l4,$combo3] : undef;
+	my $combo5 = ::NewPrefCombo(OPT.'FinishingCommand',\@commands);
+	my $FINISHING_COMMAND = ($scheme =~ /\[FC\]/)? [$l4,$combo5] : undef;
 
-	$vbox = ::Vpack($LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
+	$vbox = ::Vpack($LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$DELAY_ADVANCED,$FINISHING_COMMAND);
 	&$refr;
 
 	$LaunchDialog->get_content_area()->add($vbox);
@@ -334,7 +345,6 @@ sub CalculateDelayTime
 	my $length = eval($SleepConditions{$Alarm{$set}->{SC}}->{CalcLength});
 	if ($@) { Dlog('Errors in eval @ CalculateDelayTime!');}
 	$length += (Songs::Get($::SongID,'length')-($::PlayTime || 0)) if ($SleepConditions{$Alarm{$set}->{SC}}->{AddCurrent});
-Dlog ($length);
 	return $length;
 }
 
@@ -480,8 +490,7 @@ sub SetupNewAlarm
 {
 	my $set = shift;
 
-	Dlog('Setting alarm '.$set.' up');
-
+	Dlog('Setting properties for alarm '.$set);
 	for (@AlarmFields) {
 		$Alarm{$set}->{$_} = $::Options{OPT.$_};
 	}
@@ -511,14 +520,12 @@ sub KillAlarm
 
 sub Dlog
 {
-	my $t = shift;
+	my ($t,$method) = @_;
+	$method ||= '>>';
 
 	return 0 unless ($::Options{OPT.'UseDLog'});
 
 	my $DlogFile = $::HomeDir.'sunshine3.log';
-	my $method = ($dlogfirst)? '>' : '>>';
-	$dlogfirst = 0;
-
 	my $content = '['.localtime(time).'] '.$t."\n";
 
 	open my $fh,$method,$DlogFile or warn "Error opening '$DlogFile' for writing : $!\n";
