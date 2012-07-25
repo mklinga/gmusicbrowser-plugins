@@ -1,7 +1,0 @@
-Wed Jul 25, 2012
-* fixed bug with wrong operator ('=>' != '>=')
-* changed dialog scheme from [xx] to simple xx
-* added notebook to launch-dialog with 'basic' and 'advanced'-tabs
-* Introduced new {SC} with multiple conditions: format is [all/any]|cond1|cond2|cond3
-* New SC: 5_Immediate
-* Added names for presets
