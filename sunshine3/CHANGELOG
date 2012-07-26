@@ -1,3 +1,10 @@
+Wed Jul 26, 2012
+* added preset name to Dlogs, fixed bug in LoadPreset
+* Button-options in prefbox
+* Option to launch alarms without dialog
+* Tried to create more general code (MAXALARMS/sleepconditions)
+* Flags to sleepconditions instead of multiple hashitems
+
 Wed Jul 25, 2012
 * fixed bug with wrong operator ('=>' != '>=')
 * changed dialog scheme from [xx] to simple xx

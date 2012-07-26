@@ -7,7 +7,9 @@
 # published by the Free Software Foundation
 
 # TODO
-# - prefbox?
+# - repeat alarm?
+# - killdialog / instakill
+# - context menu
 #
 # BUGS
 #
@@ -26,7 +28,7 @@ use constant
 {
 	OPT	=> 'PLUGIN_SUNSHINE3_',
 	SMALLESTFADE => 0.4,
-	MAXALARMS => 3,
+	MAXALARMS => 4,
 };
 
 use utf8;
@@ -34,7 +36,9 @@ use utf8;
 ::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => 'Nothing', FinishingCommand => 'Nothing',
 	FadeTo => 0, DelayMode => _('After minutes'), FadeCombo => _('Linear'), WakeFadeCombo => _('Linear'), FadeDelayCombo => _('No Delay'),
 	FadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1, Button1Item => 'Sleep', Button2Item => 'Simplefade', Button3Item => 'Wake',
-	TimeCount => 30, TrackCount => 8);
+	TimeCount => 30, TrackCount => 8, ButtonCombo1 => _('Launch alarm'), Scheme_Button1 => "PN|LA|IC|VF|DM|DA|FC|MS", NoDialog_Button1 => 0, 
+	ButtonCombo2 => _('Kill alarms'), Scheme_Button2 => "PN|LA|IC|VF|DM|DA|FC|MS", NoDialog_Button2 => 1,
+	ButtonCombo3 => _('Launch alarm'), Scheme_Button3 => "PN|LA|IC|VF|DM|DA|FC|MS", NoDialog_Button3 => 0);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
@@ -47,43 +51,35 @@ my %sunshine_button=
 	autoadd_type	=> 'button main',
 );
 
-# dialog layout relies on sorting items (hardcode is bad, mkay?)
+# Flags: f = finishonnext, a = addcurrent, t = create (t)imer, n = not in MS_dialog (for 'immediate')
 my %SleepConditions = (
 	'1_Queue' => {
 		'label' => _('Queue empty'),
-		'AddLabel' => '',
 		CalcLength => 'my $l=0; $l += Songs::Get($_,qw/length/) for (@$::Queue); return $l;',
 		IsFinished => 'return (!scalar@$::Queue)',
-		FinishOnNext => 1,
-		AddCurrent => 1},
+		Flags => 'fa'},
 	'2_Albumchange' => {
 		'label' => _('On albumchange'),
-		'AddLabel' => '',
 		CalcLength => 'my $l=0; my $IDs = AA::GetIDs(qw/album/,Songs::Get_gid($::SongID,qw/album/));Songs::SortList($IDs,$::Options{Sort});splice (@$IDs, 0, Songs::Get($::SongID,qw/track/));$l += Songs::Get($_,qw/length/) for (@$IDs); return $l;',
 		IsFinished => 'return ($Alarm{$set}->{InitialAlbum} ne (join " ",Songs::Get($::SongID,qw/album_artist album/)))',
-		FinishOnNext => 0,
-		AddCurrent => 1},
+		Flags => 'a'},
 	'3_Count' => {
-		'label' => _('After') ,
-		'AddLabel' => _(' tracks'), OPT_setting => 'TrackCount',
+		'label' => _('After tracks'),
+		OPT_setting => 'TrackCount',
 		CalcLength => 'my @IDs = ::GetNextSongs($Alarm{$set}->{TrackCount}); splice (@IDs, 0,1);my $l=0;$l += Songs::Get($_,qw/length/) for (@IDs);return $l;',
 		IsFinished => 'return ($Alarm{$set}->{PassedTracks} > $Alarm{$set}->{TrackCount})',
-		FinishOnNext => 1,
-		AddCurrent => 1},
+		Flags => 'fa'},
 	'4_Time' => {
-		'label' => _('After') ,
-		'AddLabel' => _(' minutes'), OPT_setting => 'TimeCount',
+		'label' => _('After minutes') ,
+		OPT_setting => 'TimeCount',
 		CalcLength => 'return 60*$Alarm{$set}->{TimeCount}',
 		IsFinished => 'return (time-$Alarm{$set}->{StartTime} >= ($Alarm{$set}->{TimeCount}*60))',
-		FinishOnNext => 0,
-		AddCurrent => 0},
+		Flags => 't'},
 	'5_Immediate' => {
 		'label' => _('Immediately'),
-		'AddLabel' => '',
 		CalcLength => 'return 0',
 		IsFinished => 'return 1',
-		FinishOnNext => 0,
-		AddCurrent => 0},
+		Flags => 'n'},
 );
 
 my %LaunchCommands = (
@@ -94,6 +90,7 @@ my %LaunchCommands = (
 
 my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
 my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
+my %ButtonOptions = ( launch => _('Launch alarm'), 'kill' => _('Kill alarms'), 'context' => _('Show context-menu'));
 my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand','UseFade','DelayMode','FinishingCommand', 'TimeCount','TrackCount',
 	'DelayCurve','DelayPerc','ManualSleepConditions','ManualReqCombo','Name');
 
@@ -125,7 +122,24 @@ sub Stop
 
 sub prefbox
 {
-	my $vbox=::Vpack();
+	my @f = (0,0,0);
+	for my $i (0..(MAXALARMS-1))
+	{
+		$f[$i] = Gtk2::Frame->new('Button '.($i+1));
+		my $scheme1 = ::NewPrefEntry(OPT.'Scheme_Button'.($i+1),'Dialog Scheme');
+		my $check1 = ::NewPrefCheckButton(OPT.'NoDialog_Button'.($i+1),'Launch immediately');
+		my $button1 = ::NewIconButton('gtk-apply',_('Launch now'), sub {Launch(($i+1),1); },undef);
+		my $refropt = sub {
+			$scheme1->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} eq $ButtonOptions{launch})? 1 : 0);
+			$check1->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} ne $ButtonOptions{context})? 1 : 0);
+		};
+		my $combo1 = ::NewPrefCombo(OPT.'Combo'.($i+1),[sort values %ButtonOptions],cb => $refropt);
+
+		&$refropt;
+		$f[$i]->add(::Hpack($combo1,$scheme1,$check1,$button1));
+	}
+
+	my $vbox=::Vpack(@f);
 	return $vbox;
 }
 
@@ -157,9 +171,9 @@ sub CheckDelayConditions
 		for my $SC (@SCs) {
 			$SCcount++;
 			if (eval($SleepConditions{$SC}->{IsFinished}))	{
-				Dlog('Condition \''.$SC.'\' for alarm '.$set.' has finished!');
+				Dlog('Condition \''.$SC.'\' for alarm '.$set.': \''.$Alarm{$set}->{Name}.'\' has finished!');
 				$sleepnow++;
-				$finishonnext++	if ($Alarm{$set}->{FinishOnNext});
+				$finishonnext++	if ($SleepConditions{$SC}->{Flags} =~ /f/);
 			}
 		}
 		
@@ -191,17 +205,30 @@ sub FinishAlarm
 
 sub Launch
 {
-	my $set = (shift || 1);
+	my ($set,$preflaunch) = @_;
+	$set ||= 1;
+	Dlog(($preflaunch)? '[Pref]Launching '.$set.'!' : 'Launching '.$set.'!');
 
-	if (LaunchDialog($set) eq 'ok')
+	if ($::Options{OPT.'ButtonCombo'.$set} eq $ButtonOptions{kill})
 	{
-		Dlog('Preparing to launch alarm '.$set.'.');
+
+	}
+	elsif ($::Options{OPT.'ButtonCombo'.$set} eq $ButtonOptions{context})
+	{
+
+	}
+	elsif (((!$preflaunch) and ($::Options{OPT.'NoDialog_Button'.$set})) or (LaunchDialog($set) eq 'ok'))
+	{
+		Dlog('Preparing to launch alarm '.$set);
 		KillAlarm($set) if ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
 		#copy values from dialog to $Alarm{$set}
 		unless (SetupNewAlarm($set)) { Dlog('SetupNewAlarm FAILED!'); return 0;}
 		# launch the actual alarm
 		unless (CreateNewAlarm($set)) { Dlog('CreateNewAlarm FAILED!'); return 0;}
 	}
+	else { Dlog('...no Launch after all');}
+
+	CheckDelayConditions();
 
 	return 1;
 }
@@ -213,7 +240,7 @@ sub SavePreset
 	for (@AlarmFields) {
 		$::Options{OPT.'preset'.$set.$_} = $::Options{OPT.$_} if (defined $::Options{OPT.$_} );
 	}
-	for (sort keys %SleepConditions){
+	for (keys %SleepConditions){
 		$::Options{OPT.'preset'.$set.'MS'.$_} = $::Options{OPT.'MS'.$_} if (defined $::Options{OPT.'MS'.$_} );
 	}
 
@@ -224,12 +251,10 @@ sub LoadPreset
 {
 	my $set = shift;
 
-	return unless (defined $::Options{OPT.'preset'.$set});
-
 	for (@AlarmFields) {
 		$::Options{OPT.$_} = $::Options{OPT.'preset'.$set.$_} if (defined $::Options{OPT.'preset'.$set.$_});
 	}
-	for (sort keys %SleepConditions){
+	for (keys %SleepConditions){
 		$::Options{OPT.'MS'.$_}  = $::Options{OPT.'preset'.$set.'MS'.$_} if (defined $::Options{OPT.'preset'.$set.'MS'.$_});
 	}
 
@@ -245,7 +270,7 @@ sub LaunchDialog
 	my $scheme = "PN|LA|IC|VF|DM|DA|FC|MS";
 	my @commands = (sort keys %LaunchCommands);
 	my @p = ();
-	push @p, $SleepConditions{$_}->{label}. $SleepConditions{$_}->{AddLabel} for (sort keys %SleepConditions);
+	push @p, $SleepConditions{$_}->{label} for (sort keys %SleepConditions);
 
 	my $LaunchDialog = Gtk2::Dialog->new(_('Launch Sunshine'), undef, 'modal');
 	my $cancelbutton = $LaunchDialog->add_button('gtk-cancel', 'cancel');
@@ -255,7 +280,7 @@ sub LaunchDialog
 	my $vbox;
 
 	# PN: Preset Name
-	my $PNentry = ::NewPrefEntry(OPT.'preset'.$set.'Name','Alarm\'s name:');
+	my $PNentry = ::NewPrefEntry(OPT.'Name','Alarm\'s name:');
 	my $PRESET_NAME = ($scheme =~ /PN/)? [$PNentry] : undef;
 
 	# LA: Launch at
@@ -279,13 +304,13 @@ sub LaunchDialog
 	# DM: Delaymode
 	my $l3 = Gtk2::Label->new('Delaymode');
 	my $spin4 = ::NewPrefSpinButton(OPT.'DelayModeEntry',1,720, cb => sub {
-			my ($scitem) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}$SleepConditions{$_}->{AddLabel}/) } (keys %SleepConditions);
+			my ($scitem) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
 			$::Options{OPT.$SleepConditions{$scitem}->{OPT_setting}} = $::Options{OPT.'DelayModeEntry'} if (exists $SleepConditions{$scitem}->{OPT_setting});
 	});
 	my $refr = sub {
-		my ($scitem) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}$SleepConditions{$_}->{AddLabel}/) } (keys %SleepConditions);
+		my ($scitem) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
 		$spin4->set_value($::Options{OPT.$SleepConditions{$scitem}->{OPT_setting}}) if (exists $SleepConditions{$scitem}->{OPT_setting});
-		$spin4->set_sensitive(($SleepConditions{$scitem}->{AddLabel} ne '')? 1 : 0);
+		$spin4->set_sensitive((defined $SleepConditions{$scitem}->{OPT_setting})? 1 : 0);
 	};
 	my $combo2 = ::NewPrefCombo(OPT.'DelayMode',\@p, cb => $refr);
 	my $DELAY_MODE = ($scheme =~ /DM/)? [$l3,$combo2,$spin4] : undef;
@@ -307,19 +332,24 @@ sub LaunchDialog
 	my $mscombo = ::NewPrefCombo(OPT.'ManualReqCombo',['Require all','Require any']);
 	my @cs;
 	for (sort keys %SleepConditions) {
-		push @cs, ::NewPrefCheckButton(OPT.'MS'.$_,$SleepConditions{$_}->{label}.$SleepConditions{$_}->{AddLabel});
-		if ($SleepConditions{$_}->{AddLabel} ne '') {
-			push @cs, ::NewPrefSpinButton(OPT.'MS'.$SleepConditions{$_}->{OPT_setting},1,720);
+		if (defined $SleepConditions{$_}->{OPT_setting}) {
+			push @cs, [::NewPrefCheckButton(OPT.'MS'.$_,$SleepConditions{$_}->{label}),::NewPrefSpinButton(OPT.'MS'.$SleepConditions{$_}->{OPT_setting},1,720)];
+		}
+		else{
+			push @cs, ::NewPrefCheckButton(OPT.'MS'.$_,$SleepConditions{$_}->{label});
 		}
 	}
 	my $mssens = sub {
 		my $s = ($::Options{OPT.'ManualSleepConditions'})? 1 : 0;
-		$_->set_sensitive($s) for (@cs);
+		for my $c (@cs){
+			if(ref($c) eq 'ARRAY'){$_->set_sensitive($s) for (@{$c});}
+			else {$c->set_sensitive($s);}
+		}
 		$mscombo->set_sensitive($s);
 	};
 	my $mscheck1 = ::NewPrefCheckButton(OPT.'ManualSleepConditions','Use custom delayconditions', cb => $mssens);
 	&$mssens;
-	my @MANUAL_SLEEPCONDITIONS = ($scheme =~ /MS/)? [$mscheck1,$mscombo,[$cs[0],$cs[1]],[$cs[2],$cs[3]],[$cs[4],$cs[5]]] : undef;
+	my @MANUAL_SLEEPCONDITIONS = ($scheme =~ /MS/)? [$mscheck1,$mscombo,@cs] : undef;
 
 	$vbox = ::Vpack($PRESET_NAME,$LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
 	$vbox2 = ::Vpack($DELAY_ADVANCED,\@MANUAL_SLEEPCONDITIONS);
@@ -402,7 +432,7 @@ sub CalculateDelayTime
 	{
 		my $length = eval($SleepConditions{$_}->{CalcLength});
 		if ($@) { Dlog('Errors in eval @ CalculateDelayTime!');}
-		$length += (Songs::Get($::SongID,'length')-($::PlayTime || 0)) if ($SleepConditions{$_}->{AddCurrent});
+		$length += (Songs::Get($::SongID,'length')-($::PlayTime || 0)) if ($SleepConditions{$_}->{Flags} =~ /a/);
 
 		$final = $length if (not defined $final);
 		$final = $length if (($req =~ /any/) and ($length < $final));
@@ -503,7 +533,7 @@ sub CreateNewAlarm
 {
 	my $set = shift;
 
-	Dlog('Creating new alarm \''.$set.'\'');
+	Dlog('Creating new alarm '.$set.': \''.$Alarm{$set}->{Name}.'\'');
 	if ($Alarm{$set}->{LaunchAt}) {
 		my $timetolaunch = GetShortestTimeTo($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($timetolaunch*1000,sub
@@ -540,13 +570,20 @@ sub CreateNewAlarm
 	DoCommand($Alarm{$set}->{InitialCommand}) unless ($Alarm{$set}->{InitialCommand} eq 'Nothing');
 
 	# We only create sleep-timer (alarmhandle) if we wait for specific time, other cases are called from SongChanged
-	if ($Alarm{$set}->{SC} =~ /Time/)	{
+	my @scs = split /\|/, $Alarm{$set}->{SC};
+	shift @scs;
+	for (@scs)
+	{
+		next unless ($SleepConditions{$_}->{Flags} =~ /t/);
+
 		Dlog('Creating alarmhandle for Time ('.($Alarm{$set}->{TimeCount}*60).' sec)');
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($Alarm{$set}->{TimeCount}*60*1000, sub {
 				CheckDelayConditions();
 				return 0;
 			},1);
+		last; # create only one timer
 	}
+
 	return 1;
 }
 
@@ -567,7 +604,7 @@ sub SetupNewAlarm
 		if ($Alarm{$set}->{SC} =~ /^(any|all)$/) { $Alarm{$set}->{SC} = 'any|5_Immediate';}
 	}
 	else { 
-		($Alarm{$set}->{SC}) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}$SleepConditions{$_}->{AddLabel}/) } (keys %SleepConditions);
+		($Alarm{$set}->{SC}) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
 		$Alarm{$set}->{SC} = 'any|'.$Alarm{$set}->{SC};
 	}
 	
@@ -584,7 +621,7 @@ sub KillAlarm
 
 	for my $set (@kill)
 	{
-		Dlog('Killing alarm no: '.$set);
+		Dlog('Killing alarm no: '.$set.': \''.$Alarm{$set}->{Name}.'\'');
 		next unless ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
 		Glib::Source->remove($Alarm{$set}->{alarmhandle}) if (defined $Alarm{$set}->{alarmhandle});
 		delete $Alarm{$set};
