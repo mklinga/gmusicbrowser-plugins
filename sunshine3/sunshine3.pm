@@ -94,9 +94,13 @@ my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
 my %ButtonOptions =  ( launch => _('Launch alarm'), 'context' => _('Show context-menu'));
 my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand','UseFade','DelayMode','FinishingCommand', 'TimeCount','TrackCount',
 	'DelayCurve','DelayPerc','ManualSleepConditions','ManualReqCombo','Name', 'FadeCurveCombo','FadePercCombo');
+
+# PN: Preset Name, LA: Launch at, IC: Initial command, VF: Volumefade, DM[E/M]: Delaymode [everything/minimal], FC: Finishing Command
+# DA: Delay (advanced),, MS : Multiple sleepconditions
 my %Schemes = ( 
 	_('Show everything') => { scheme => "PN|LA|IC|VF|DME|DA|FC|MS", specialset => undef },
-   	_('Basic sleepoptions') => { scheme =>  "VF|DME", specialset => { LaunchAt => 0, InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
+   	_('Basic sleepoptions') => { scheme =>  "VF|DME|FC", specialset => { LaunchAt => 0, InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
+   	_('Complex sleepoptions') => { scheme =>  "VF|DME|FC|DA|MS", specialset => { LaunchAt => 0, InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
 	_('Basic wakeoptions') => { scheme => "LA|VF|DMM", specialset => { InitialCommand => 'Play', 'FinishingCommand' => 'Nothing', DelayMode => $SleepConditions{'4_Time'}->{label} }} 
 );
 
@@ -396,7 +400,7 @@ sub LaunchDialog
 
 	my $dl = $vbox;
 	# if we have advanced options, we'll show notebook containing 'basic' and 'advanced'
-	if ($::Options{OPT.'ShowAdvanced'.$set})
+	if (($::Options{OPT.'ShowAdvanced'.$set}) and ($scheme =~ /MS|DA/))
 	{
 		$dl =Gtk2::Notebook->new();
 		$dl->append_page($vbox,'Basic');

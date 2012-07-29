@@ -3,6 +3,8 @@ Sun Jul 29, 2012
 * added 'getnowtime' next to Launch At
 * Plugincommand for launch + argument, and a bit of error handling in Launch
 * More efforts to keep code general (use of MAXALARMS where possible)
+* Added contextmenu for quicklaunch
+* Visual tweaks for launchdialog, added 'complex sleepmode'
 
 Sat Jul 28, 2012
 * Added 'specialsettings' for schemes
