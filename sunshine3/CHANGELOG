@@ -1,4 +1,17 @@
-Wed Jul 26, 2012
+Sun Jul 29, 2012
+* Fixed delayperc/curve not saved to presets
+* added 'getnowtime' next to Launch At
+* Plugincommand for launch + argument, and a bit of error handling in Launch
+* More efforts to keep code general (use of MAXALARMS where possible)
+
+Sat Jul 28, 2012
+* Added 'specialsettings' for schemes
+* More dynamics to launchdialog depending on selected options
+* Various bugfixes
+* Tweaks in sleepconditions (logging and setting up alarms)
+* Dynamic icon / IsSunshineOn()
+
+Thu Jul 26, 2012
 * added preset name to Dlogs, fixed bug in LoadPreset
 * Button-options in prefbox
 * Option to launch alarms without dialog
