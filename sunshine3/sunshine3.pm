@@ -7,8 +7,6 @@
 # published by the Free Software Foundation
 
 # TODO
-# - killdialog 
-# - context menu
 #
 # BUGS
 #
@@ -36,9 +34,9 @@ use utf8;
 	FadeTo => 0, DelayMode => _('After minutes'), FadeCombo => _('Linear'), WakeFadeCombo => _('Linear'), FadeDelayCombo => _('No Delay'),
 	FadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1, Button1Item => 'Sleep', Button2Item => 'Simplefade', Button3Item => 'Wake',
 	TimeCount => 30, TrackCount => 8, 
-	ButtonCombo1 => _('Launch alarm'), Scheme_Button1 => "PN|LA|IC|VF|DM|DA|FC|MS", NoDialog_Button1 => 0, 
-	ButtonCombo2 => _('Kill alarms'), Scheme_Button2 => "PN|LA|IC|VF|DM|DA|FC|MS", NoDialog_Button2 => 1,
-	ButtonCombo3 => _('Launch alarm'), Scheme_Button3 => "PN|LA|IC|VF|DM|DA|FC|MS", NoDialog_Button3 => 0
+	ButtonCombo1 => _('Launch alarm'), NoDialog_Button1 => 0, ShowAdvanced1 => 0, 
+	ButtonCombo2 => _('Kill alarms'), NoDialog_Button2 => 1, ShowAdvanced2 => 0, 
+	ButtonCombo3 => _('Launch alarm'), NoDialog_Button3 => 0, ShowAdvanced3 => 0, 
 );
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
@@ -93,7 +91,7 @@ my %LaunchCommands = (
 
 my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
 my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
-my %ButtonOptions = ( launch => _('Launch alarm'), 'kill' => _('Kill alarms'), 'context' => _('Show context-menu'));
+my %ButtonOptions =  ( launch => _('Launch alarm'), 'context' => _('Show context-menu'));
 my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand','UseFade','DelayMode','FinishingCommand', 'TimeCount','TrackCount',
 	'DelayCurve','DelayPerc','ManualSleepConditions','ManualReqCombo','Name', 'FadeCurveCombo','FadePercCombo');
 my %Schemes = ( 
@@ -125,10 +123,7 @@ sub Stop
 {
 	Layout::RegisterWidget('Sunshine3Button');
 	::UnWatch($handle,'PlayingSong') if ($handle);
-	KillAlarm(-1);
-	Glib::Source->remove($fadehandle) if (defined $fadehandle);
-	$fadehandle = undef;
-
+	KillEverything();
 }
 
 sub prefbox
@@ -143,7 +138,6 @@ sub prefbox
 		my $button1 = ::NewIconButton('gtk-apply',_('Launch now'), sub {Launch(($i+1),1); },undef);
 		my $refropt = sub {
 			$schemecombo->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} eq $ButtonOptions{launch})? 1 : 0);
-			$check2->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} eq $ButtonOptions{launch})? 1 : 0);
 			$check1->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} ne $ButtonOptions{context})? 1 : 0);
 		};
 		my $combo1 = ::NewPrefCombo(OPT.'ButtonCombo'.($i+1),[sort values %ButtonOptions],cb => $refropt);
@@ -232,13 +226,8 @@ sub Launch
 
 	Dlog(($preflaunch)? '[Pref]Launch('.$set.')' : 'Launch('.$set.')');
 
-	if ($::Options{OPT.'ButtonCombo'.$set} eq $ButtonOptions{kill})
-	{
-		KillAlarm(-1);
-	}
-	elsif ($::Options{OPT.'ButtonCombo'.$set} eq $ButtonOptions{context})
-	{
-
+	if ($::Options{OPT.'ButtonCombo'.$set} eq $ButtonOptions{context}) {
+		LayoutButtonMenu($::Options{OPT.'ShowAdvanced'.$set} || undef);
 	}
 	elsif (((!$preflaunch) and ($::Options{OPT.'NoDialog_Button'.$set})) or (LaunchDialog($set) eq 'ok'))
 	{
@@ -693,6 +682,14 @@ sub KillAlarm
 	return 1;
 }
 
+sub KillEverything
+{
+	KillAlarm(-1);
+	KillFade();
+
+	return 1;
+}
+
 sub IsSunshineOn
 {
 	my $ON = 0;
@@ -710,6 +707,73 @@ sub IsSunshineOn
 	}
 
 	return $ON;
+}
+
+sub LayoutButtonMenu
+{	
+	my $advanced = shift;
+
+	my $menu = Gtk2::Menu->new;
+	my $image;
+
+	#helper method
+	my $append=sub
+	 {	my ($menu,$set)=@_;
+		my $item = Gtk2::CheckMenuItem->new_with_label($::Options{OPT.'preset'.$set.'Name'} || 'Preset '.$set);
+		my $true = ($Alarm{$set}->{IsOn})? 1 : 0;
+		$item->set_active($true);
+		$item->signal_connect (activate => sub { Launch($set);});
+		$menu->append($item);
+	 };
+
+	#Launch / menu
+	my $sleepmenu= Gtk2::Menu->new;
+	my $launchmenu = Gtk2::MenuItem->new("Launch");
+
+	my $max = ($advanced)? MAXALARMS : 3;
+	for (1..$max) {
+		next if ((defined $::Options{OPT.'ButtonCombo'.$_}) and ($::Options{OPT.'ButtonCombo'.$_} ne $ButtonOptions{launch}));
+		$append->($sleepmenu,$_);
+	}
+	$launchmenu->set_submenu($sleepmenu);
+	$menu->append($launchmenu);
+
+	# Kill single alarm (if we have one)
+	my ($alarmsareon) = map { $Alarm{$_}->{IsOn}} (1..MAXALARMS);
+
+	if (($alarmsareon) and ($advanced))
+	{
+		my $activemenu= Gtk2::Menu->new;
+ 		my $aitem = Gtk2::ImageMenuItem->new('Kill Alarm');
+ 		$image = Gtk2::Image->new_from_pixbuf($menu->render_icon('gtk-delete', 'menu'));
+	 	$aitem->set_image($image);
+
+		my $append2=sub 
+		{
+			my ($menu,$set)=@_;
+			my $item = Gtk2::MenuItem->new_with_label(($::Options{OPT.'preset'.$set.'Name'} || 'Preset '.$set));
+			$item->signal_connect (activate => sub { KillAlarm($set);});
+			$menu->append($item);
+		 };
+
+		for (1..MAXALARMS) { $append2->($activemenu,$_) if ($Alarm{$_}->{IsOn});}
+		
+		$aitem->set_submenu($activemenu);
+		$menu->append($aitem);
+	}
+
+	#Stop Everything
+	$menu->append(Gtk2::SeparatorMenuItem->new);
+ 	my $stopitem = Gtk2::ImageMenuItem->new('Stop Everything');
+ 	$image = Gtk2::Image->new_from_pixbuf($menu->render_icon('gtk-stop', 'menu'));
+ 	$stopitem->set_image($image);
+ 	$stopitem->signal_connect (activate => \&KillEverything);
+ 	$menu->append($stopitem);
+
+	$menu->show_all;
+	my $event=Gtk2->get_current_event;
+	my ($button,$pos)= $event->isa('Gtk2::Gdk::Event::Button') ? ($event->button,\&::menupos) : (0,undef);
+	$menu->popup(undef,undef,$pos,undef,$button,$event->time);
 }
 
 sub Dlog
