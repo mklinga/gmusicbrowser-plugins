@@ -25,19 +25,14 @@ use constant
 {
 	OPT	=> 'PLUGIN_SUNSHINE3_',
 	SMALLESTFADE => 0.4,
-	MAXALARMS => 9,
+	MAXALARMS => 5,
 };
 
 use utf8;
 
 ::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => 'Nothing', FinishingCommand => 'Nothing',
 	FadeTo => 0, DelayMode => _('After minutes'), FadeCombo => _('Linear'), WakeFadeCombo => _('Linear'), FadeDelayCombo => _('No Delay'),
-	FadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1, Button1Item => 'Sleep', Button2Item => 'Simplefade', Button3Item => 'Wake',
-	TimeCount => 30, TrackCount => 8, 
-	ButtonCombo1 => _('Launch alarm'), NoDialog_Button1 => 0, ShowAdvanced1 => 0, 
-	ButtonCombo2 => _('Kill alarms'), NoDialog_Button2 => 1, ShowAdvanced2 => 0, 
-	ButtonCombo3 => _('Launch alarm'), NoDialog_Button3 => 0, ShowAdvanced3 => 0, 
-);
+	FadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1, TimeCount => 30, TrackCount => 8);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
@@ -100,7 +95,7 @@ my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand
 my %Schemes = ( 
 	_('Show everything') => { scheme => "PN|LA|IC|VF|DME|DA|FC|MS", specialset => undef },
    	_('Basic sleepoptions') => { scheme =>  "VF|DME|FC", specialset => { LaunchAt => 0, InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
-   	_('Complex sleepoptions') => { scheme =>  "VF|DME|FC|DA|MS", specialset => { LaunchAt => 0, InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
+   	_('Complex sleepoptions') => { scheme =>  "PN|LAVF|DME|DA|MS", specialset => { InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
 	_('Basic wakeoptions') => { scheme => "LA|VF|DMM", specialset => { InitialCommand => 'Play', 'FinishingCommand' => 'Nothing', DelayMode => $SleepConditions{'4_Time'}->{label} }} 
 );
 
@@ -112,16 +107,25 @@ my @FadeStack;
 
 sub Start
 {
-	Layout::RegisterWidget('Sunshine3Button'=>\%sunshine_button);
-	::Watch($handle, PlayingSong => \&SongChanged);
-
-	$::Command{OPT.'LaunchAlarm'}=[\&Launch,_("PLUGIN/SUNSHINE3: Launch alarm"),_("Number of alarm (1..".MAXALARMS.")")];
-
-	$::Options{OPT.'scCombo'} = $SleepConditions{'1_Queue'}->{label} unless (defined $::Options{OPT.'scCombo'});
-	$::Options{OPT.'Sunshine3IsOn'} = 0;
-
 	Dlog('Warming up Sunshine v'.$VNUM, '>');
 
+	Layout::RegisterWidget('Sunshine3Button'=>\%sunshine_button);
+	::Watch($handle, PlayingSong => \&SongChanged);
+	$::Command{OPT.'LaunchAlarm'}=[\&Launch,_("PLUGIN/SUNSHINE3: Launch alarm"),_("Number of alarm (1..".MAXALARMS.")")];
+	$::Options{OPT.'Sunshine3IsOn'} = 0;
+
+	# Let's initialize some values for presets
+	unless (defined $::Options{OPT.'preset1Name'})
+	{
+		for (1..MAXALARMS)
+		{
+			$::Options{OPT.'preset'.$_.'Name'} = "Preset ".$_;
+			$::Options{OPT.'NoDialogButton'.$_} = 0;
+			$::Options{OPT.'ShowAdvanced'.$_} = 0;
+			$::Options{OPT.'SchemeCombo'.$_} = _('Show everything');
+			$::Options{OPT.'ButtonCombo'.$_} = ($_ != 3)? $ButtonOptions{launch} : $ButtonOptions{context};
+		}
+	}
 }
 sub Stop
 {
@@ -133,20 +137,25 @@ sub Stop
 sub prefbox
 {
 	my @f = (0,0,0);
-	for my $i (0..2)
+	for my $i (0..(MAXALARMS-1))
 	{
-		$f[$i] = Gtk2::Frame->new('Button '.($i+1));
-		my $schemecombo = ::NewPrefCombo(OPT.'SchemeCombo'.($i+1),[sort keys %Schemes]);
+		my $title = ($i < 3)? ('Button '.($i+1)) : ('Preset '.($i+1)); 
+		$f[$i] = Gtk2::Frame->new($title);
 		my $check1 = ::NewPrefCheckButton(OPT.'NoDialog_Button'.($i+1),'Launch immediately');
 		my $check2 = ::NewPrefCheckButton(OPT.'ShowAdvanced'.($i+1),'Show advanced options');
 		my $button1 = ::NewIconButton('gtk-apply',_('Launch now'), sub {Launch(($i+1),1); },undef);
-		my $refropt = sub {
-			$schemecombo->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} eq $ButtonOptions{launch})? 1 : 0);
-			$check1->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} ne $ButtonOptions{context})? 1 : 0);
-		};
-		my $combo1 = ::NewPrefCombo(OPT.'ButtonCombo'.($i+1),[sort values %ButtonOptions],cb => $refropt);
+		my $schemecombo = ::NewPrefCombo(OPT.'SchemeCombo'.($i+1),[sort keys %Schemes]);
+		my $combo1;
+		if ($i < 3)
+		{
+			my $refropt = sub {
+				$schemecombo->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} eq $ButtonOptions{launch})? 1 : 0);
+				$check1->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} ne $ButtonOptions{context})? 1 : 0);
+			};
+			$combo1 = ::NewPrefCombo(OPT.'ButtonCombo'.($i+1),[sort values %ButtonOptions],cb => $refropt);
 
-		&$refropt;
+			&$refropt;
+		}
 		$f[$i]->add(::Hpack($combo1,$schemecombo,$check1,$check2,$button1));
 	}
 
@@ -223,7 +232,6 @@ sub Launch
 
 	# a little bit of error handling (never trust an user)
 	unless ((defined $set) and ($set =~ /^[1-MAXALARMS]$/)) {
-		Dlog($set);
 		Dlog('Bad argument in Launch(), replacing $set with number '.(MAXALARMS-1));
 		$set = (MAXALARMS-1);
 	}
@@ -274,7 +282,6 @@ sub LoadPreset
 	for (keys %SleepConditions){
 		$::Options{OPT.'MS'.$_}  = $::Options{OPT.'preset'.$set.'MS'.$_} if (defined $::Options{OPT.'preset'.$set.'MS'.$_});
 	}
-	$::Options{OPT.'Name'} = "Preset ".$set unless (defined $::Options{OPT.'preset'.$set.'Name'});
 
 	return 1;
 }

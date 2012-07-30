@@ -1,3 +1,7 @@
+Mon Jul 30, 2012
+* Options for all presets (till MAXALARMS)
+* Better initialization of preset options
+
 Sun Jul 29, 2012
 * Fixed delayperc/curve not saved to presets
 * added 'getnowtime' next to Launch At
