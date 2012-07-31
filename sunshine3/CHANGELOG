@@ -2,6 +2,7 @@ Tue Jul 31, 2012
 * Fixed wrong curve/delay - values being sent to CreateFade
 * Cleaner code is cleaner
 * Various small tweaks
+* set delaymodecombo/spin unsensitive when 'multiple conditions' are checked
 
 Mon Jul 30, 2012
 * Options for all presets (till MAXALARMS)

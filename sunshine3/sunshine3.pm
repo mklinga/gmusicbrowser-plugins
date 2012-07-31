@@ -7,7 +7,6 @@
 # published by the Free Software Foundation
 
 # TODO
-# - Set delaymode-cobo to insensitive when multiple sleepconditions are in use
 #
 # BUGS
 #
@@ -32,8 +31,8 @@ use constant
 use utf8;
 
 ::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => _('Nothing'), FinishingCommand => _('Nothing'),
-	FadeTo => 0, DelayMode => _('After minutes'), FadeCombo => _('Linear'), WakeFadeCombo => _('Linear'), FadeDelayCombo => _('No Delay'),
-	UseDLog => 1, TimeCount => 30, TrackCount => 8);
+	FadeTo => 0, DelayMode => _('After minutes'), FadeCurveCombo => _('Linear'), FadePercCombo => _('None'),
+	UseDLog => 1, TimeCount => 30, TrackCount => 8, ManualReqCombo => _('Require all'));
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
@@ -79,12 +78,7 @@ my %SleepConditions = (
 		Flags => 'n'},
 );
 
-my %LaunchCommands = (
-	_('Play') => '::Play()',
-	_('Pause') => '::Pause()',
-	_('Nothing') => '',
-);
-
+my %LaunchCommands = ( _('Play') => '::Play()', _('Pause') => '::Pause()', _('Nothing') => '',);
 my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
 my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
 my %ButtonOptions =  ( launch => _('Launch alarm'), 'context' => _('Show context-menu'));
@@ -154,7 +148,6 @@ sub prefbox
 				$check1->set_sensitive(($::Options{OPT.'ButtonCombo'.($i+1)} ne $ButtonOptions{context})? 1 : 0);
 			};
 			$combo1 = ::NewPrefCombo(OPT.'ButtonCombo'.($i+1),[sort values %ButtonOptions],cb => $refropt);
-
 			&$refropt;
 		}
 		$f[$i]->add(::Hpack($combo1,$schemecombo,$check1,$check2,$button1));
@@ -180,11 +173,11 @@ sub CheckDelayConditions
 
 	for my $set (@a)
 	{
-		my ($sleepnow, $finishonnext) = (0,0,0);
 		next unless ($Alarm{$set}->{IsOn});
 
 		if ($Alarm{$set}->{WaitingForNext}) { FinishAlarm(); return 1; }
 
+		my ($sleepnow, $finishonnext) = (0,0);
 		my @SCs = split /\|/, $Alarm{$set}->{SC};
 		my $req = shift @SCs;
 
@@ -373,7 +366,7 @@ sub LaunchDialog
 	my $DELAY_ADVANCED = ($scheme =~ /DA/)? [$combo3,$combo4] : undef;
 	
 	# MS: Manual Sleepconditions
-	my $mscombo = ::NewPrefCombo(OPT.'ManualReqCombo',['Require all','Require any']);
+	my $mscombo = ::NewPrefCombo(OPT.'ManualReqCombo',[_('Require all'),_('Require any')]);
 	my @cs;
 	for (sort keys %SleepConditions) {
 		if (defined $SleepConditions{$_}->{OPT_setting}) {
@@ -390,14 +383,16 @@ sub LaunchDialog
 			else {$c->set_sensitive($s);}
 		}
 		$mscombo->set_sensitive($s);
+		$combo2->set_sensitive(!$s);
+		$spin4->set_sensitive(!$s);
 	};
 	my $mscheck1 = ::NewPrefCheckButton(OPT.'ManualSleepConditions','Use custom delayconditions', cb => $mssens);
-	&$mssens;
 	my @MANUAL_SLEEPCONDITIONS = ($scheme =~ /MS/)? [$mscheck1,$mscombo,@cs] : undef;
 
 	my $vbox = ::Vpack($PRESET_NAME,$LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
 	my $vbox2 = ::Vpack($DELAY_ADVANCED,\@MANUAL_SLEEPCONDITIONS);
 	&$refr;
+	&$mssens;
 
 	my $dl = $vbox;
 	# if we have advanced options, we'll show notebook containing 'basic' and 'advanced'
@@ -483,7 +478,7 @@ sub CalculateDelayTime
 	for (@SCs)
 	{
 		my $length = eval($SleepConditions{$_}->{CalcLength});
-		if ($@) { Dlog('Errors in eval @ CalculateDelayTime!');}
+		if ($@) { Dlog('Errors in eval @ CalculateDelayTime! SC: '.$_); next;}
 		$length += (Songs::Get($::SongID,'length')-($::PlayTime || 0)) if ($SleepConditions{$_}->{Flags} =~ /a/);
 
 		$final = $length if (not defined $final);
@@ -491,7 +486,7 @@ sub CalculateDelayTime
 		$final = $length if (($req =~ /all/) and ($length > $final));
 	}
 
-	return $final;
+	return ($final || 0);
 }
 
 sub CreateFade
@@ -596,7 +591,7 @@ sub CreateNewAlarm
 				return 0;
 		},1);
 		$Alarm{$set}->{LaunchAt} = 0;
-		$Alarm{$set}->{IsOn} = 0;
+		$Alarm{$set}->{IsOn} = 0; # we don't concider 'waiting for launch' as 'on' for alarm
 		Dlog('Waiting for ['.sprintf("%.2d\:%.2d",$Alarm{$set}->{LaunchHour},$Alarm{$set}->{LaunchMin}).'] to launch Wake-alarm (in '.$timetolaunch.' seconds)');
 		return 2; # we'll be back after a while
 	}
@@ -621,17 +616,20 @@ sub CreateNewAlarm
 	DoCommand($Alarm{$set}->{InitialCommand}) unless ($LaunchCommands{$Alarm{$set}->{InitialCommand}} eq '');
 
 	# We only create sleep-timer (alarmhandle) if needed
-	my @scs = split /\|/, $Alarm{$set}->{SC};
-	shift @scs;
-	for (@scs)
+	if (defined $Alarm{$set}->{SC})
 	{
-		next unless ($SleepConditions{$_}->{Flags} =~ /t/);
+		my @scs = split /\|/, $Alarm{$set}->{SC};
+		shift @scs;
+		for (@scs)
+		{
+			next unless ($SleepConditions{$_}->{Flags} =~ /t/);
 
-		Dlog('Creating alarmhandle for Time ('.($Alarm{$set}->{TimeCount}*60).' sec)');
-		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($Alarm{$set}->{TimeCount}*60*1000, sub {
-				CheckDelayConditions();
-				return 0;
-			},1);
+			Dlog('Creating alarmhandle for Time ('.($Alarm{$set}->{TimeCount}*60).' sec)');
+			$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($Alarm{$set}->{TimeCount}*60*1000, sub {
+					CheckDelayConditions();
+					return 0;
+				},1);
+		}
 	}
 
 	return 1;
@@ -642,9 +640,7 @@ sub SetupNewAlarm
 	my $set = shift;
 
 	Dlog('Setting properties for alarm '.$set);
-	for (@AlarmFields) {
-		$Alarm{$set}->{$_} = $::Options{OPT.$_};
-	}
+	for (@AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.$_}; }
 
 	if ($Alarm{$set}->{ManualSleepConditions}) {
 		$Alarm{$set}->{SC} = ($Alarm{$set}->{'ManualReqCombo'} =~ /any/)? 'any' : 'all';
@@ -687,6 +683,7 @@ sub KillEverything
 {
 	KillAlarm(-1);
 	KillFade();
+	# IsSunshineOn is called in functions abowe
 
 	return 1;
 }
@@ -696,12 +693,15 @@ sub IsSunshineOn
 	my $ON = 0;
 	my @reason;
 
-	$ON = 1 if ((defined $fadehandle) and (scalar@FadeStack));
-	push @reason, 'Sunshine is fading';
+	if ((defined $fadehandle) and (scalar@FadeStack))
+	{
+		$ON = 1;
+		push @reason, 'Sunshine is fading';
+	}
 
 	unless ($ON) {
 		for (1..MAXALARMS) { if ($Alarm{$_}->{IsOn}) { $ON = 1; last;} }
-		push @reason, 'There is an active alarm';
+		push @reason, 'There is an active alarm' if ($ON);
 	}
 
 	if ($::Options{OPT.'Sunshine3IsOn'} != $ON)
