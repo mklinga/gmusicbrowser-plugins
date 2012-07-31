@@ -7,6 +7,7 @@
 # published by the Free Software Foundation
 
 # TODO
+# - Set delaymode-cobo to insensitive when multiple sleepconditions are in use
 #
 # BUGS
 #
@@ -30,9 +31,9 @@ use constant
 
 use utf8;
 
-::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => 'Nothing', FinishingCommand => 'Nothing',
+::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => _('Nothing'), FinishingCommand => _('Nothing'),
 	FadeTo => 0, DelayMode => _('After minutes'), FadeCombo => _('Linear'), WakeFadeCombo => _('Linear'), FadeDelayCombo => _('No Delay'),
-	FadeCurve => 1, FadeDelayPerc => 0, UseDLog => 1, TimeCount => 30, TrackCount => 8);
+	UseDLog => 1, TimeCount => 30, TrackCount => 8);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
@@ -57,7 +58,7 @@ my %SleepConditions = (
 	'2_Albumchange' => {
 		'label' => _('On albumchange'),
 		CalcLength => 'my $l=0; my $IDs = AA::GetIDs(qw/album/,Songs::Get_gid($::SongID,qw/album/));Songs::SortList($IDs,$::Options{Sort});splice (@$IDs, 0, Songs::Get($::SongID,qw/track/));$l += Songs::Get($_,qw/length/) for (@$IDs); return $l;',
-		IsFinished => 'return ($Alarm{$set}->{InitialAlbum} ne (join " ",Songs::Get($::SongID,qw/album_artist album/)))',
+		IsFinished => 'return ($Alarm{$set}->{InitialAlbum} ne (join " ",Songs::Get($::SongID,qw/album_artist year album/)))',
 		Flags => 'a'},
 	'3_Count' => {
 		'label' => _('After tracks'),
@@ -79,9 +80,9 @@ my %SleepConditions = (
 );
 
 my %LaunchCommands = (
-	'Play' => '::Play()',
-	'Pause' => '::Pause()',
-	'Nothing' => '',
+	_('Play') => '::Play()',
+	_('Pause') => '::Pause()',
+	_('Nothing') => '',
 );
 
 my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
@@ -91,12 +92,12 @@ my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand
 	'DelayCurve','DelayPerc','ManualSleepConditions','ManualReqCombo','Name', 'FadeCurveCombo','FadePercCombo');
 
 # PN: Preset Name, LA: Launch at, IC: Initial command, VF: Volumefade, DM[E/M]: Delaymode [everything/minimal], FC: Finishing Command
-# DA: Delay (advanced),, MS : Multiple sleepconditions
+# DA: Delay (advanced), MS : Multiple sleepconditions
 my %Schemes = ( 
 	_('Show everything') => { scheme => "PN|LA|IC|VF|DME|DA|FC|MS", specialset => undef },
-   	_('Basic sleepoptions') => { scheme =>  "VF|DME|FC", specialset => { LaunchAt => 0, InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
-   	_('Complex sleepoptions') => { scheme =>  "PN|LAVF|DME|DA|MS", specialset => { InitialCommand => 'Nothing', 'FinishingCommand' => 'Pause' } }, 
-	_('Basic wakeoptions') => { scheme => "LA|VF|DMM", specialset => { InitialCommand => 'Play', 'FinishingCommand' => 'Nothing', DelayMode => $SleepConditions{'4_Time'}->{label} }} 
+   	_('Basic sleepoptions') => { scheme =>  "VF|DME|FC", specialset => { LaunchAt => 0, InitialCommand => _('Nothing'), 'FinishingCommand' => 'Pause' } }, 
+   	_('Complex sleepoptions') => { scheme =>  "PN|LAVF|DME|DA|MS", specialset => { InitialCommand =>_('Nothing'), 'FinishingCommand' => 'Pause' } }, 
+	_('Basic wakeoptions') => { scheme => "LA|VF|DMM", specialset => { InitialCommand => 'Play', 'FinishingCommand' => _('Nothing'), DelayMode => $SleepConditions{'4_Time'}->{label} }} 
 );
 
 my %Alarm;
@@ -177,7 +178,6 @@ sub CheckDelayConditions
 	my $s = shift;
 	my @a = ($s)? ($s) : (1..MAXALARMS);
 
-	Dlog('Checking if it\'s time to sleep already');
 	for my $set (@a)
 	{
 		my ($sleepnow, $finishonnext) = (0,0,0);
@@ -195,7 +195,7 @@ sub CheckDelayConditions
 			}
 		}
 		
-		Dlog($sleepnow.' of '.(scalar@SCs).' conditions for alarm '.$set.'. \''.($Alarm{$set}->{Name} || 'No Name').'\' has finished (Required: '.$req.')');
+		Dlog($sleepnow.' of '.(scalar@SCs).' conditions for alarm '.$set.'. \''.($Alarm{$set}->{Name}).'\' has finished (Required: '.$req.')');
 
 		if (($req =~ /any/) and ($sleepnow > 0)){
 			if ($sleepnow > $finishonnext) { FinishAlarm($set); }
@@ -216,7 +216,7 @@ sub FinishAlarm
 
 	return 0 unless ($Alarm{$set}->{IsOn});
 
-	Dlog('Finishing alarm '.$set.'. '.($Alarm{$set}->{Name} || 'No name'));
+	Dlog('Finishing alarm '.$set.'. '.($Alarm{$set}->{Name}));
 	DoCommand($Alarm{$set}->{FinishingCommand});
 	KillAlarm($set);
 
@@ -236,7 +236,7 @@ sub Launch
 		$set = (MAXALARMS-1);
 	}
 
-	Dlog(($preflaunch)? '[Pref]Launch('.$set.')' : 'Launch('.$set.')');
+	Dlog((($preflaunch)? '[Pref]' : '').'Launch('.$set.')');
 
 	if ($::Options{OPT.'ButtonCombo'.$set} eq $ButtonOptions{context}) {
 		LayoutButtonMenu($::Options{OPT.'ShowAdvanced'.$set} || undef);
@@ -290,13 +290,12 @@ sub SetSchemeSpecialSettings
 {
 	my $scheme = shift;
 
-	if (defined $Schemes{$scheme}->{specialset})
+	return 0 unless (defined $Schemes{$scheme}->{specialset});
+	
+	for (keys %{$Schemes{$scheme}->{specialset}})
 	{
-		for (keys %{$Schemes{$scheme}->{specialset}})
-		{
-			$::Options{OPT.$_} = ${$Schemes{$scheme}->{specialset}}{$_};
-			Dlog('Specialsetup ['.$scheme.']: '.$_.' => '.${$Schemes{$scheme}->{specialset}}{$_});
-		}
+		$::Options{OPT.$_} = ${$Schemes{$scheme}->{specialset}}{$_};
+		Dlog('Specialsetup ['.$scheme.']: '.$_.' => '.${$Schemes{$scheme}->{specialset}}{$_});
 	}
 
 	return 1;
@@ -313,15 +312,10 @@ sub LaunchDialog
 	SetSchemeSpecialSettings($scheme);
 	$scheme = $Schemes{$scheme}->{scheme}; # use schemestring from now on
 
-	my @p = ();
-	push @p, $SleepConditions{$_}->{label} for (sort keys %SleepConditions);
-
 	my $LaunchDialog = Gtk2::Dialog->new(_('Launch Sunshine'), undef, 'modal');
 	my $cancelbutton = $LaunchDialog->add_button('gtk-cancel', 'cancel');
 	$LaunchDialog->add_button('gtk-ok', 'ok');
 	$LaunchDialog->set_position('center-always');
-
-	my $vbox;
 
 	# PN: Preset Name
 	my $PNentry = ::NewPrefEntry(OPT.'Name','Alarm\'s name:');
@@ -362,7 +356,8 @@ sub LaunchDialog
 		$spin4->set_value($::Options{OPT.$SleepConditions{$scitem}->{OPT_setting}}) if (exists $SleepConditions{$scitem}->{OPT_setting});
 		$spin4->set_sensitive((defined $SleepConditions{$scitem}->{OPT_setting})? 1 : 0);
 	};
-	my $combo2 = ::NewPrefCombo(OPT.'DelayMode',\@p, cb => $refr);
+	my @p = map { $SleepConditions{$_}->{label} } (sort keys %SleepConditions);
+	my $combo2 = ::NewPrefCombo(OPT.'DelayMode', \@p, cb => $refr);
 	my $DELAY_MODE = ($scheme =~ /DM/)? (($scheme =~ /DME/)? [$l3,$combo2,$spin4] : [$l3,$spin4]) : undef;
 
 	# FC: Finishing command
@@ -370,9 +365,8 @@ sub LaunchDialog
 	my $combo5 = ::NewPrefCombo(OPT.'FinishingCommand',[sort keys %LaunchCommands]);
 	my $FINISHING_COMMAND = ($scheme =~ /FC/)? [$l4,$combo5] : undef;
 
-	# Advanced Options
-	my $vbox2;
 
+	# Advanced Options
 	# DA: Delay (advanced)
 	my $combo3 = ::NewPrefCombo(OPT.'FadeCurveCombo',[sort keys %DelayCurves], text => 'Curve: ', cb => sub { $::Options{OPT.'DelayCurve'} = $DelayCurves{$::Options{OPT.'FadeCurveCombo'}}});
 	my $combo4 = ::NewPrefCombo(OPT.'FadePercCombo',[sort keys %DelayPercs], text => 'Delay: ', cb => sub { $::Options{OPT.'DelayPerc'} = $DelayPercs{$::Options{OPT.'FadePercCombo'}}});
@@ -401,8 +395,8 @@ sub LaunchDialog
 	&$mssens;
 	my @MANUAL_SLEEPCONDITIONS = ($scheme =~ /MS/)? [$mscheck1,$mscombo,@cs] : undef;
 
-	$vbox = ::Vpack($PRESET_NAME,$LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
-	$vbox2 = ::Vpack($DELAY_ADVANCED,\@MANUAL_SLEEPCONDITIONS);
+	my $vbox = ::Vpack($PRESET_NAME,$LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
+	my $vbox2 = ::Vpack($DELAY_ADVANCED,\@MANUAL_SLEEPCONDITIONS);
 	&$refr;
 
 	my $dl = $vbox;
@@ -569,7 +563,7 @@ sub Fade
 
 	Glib::Source->remove($fadehandle) if (defined $fadehandle);
 	$fadehandle = undef;
-	return 0 unless (scalar@{$FadeStack[0]});
+	unless (scalar@{$FadeStack[0]}) { IsSunshineOn(); return 0; }
 
 	my $next = shift @{$FadeStack[0]};
 	$fadehandle = Glib::Timeout->add($next*1000, sub { return Fade($goal); },1);
@@ -592,7 +586,7 @@ sub CreateNewAlarm
 {
 	my $set = shift;
 
-	Dlog('Creating new alarm '.$set.'. \''.($Alarm{$set}->{Name} || 'No name').'\'');
+	Dlog('Creating new alarm '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
 	if ($Alarm{$set}->{LaunchAt}) {
 		my $timetolaunch = GetShortestTimeTo($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($timetolaunch*1000,sub
@@ -610,9 +604,7 @@ sub CreateNewAlarm
 	if ($Alarm{$set}->{UseFade}) {
 		if ($Alarm{$set}->{DelayTime})
 		{
-			my $curve = $::Options{OPT.'FadeCurve'} || 1;
-			my $perc = $::Options{OPT.'FadeDelayPerc'} || 0;
-			unless (CreateFade($Alarm{$set}->{DelayTime},$Alarm{$set}->{FadeTo},$curve,$perc))
+			unless (CreateFade($Alarm{$set}->{DelayTime},$Alarm{$set}->{FadeTo},$Alarm{$set}->{FadeCurve},$Alarm{$set}->{DelayPerc}))
 			{
 				Dlog('Error in CreateFade! Abandoning alarm creation.');
 				return 0;
@@ -622,14 +614,13 @@ sub CreateNewAlarm
 	}
 
 	$Alarm{$set}->{IsOn} = 1;
-
 	$Alarm{$set}->{StartTime} = time;
-	$Alarm{$set}->{InitialAlbum} = join " ", Songs::Get($::SongID,qw/album_artist album/);
+	$Alarm{$set}->{InitialAlbum} = join " ", Songs::Get($::SongID,qw/album_artist year album/);
 	$Alarm{$set}->{PassedTracks} = ($::TogPlay)? -1 : 0; # don't count  current song if it's already playing
 
-	DoCommand($Alarm{$set}->{InitialCommand}) unless ($Alarm{$set}->{InitialCommand} eq 'Nothing');
+	DoCommand($Alarm{$set}->{InitialCommand}) unless ($LaunchCommands{$Alarm{$set}->{InitialCommand}} eq '');
 
-	# We only create sleep-timer (alarmhandle) if we wait for specific time, other cases are called from SongChanged
+	# We only create sleep-timer (alarmhandle) if needed
 	my @scs = split /\|/, $Alarm{$set}->{SC};
 	shift @scs;
 	for (@scs)
@@ -641,7 +632,6 @@ sub CreateNewAlarm
 				CheckDelayConditions();
 				return 0;
 			},1);
-		last; # create only one timer
 	}
 
 	return 1;
@@ -704,16 +694,20 @@ sub KillEverything
 sub IsSunshineOn
 {
 	my $ON = 0;
+	my @reason;
 
 	$ON = 1 if ((defined $fadehandle) and (scalar@FadeStack));
+	push @reason, 'Sunshine is fading';
 
 	unless ($ON) {
 		for (1..MAXALARMS) { if ($Alarm{$_}->{IsOn}) { $ON = 1; last;} }
+		push @reason, 'There is an active alarm';
 	}
 
 	if ($::Options{OPT.'Sunshine3IsOn'} != $ON)
 	{ 
 		$::Options{OPT.'Sunshine3IsOn'} = $ON;
+		Dlog('SunshineStatus has changed to :'.(($ON)? 'ON' : 'OFF').((scalar@reason)? ' ('.(join " / ", @reason).')' : ''));
 		::HasChanged('Sunshine3Status');
 	}
 
