@@ -1,3 +1,9 @@
+Wed Aug  1, 2012
+* 'Stop volumefade' in contextmenu
+* Don't allow manual sleepconditions if options for 'em are not visible
+* Preflaunching presets shows additional 'save'-button in dialog
+* Optional 'Show contextmenu' - option
+
 Tue Jul 31, 2012
 * Fixed wrong curve/delay - values being sent to CreateFade
 * Cleaner code is cleaner
