@@ -1,3 +1,6 @@
+Thu Aug  2, 2012
+* Changed @AlarmFields into hash with default values, initialized (and saved) on startup - no more 'load/savePreset()' on launchdialog
+
 Wed Aug  1, 2012
 * 'Stop volumefade' in contextmenu
 * Don't allow manual sleepconditions if options for 'em are not visible

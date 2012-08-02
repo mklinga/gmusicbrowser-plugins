@@ -84,9 +84,24 @@ my %SleepConditions = (
 my %LaunchCommands = ( _('Play') => '::Play()', _('Pause') => '::Pause()', _('Nothing') => '',);
 my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
 my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
-my @AlarmFields = ('FadeTo', 'LaunchAt','LaunchHour','LaunchMin','InitialCommand','UseFade','DelayMode','FinishingCommand', 'TimeCount','TrackCount',
-	'DelayCurve','DelayPerc','ManualSleepConditions','ManualReqCombo','Name', 'FadeCurveCombo','FadePercCombo');
-
+my %AlarmFields = (
+	'FadeTo' => 0,
+   	'LaunchAt' => 0,
+	'LaunchHour' => 22,
+	'LaunchMin' => 0,
+	'InitialCommand' => _('Nothing'),
+	'UseFade' => 1,
+	'DelayMode' => _('After minutes'),
+	'FinishingCommand' => _('Nothing'),
+   	'TimeCount' => 45,
+	'TrackCount' => 10,
+	'DelayCurve' => 1,
+	'DelayPerc' => 0,
+	'ManualSleepConditions' => 0,
+	'ManualReqCombo' => _('Require all'),
+	'Name' => '',
+   	'FadeCurveCombo' => _('Linear'),
+	'FadePercCombo' => _('None'));
 # PN: Preset Name, LA: Launch at, IC: Initial command, VF: Volumefade, DM[E/M]: Delaymode [everything/minimal], FC: Finishing Command
 # DA: Delay (advanced), MS : Multiple sleepconditions
 my %Schemes = ( 
@@ -112,14 +127,19 @@ sub Start
 	$::Options{OPT.'Sunshine3IsOn'} = 0;
 
 	# Initialize some values for presets
-	unless (defined $::Options{OPT.'preset1Name'})
+	unless (defined $::Options{OPT.'preset'.(MAXALARMS).'Name'})
 	{
-		for (1..MAXALARMS)
+		for my $set (reverse 1..MAXALARMS)
 		{
-			$::Options{OPT.'preset'.$_.'Name'} = "Preset ".$_;
-			$::Options{OPT.'NoDialogButton'.$_} = 0;
-			$::Options{OPT.'ShowAdvanced'.$_} = 0;
-			$::Options{OPT.'SchemeCombo'.$_} = _('Show everything');
+			last if (defined $::Options{OPT.'preset'.$set.'Name'});
+			$::Options{OPT.'NoDialogButton'.$set} = 0;
+			$::Options{OPT.'ShowAdvanced'.$set} = 0;
+			$::Options{OPT.'SchemeCombo'.$set} = _('Show everything');
+
+			for my $af (keys %AlarmFields) { $::Options{OPT.'preset'.$set.$af} = $AlarmFields{$af}; }
+			for my $ms (keys %SleepConditions) {$::Options{OPT.'preset'.$set.'MS'.$ms} = 0;}
+
+			$::Options{OPT.'preset'.$set.'Name'} = "Preset ".$set;
 		}
 	}
 }
@@ -224,6 +244,7 @@ sub Launch
 
 	Dlog((($preflaunch)? '[Pref]' : '').'Launch('.$set.')');
 
+	LoadPreset($set) if ((!$preflaunch) and ($::Options{OPT.'NoDialog_Button'.$set}));
 	if (((!$preflaunch) and ($::Options{OPT.'NoDialog_Button'.$set})) or (LaunchDialog($set,$preflaunch) eq 'ok'))
 	{
 		Dlog('Preparing to launch alarm '.$set);
@@ -237,34 +258,6 @@ sub Launch
 
 	CheckDelayConditions();
 	IsSunshineOn();
-
-	return 1;
-}
-
-sub SavePreset
-{
-	my $set = shift;
-
-	for (@AlarmFields) {
-		$::Options{OPT.'preset'.$set.$_} = $::Options{OPT.$_} if (defined $::Options{OPT.$_} );
-	}
-	for (keys %SleepConditions){
-		$::Options{OPT.'preset'.$set.'MS'.$_} = $::Options{OPT.'MS'.$_} if (defined $::Options{OPT.'MS'.$_} );
-	}
-
-	return 1;
-}
-
-sub LoadPreset
-{
-	my $set = shift;
-
-	for (@AlarmFields) {
-		$::Options{OPT.$_} = $::Options{OPT.'preset'.$set.$_} if (defined $::Options{OPT.'preset'.$set.$_});
-	}
-	for (keys %SleepConditions){
-		$::Options{OPT.'MS'.$_}  = $::Options{OPT.'preset'.$set.'MS'.$_} if (defined $::Options{OPT.'preset'.$set.'MS'.$_});
-	}
 
 	return 1;
 }
@@ -288,7 +281,7 @@ sub LaunchDialog
 {
 	my ($set,$preflaunch) = @_;
 
-	LoadPreset($set);
+	#LoadPreset($set);
 
 	my $scheme = (defined $::Options{OPT.'SchemeCombo'.$set})? $::Options{OPT.'SchemeCombo'.$set} : _('Show everything');
 	# for certain 'schemes' we want to set specific options even if they're not for user to decide (like InitialCommand = pause for 'basic wake' etc.)
@@ -302,77 +295,77 @@ sub LaunchDialog
 	$LaunchDialog->set_position('center-always');
 
 	# PN: Preset Name
-	my $PNentry = ::NewPrefEntry(OPT.'Name','Alarm\'s name:');
+	my $PNentry = ::NewPrefEntry(OPT.'preset'.$set.'Name','Alarm\'s name:');
 	my $PRESET_NAME = ($scheme =~ /PN/)? [$PNentry] : undef;
 
 	# LA: Launch at
-	my $check1 = ::NewPrefCheckButton(OPT.'LaunchAt','Launch at: ');
-	my $spin1 = ::NewPrefSpinButton(OPT.'LaunchHour',0,24,wrap=>1);
+	my $check1 = ::NewPrefCheckButton(OPT.'preset'.$set.'LaunchAt','Launch at: ');
+	my $spin1 = ::NewPrefSpinButton(OPT.'preset'.$set.'LaunchHour',0,24,wrap=>1);
 	my $l1 = Gtk2::Label->new(_(':'));
-	my $spin2 = ::NewPrefSpinButton(OPT.'LaunchMin',0,59,wrap=>1);
+	my $spin2 = ::NewPrefSpinButton(OPT.'preset'.$set.'LaunchMin',0,59,wrap=>1);
 	my $labut1 = ::NewIconButton('gtk-refresh',undef,sub {
 		my (undef,$M,$H,undef,undef,undef,undef,undef,undef) = localtime(time);
 		$spin1->set_value($H); $spin2->set_value($M);
-		$::Options{OPT.'LaunchHour'} = $H;
-		$::Options{OPT.'LaunchMin'} = $M;
+		$::Options{OPT.'preset'.$set.'LaunchHour'} = $H;
+		$::Options{OPT.'preset'.$set.'LaunchMin'} = $M;
 		},undef);
 	my $LAUNCH_AT = ($scheme =~ /LA/)? [$check1,$spin1,$l1,$spin2,$labut1] : undef;
 	
 	# IC: Initial command
 	my $l2 = Gtk2::Label->new('Initial command: ');
-	my $combo1 = ::NewPrefCombo(OPT.'InitialCommand',[sort keys %LaunchCommands]);
+	my $combo1 = ::NewPrefCombo(OPT.'preset'.$set.'InitialCommand',[sort keys %LaunchCommands]);
 	my $INITIAL_COMMAND = ($scheme =~ /IC/)? [$l2,$combo1] : undef;
 
 	# VF: Volume fade
-	my $check2 = ::NewPrefCheckButton(OPT.'UseFade','Fade volume to');
-	my $spin3 = ::NewPrefSpinButton(OPT.'FadeTo',0,100);
-	my $but1 = ::NewIconButton('gtk-refresh',undef,sub { $::Options{OPT.'FadeTo'} = ::GetVol; $spin3->set_value($::Options{OPT.'FadeTo'});}	,undef);
+	my $check2 = ::NewPrefCheckButton(OPT.'preset'.$set.'UseFade','Fade volume to');
+	my $spin3 = ::NewPrefSpinButton(OPT.'preset'.$set.'FadeTo',0,100);
+	my $but1 = ::NewIconButton('gtk-refresh',undef,sub { $::Options{OPT.'preset'.$set.'FadeTo'} = ::GetVol; $spin3->set_value($::Options{OPT.'preset'.$set.'FadeTo'});}	,undef);
 	my $VOLUME_FADE = ($scheme =~ /VF/)? [$check2,$spin3,$but1] : undef;
 
 	# DM: Delaymode
 	my $l3 = ($scheme =~ /DME/)? Gtk2::Label->new('Delaymode') : Gtk2::Label->new('Minutes to fade');
-	my $spin4 = ::NewPrefSpinButton(OPT.'DelayModeEntry',1,720, cb => sub {
-			my ($scitem) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
-			$::Options{OPT.$SleepConditions{$scitem}->{OPT_setting}} = $::Options{OPT.'DelayModeEntry'} if (exists $SleepConditions{$scitem}->{OPT_setting});
+	my $spin4 = ::NewPrefSpinButton(OPT.'preset'.$set.'DelayModeEntry',1,720, cb => sub {
+			my ($scitem) = grep {($::Options{OPT.'preset'.$set.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
+			$::Options{OPT.'preset'.$set.$SleepConditions{$scitem}->{OPT_setting}} = $::Options{OPT.'preset'.$set.'DelayModeEntry'} if (exists $SleepConditions{$scitem}->{OPT_setting});
 	});
 	my $refr = sub {
-		my ($scitem) = grep {($::Options{OPT.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
-		$spin4->set_value($::Options{OPT.$SleepConditions{$scitem}->{OPT_setting}}) if (exists $SleepConditions{$scitem}->{OPT_setting});
+		my ($scitem) = grep {($::Options{OPT.'preset'.$set.'DelayMode'} =~ /^$SleepConditions{$_}->{label}/) } (keys %SleepConditions);
+		$spin4->set_value($::Options{OPT.'preset'.$set.$SleepConditions{$scitem}->{OPT_setting}}) if (exists $SleepConditions{$scitem}->{OPT_setting});
 		$spin4->set_sensitive((defined $SleepConditions{$scitem}->{OPT_setting})? 1 : 0);
 	};
 	my @p = map { $SleepConditions{$_}->{label} } (sort keys %SleepConditions);
-	my $combo2 = ::NewPrefCombo(OPT.'DelayMode', \@p, cb => $refr);
+	my $combo2 = ::NewPrefCombo(OPT.'preset'.$set.'DelayMode', \@p, cb => $refr);
 	my $DELAY_MODE = ($scheme =~ /DM/)? (($scheme =~ /DME/)? [$l3,$combo2,$spin4] : [$l3,$spin4]) : undef;
 
 	# FC: Finishing command
 	my $l4 = Gtk2::Label->new('Finishing command: ');
-	my $combo5 = ::NewPrefCombo(OPT.'FinishingCommand',[sort keys %LaunchCommands]);
+	my $combo5 = ::NewPrefCombo(OPT.'preset'.$set.'FinishingCommand',[sort keys %LaunchCommands]);
 	my $FINISHING_COMMAND = ($scheme =~ /FC/)? [$l4,$combo5] : undef;
 
 
 	# Advanced Options
 
 	# We can't allow manual sleepconditions if they're not visible!
-	$::Options{OPT.'ManualSleepConditions'} = 0 unless (($::Options{OPT.'ShowAdvanced'.$set}) and ($scheme =~ /MS/));
+	$::Options{OPT.'preset'.$set.'ManualSleepConditions'} = 0 unless (($::Options{OPT.'ShowAdvanced'.$set}) and ($scheme =~ /MS/));
 
 	# DA: Delay (advanced)
-	my $combo3 = ::NewPrefCombo(OPT.'FadeCurveCombo',[sort keys %DelayCurves], text => 'Curve: ', cb => sub { $::Options{OPT.'DelayCurve'} = $DelayCurves{$::Options{OPT.'FadeCurveCombo'}}});
-	my $combo4 = ::NewPrefCombo(OPT.'FadePercCombo',[sort keys %DelayPercs], text => 'Delay: ', cb => sub { $::Options{OPT.'DelayPerc'} = $DelayPercs{$::Options{OPT.'FadePercCombo'}}});
+	my $combo3 = ::NewPrefCombo(OPT.'preset'.$set.'FadeCurveCombo',[sort keys %DelayCurves], text => 'Curve: ', cb => sub { $::Options{OPT.'preset'.$set.'DelayCurve'} = $DelayCurves{$::Options{OPT.'preset'.$set.'FadeCurveCombo'}}});
+	my $combo4 = ::NewPrefCombo(OPT.'preset'.$set.'FadePercCombo',[sort keys %DelayPercs], text => 'Delay: ', cb => sub { $::Options{OPT.'preset'.$set.'DelayPerc'} = $DelayPercs{$::Options{OPT.'preset'.$set.'FadePercCombo'}}});
 	my $DELAY_ADVANCED = ($scheme =~ /DA/)? [$combo3,$combo4] : undef;
 	
 	# MS: Manual Sleepconditions
-	my $mscombo = ::NewPrefCombo(OPT.'ManualReqCombo',[_('Require all'),_('Require any')]);
+	my $mscombo = ::NewPrefCombo(OPT.'preset'.$set.'ManualReqCombo',[_('Require all'),_('Require any')]);
 	my @cs;
 	for (sort keys %SleepConditions) {
 		if (defined $SleepConditions{$_}->{OPT_setting}) {
-			push @cs, [::NewPrefCheckButton(OPT.'MS'.$_,$SleepConditions{$_}->{label}),::NewPrefSpinButton(OPT.'MS'.$SleepConditions{$_}->{OPT_setting},1,720)];
+			push @cs, [::NewPrefCheckButton(OPT.'preset'.$set.'MS'.$_,$SleepConditions{$_}->{label}),::NewPrefSpinButton(OPT.'preset'.$set.$SleepConditions{$_}->{OPT_setting},1,720)];
 		}
 		else{
-			push @cs, ::NewPrefCheckButton(OPT.'MS'.$_,$SleepConditions{$_}->{label});
+			push @cs, ::NewPrefCheckButton(OPT.'preset'.$set.'MS'.$_,$SleepConditions{$_}->{label});
 		}
 	}
 	my $mssens = sub {
-		my $s = ($::Options{OPT.'ManualSleepConditions'})? 1 : 0;
+		my $s = ($::Options{OPT.'preset'.$set.'ManualSleepConditions'})? 1 : 0;
 		for my $c (@cs){
 			if(ref($c) eq 'ARRAY'){$_->set_sensitive($s) for (@{$c});}
 			else {$c->set_sensitive($s);}
@@ -381,7 +374,7 @@ sub LaunchDialog
 		$combo2->set_sensitive(!$s);
 		$spin4->set_sensitive(!$s);
 	};
-	my $mscheck1 = ::NewPrefCheckButton(OPT.'ManualSleepConditions','Use custom delayconditions', cb => $mssens);
+	my $mscheck1 = ::NewPrefCheckButton(OPT.'preset'.$set.'ManualSleepConditions','Use custom delayconditions', cb => $mssens);
 	my @MANUAL_SLEEPCONDITIONS = ($scheme =~ /MS/)? [$mscheck1,$mscombo,@cs] : undef;
 
 	my $vbox = ::Vpack($PRESET_NAME,$LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
@@ -399,7 +392,7 @@ sub LaunchDialog
 	}
 	else # if advanced options are hidden, we'll disable 'multiple sleepconditions' in any case
 	{ 
-		$::Options{OPT.'ManualSleepConditions'} = 0;
+		$::Options{OPT.'preset'.$set.'ManualSleepConditions'} = 0;
 	}
 
 	$LaunchDialog->get_content_area()->add($dl);
@@ -410,7 +403,6 @@ sub LaunchDialog
 	my $response = $LaunchDialog->run;
 	
 	$LaunchDialog->destroy();
-	SavePreset($set) if ($response ne 'cancel');
 
 	return $response;
 }
@@ -635,14 +627,15 @@ sub SetupNewAlarm
 	my $set = shift;
 
 	Dlog('Setting properties for alarm '.$set);
-	for (@AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.$_}; }
+
+	for (keys %AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.'preset'.$set.$_}; }
 
 	if ($Alarm{$set}->{ManualSleepConditions}) {
 		$Alarm{$set}->{SC} = ($Alarm{$set}->{'ManualReqCombo'} =~ /any/)? 'any' : 'all';
 		for (sort keys %SleepConditions) {
-			next unless ($::Options{OPT.'MS'.$_});
+			next unless ($::Options{OPT.'preset'.$set.'MS'.$_});
 		   	$Alarm{$set}->{SC} .= '|'.$_; 
-			$Alarm{$set}->{$SleepConditions{$_}->{OPT_setting}} = $::Options{OPT.'MS'.$SleepConditions{$_}->{OPT_setting}} if (defined $SleepConditions{$_}->{OPT_setting});
+			$Alarm{$set}->{$SleepConditions{$_}->{OPT_setting}} = $::Options{OPT.'preset'.$set.$SleepConditions{$_}->{OPT_setting}} if (defined $SleepConditions{$_}->{OPT_setting});
 		}
 		if ($Alarm{$set}->{SC} =~ /^(any|all)$/) { $Alarm{$set}->{SC} = 'any|5_Immediate';}
 	}
@@ -717,7 +710,7 @@ sub LayoutButtonMenu
 	#helper method
 	my $append=sub
 	 {	my ($menu,$set)=@_;
-		my $item = Gtk2::CheckMenuItem->new_with_label($::Options{OPT.'preset'.$set.'Name'} || 'Preset '.$set);
+		my $item = Gtk2::CheckMenuItem->new_with_label($::Options{OPT.'preset'.$set.'Name'});
 		my $true = ($Alarm{$set}->{IsOn})? 1 : 0;
 		$item->set_active($true);
 		$item->signal_connect (activate => sub { Launch($set);});
@@ -745,7 +738,7 @@ sub LayoutButtonMenu
 		my $append2=sub 
 		{
 			my ($menu,$set)=@_;
-			my $item = Gtk2::MenuItem->new_with_label(($::Options{OPT.'preset'.$set.'Name'} || 'Preset '.$set));
+			my $item = Gtk2::MenuItem->new_with_label($::Options{OPT.'preset'.$set.'Name'});
 			$item->signal_connect (activate => sub { KillAlarm($set);});
 			$menu->append($item);
 		 };
