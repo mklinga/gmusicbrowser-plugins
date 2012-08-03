@@ -1,5 +1,15 @@
+Fri Aug  3, 2012
+* Fixed bug where specialsets were put in wrong Options{} slot
+* Stricter policy on creating unnecessary alarmhandles
+* Fixed a silly bug where function got confused with hash-reference... d'oh 
+
 Thu Aug  2, 2012
 * Changed @AlarmFields into hash with default values, initialized (and saved) on startup - no more 'load/savePreset()' on launchdialog
+* GetSCString as a new function
+* Add OPT_settings' to alarmfields on startup to simplify SetupNewAlarm
+* Inlined setup for schemes' specialsettings
+* Use absolute values for fadevolume instead of relative, tweaked CreateFade and Fade accordingly
+* Fixed potential bug by adding ReqModes instead of comparing strings
 
 Wed Aug  1, 2012
 * 'Stop volumefade' in contextmenu
