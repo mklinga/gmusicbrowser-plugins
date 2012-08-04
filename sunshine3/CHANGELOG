@@ -1,7 +1,12 @@
+Sat Aug  4, 2012
+* Treat alarms waiting for launch as 'on' in IsSunshineOn()
+
 Fri Aug  3, 2012
 * Fixed bug where specialsets were put in wrong Options{} slot
 * Stricter policy on creating unnecessary alarmhandles
 * Fixed a silly bug where function got confused with hash-reference... d'oh 
+* Global 'Show advanced options' instead of alarm specific
+* Better preferences: allow AlarmName editing straight from prefs.
 
 Thu Aug  2, 2012
 * Changed @AlarmFields into hash with default values, initialized (and saved) on startup - no more 'load/savePreset()' on launchdialog

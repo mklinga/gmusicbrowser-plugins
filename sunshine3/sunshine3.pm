@@ -32,7 +32,7 @@ use utf8;
 
 ::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => _('Nothing'), FinishingCommand => _('Nothing'),
 	FadeTo => 0, DelayMode => _('After minutes'), FadeCurveCombo => _('Linear'), DelayCurve => 1, FadePercCombo => _('None'), DelayPerc => 0,
-	UseDLog => 1, TimeCount => 30, TrackCount => 8, ManualReqCombo => _('Require all'), ShowContextMenu => 1);
+	UseDLog => 1, TimeCount => 30, TrackCount => 8, ManualReqCombo => _('Require all'), ShowContextMenu => 1, ShowAdvancedOptions => 0);
 
 my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
@@ -80,7 +80,6 @@ my %SleepConditions = (
 
 # Some examples for additional commands:
 # _('Clear Filter') => '::Select(filter => Filter->new)', _('Toggle Sort/Random') => '::ToggleSort()',
-
 my %LaunchCommands = ( _('Play') => '::Play()', _('Pause') => '::Pause()', _('Nothing') => '',);
 my %DelayCurves = ( _('Linear') => 1, _('Smooth') => 1.4, _('Smoothest') => 1.8, _('Steep') => 0.6,);
 my %DelayPercs = (_('None') => 0, _('Small') => 0.25, _('Long') => 0.5);
@@ -134,7 +133,6 @@ sub Start
 		{
 			last if (defined $::Options{OPT.'preset'.$set.'Name'});
 			$::Options{OPT.'NoDialogButton'.$set} = 0;
-			$::Options{OPT.'ShowAdvanced'.$set} = 0;
 			$::Options{OPT.'SchemeCombo'.$set} = _('Show everything');
 
 			for my $af (keys %AlarmFields) { $::Options{OPT.'preset'.$set.$af} = $AlarmFields{$af}; }
@@ -157,19 +155,19 @@ sub Stop
 sub prefbox
 {
 	my @f;
+	my $frame = Gtk2::Frame->new(' Alarms ');
 	for my $i (1..MAXALARMS)
 	{
-		my $title = ($i < 4)? ('Button '.$i) : ('Preset '.$i);
-		push @f, Gtk2::Frame->new($title);
-		my $check1 = ::NewPrefCheckButton(OPT.'NoDialog_Button'.$i,'Launch immediately');
-		my $check2 = ::NewPrefCheckButton(OPT.'ShowAdvanced'.$i,'Show advanced options');
-		my $button1 = ::NewIconButton('gtk-apply',_('Preferences'), sub {Launch($i,1); },undef);
+		my $entry = ::NewPrefEntry(OPT.'preset'.$i.'Name',$i.'.');
+		my $check1 = ::NewPrefCheckButton(OPT.'NoDialog_Button'.$i,'Launch without dialog');
+		my $button1 = ::NewIconButton('gtk-properties',_('Properties'), sub {Launch($i,1); },undef);
 		my $schemecombo = ::NewPrefCombo(OPT.'SchemeCombo'.$i,[sort keys %Schemes]);
-		$f[$i-1]->add(::Hpack($schemecombo,$check1,$check2,$button1));
+		push @f, ::Hpack($entry,$schemecombo,$check1,$button1);
 	}
-
+	$frame->add(::Vpack(@f));
 	my $contextCheck = ::NewPrefCheckButton(OPT.'ShowContextMenu','Show Context-menu on right-click');
-	my $vbox=::Vpack(@f,$contextCheck);
+	my $advancedCheck = ::NewPrefCheckButton(OPT.'ShowAdvancedOptions','Show advanced options');
+	my $vbox=::Vpack($frame,$contextCheck,$advancedCheck);
 	return $vbox;
 }
 
@@ -332,7 +330,7 @@ sub LaunchDialog
 
 	# Advanced Options
 	# We can't allow manual sleepconditions if they're not visible!
-	$::Options{OPT.'preset'.$set.'ManualSleepConditions'} = 0 unless (($::Options{OPT.'ShowAdvanced'.$set}) and ($scheme =~ /MS/));
+	$::Options{OPT.'preset'.$set.'ManualSleepConditions'} = 0 unless (($::Options{OPT.'ShowAdvancedOptions'}) and ($scheme =~ /MS/));
 
 	# DA: Delay (advanced)
 	my $combo3 = ::NewPrefCombo(OPT.'preset'.$set.'FadeCurveCombo',[sort keys %DelayCurves], text => 'Curve: ', cb => sub { $::Options{OPT.'preset'.$set.'DelayCurve'} = $DelayCurves{$::Options{OPT.'preset'.$set.'FadeCurveCombo'}}});
@@ -366,11 +364,11 @@ sub LaunchDialog
 	my $vbox = ::Vpack($PRESET_NAME,$LAUNCH_AT,$INITIAL_COMMAND,$VOLUME_FADE,$DELAY_MODE,$FINISHING_COMMAND);
 	my $vbox2 = ::Vpack($DELAY_ADVANCED,\@MANUAL_SLEEPCONDITIONS);
 	&$refr;
-	&$mssens if (($::Options{OPT.'ShowAdvanced'.$set}) and ($scheme =~ /MS/));
+	&$mssens if (($::Options{OPT.'ShowAdvancedOptions'}) and ($scheme =~ /MS/));
 
 	my $dl = $vbox;
 	# if we have advanced options, we'll show notebook containing 'basic' and 'advanced'
-	if (($::Options{OPT.'ShowAdvanced'.$set}) and ($scheme =~ /MS|DA/))
+	if (($::Options{OPT.'ShowAdvancedOptions'}) and ($scheme =~ /MS|DA/))
 	{
 		$dl =Gtk2::Notebook->new();
 		$dl->append_page($vbox,'Basic');
@@ -562,7 +560,8 @@ sub CreateNewAlarm
 				return 0;
 		},1);
 		$Alarm{$set}->{LaunchAt} = 0;
-		$Alarm{$set}->{IsOn} = 0; # we don't concider 'waiting for launch' as 'on' for alarm
+		$Alarm{$set}->{IsOn} = 0;
+		$Alarm{$set}->{IsWaiting} = 1;
 		Dlog('Waiting for ['.sprintf("%.2d\:%.2d",$Alarm{$set}->{LaunchHour},$Alarm{$set}->{LaunchMin}).'] to launch Wake-alarm (in '.$timetolaunch.' seconds)');
 		return 2; # we'll be back after a while
 	}
@@ -580,6 +579,7 @@ sub CreateNewAlarm
 		}
 	}
 
+	$Alarm{$set}->{IsWaiting} = 0;
 	$Alarm{$set}->{IsOn} = 1;
 	$Alarm{$set}->{StartTime} = time;
 	$Alarm{$set}->{InitialAlbum} = join " ", Songs::Get($::SongID,qw/album_artist year album/);
@@ -661,7 +661,7 @@ sub IsSunshineOn
 	my $ON = 0;
 
 	$ON = 1 if ((defined $fadehandle) and (scalar@FadeStack));
-	unless ($ON) { for (1..MAXALARMS) { if ($Alarm{$_}->{IsOn}) { $ON = 1; last;} } }
+	unless ($ON) { for (1..MAXALARMS) { if (($Alarm{$_}->{IsOn}) or ($Alarm{$_}->{IsWaiting})) { $ON = 1; last;} } }
 
 	if ($::Options{OPT.'Sunshine3IsOn'} != $ON) {
 		$::Options{OPT.'Sunshine3IsOn'} = $ON;
