@@ -30,11 +30,8 @@ use constant
 
 use utf8;
 
-::SetDefaultOptions(OPT, LaunchAt => 0, LaunchHour => 19, LaunchMin => 0, InitialCommand => _('Nothing'), FinishingCommand => _('Nothing'),
-	FadeTo => 0, DelayMode => _('After minutes'), FadeCurveCombo => _('Linear'), DelayCurve => 1, FadePercCombo => _('None'), DelayPerc => 0,
-	UseDLog => 1, TimeCount => 30, TrackCount => 8, ManualReqCombo => _('Require all'), ShowContextMenu => 1, ShowAdvancedOptions => 0);
+::SetDefaultOptions(OPT, UseDLog => 1, ShowContextMenu => 1, ShowAdvancedOptions => 0);
 
-my %dayvalues= ( Mon => 1, Tue => 2,Wed => 3,Thu => 4,Fri => 5,Sat => 6,Sun => 0);
 my %sunshine_button=
 (	class	=> 'Layout::Button',
 	stock	=>{passive => 'plugin-sunshine3', active => 'plugin-sunshine3-ON'},
@@ -70,7 +67,7 @@ my %SleepConditions = (
 		OPT_setting => 'TimeCount',
 		CalcLength => 'return 60*$Alarm{$set}->{TimeCount}',
 		IsFinished => 'return (time-$Alarm{$set}->{StartTime} >= ($Alarm{$set}->{TimeCount}*60))',
-		Flags => 't'},
+		Flags => 'ft'},
 	'5_Immediate' => {
 		'label' => _('Immediately'),
 		CalcLength => 'return 0',
@@ -132,8 +129,8 @@ sub Start
 		for my $set (reverse 1..MAXALARMS)
 		{
 			last if (defined $::Options{OPT.'preset'.$set.'Name'});
-			$::Options{OPT.'NoDialogButton'.$set} = 0;
-			$::Options{OPT.'SchemeCombo'.$set} = _('Show everything');
+			$::Options{OPT.'preset'.$set.'NoDialogButton'} = 0;
+			$::Options{OPT.'preset'.$set.'SchemeCombo'} = _('Show everything');
 
 			for my $af (keys %AlarmFields) { $::Options{OPT.'preset'.$set.$af} = $AlarmFields{$af}; }
 			for my $ms (keys %SleepConditions) {$::Options{OPT.'preset'.$set.'MS'.$ms} = 0;}
@@ -159,9 +156,9 @@ sub prefbox
 	for my $i (1..MAXALARMS)
 	{
 		my $entry = ::NewPrefEntry(OPT.'preset'.$i.'Name',$i.'.');
-		my $check1 = ::NewPrefCheckButton(OPT.'NoDialog_Button'.$i,'Launch without dialog');
+		my $check1 = ::NewPrefCheckButton(OPT.'preset'.$i.'NoDialog_Button','Launch without dialog');
 		my $button1 = ::NewIconButton('gtk-properties',_('Properties'), sub {Launch($i,1); },undef);
-		my $schemecombo = ::NewPrefCombo(OPT.'SchemeCombo'.$i,[sort keys %Schemes]);
+		my $schemecombo = ::NewPrefCombo(OPT.'preset'.$i.'SchemeCombo',[sort keys %Schemes]);
 		push @f, ::Hpack($entry,$schemecombo,$check1,$button1);
 	}
 	$frame->add(::Vpack(@f));
@@ -174,7 +171,10 @@ sub prefbox
 sub SongChanged
 {
 	return if ($::SongID == $oldID);
-	for (1..MAXALARMS) {$Alarm{$_}->{PassedTracks}++ if ($Alarm{$_}->{IsOn});}
+	for (1..MAXALARMS) {
+		$Alarm{$_}->{PassedTracks}++ if ($Alarm{$_}->{IsOn});
+		FinishAlarm($_) if ($Alarm{$_}->{WaitingForNext});
+	}
 	CheckDelayConditions();
 
 	return 1;
@@ -188,8 +188,7 @@ sub CheckDelayConditions
 	for my $set (@a)
 	{
 		next unless ($Alarm{$set}->{IsOn});
-
-		if ($Alarm{$set}->{WaitingForNext}) { FinishAlarm($set); next; }
+		next if ($Alarm{$set}->{WaitingForNext});
 
 		my ($sleepnow, $finishonnext) = (0,0);
 		my @SCs = split /\|/, $Alarm{$set}->{SC};
@@ -245,7 +244,7 @@ sub Launch
 
 	Dlog((($preflaunch)? '[Pref]' : '').'Launch('.$set.')');
 
-	if (((!$preflaunch) and ($::Options{OPT.'NoDialog_Button'.$set})) or (LaunchDialog($set,$preflaunch) eq 'ok'))
+	if (((!$preflaunch) and ($::Options{OPT.'preset'.$set.'NoDialog_Button'})) or (LaunchDialog($set,$preflaunch) eq 'ok'))
 	{
 		Dlog('Preparing to launch alarm '.$set);
 		KillAlarm($set) if ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
@@ -253,11 +252,11 @@ sub Launch
 		unless (SetupNewAlarm($set)) { Dlog('SetupNewAlarm FAILED!'); return 0;}
 		# launch the actual alarm
 		unless (CreateNewAlarm($set)) { Dlog('CreateNewAlarm FAILED!'); return 0;}
+
+		CheckDelayConditions();
+		IsSunshineOn();
 	}
 	else { Dlog('...no Launch after all');}
-
-	CheckDelayConditions();
-	IsSunshineOn();
 
 	return 1;
 }
@@ -266,7 +265,7 @@ sub LaunchDialog
 {
 	my ($set,$preflaunch) = @_;
 
-	my $scheme = (defined $::Options{OPT.'SchemeCombo'.$set})? $::Options{OPT.'SchemeCombo'.$set} : _('Show everything');
+	my $scheme = (defined $::Options{OPT.'preset'.$set.'SchemeCombo'})? $::Options{OPT.'preset'.$set.'SchemeCombo'} : _('Show everything');
 	# for certain 'schemes' we want to set specific options even if they're not for user to decide (like InitialCommand = pause for 'basic wake' etc.)
 	if (defined $Schemes{$scheme}->{specialset}){
 		$::Options{OPT.'preset'.$set.$_} = ${$Schemes{$scheme}->{specialset}}{$_} for (keys %{$Schemes{$scheme}->{specialset}});
@@ -370,7 +369,7 @@ sub LaunchDialog
 	# if we have advanced options, we'll show notebook containing 'basic' and 'advanced'
 	if (($::Options{OPT.'ShowAdvancedOptions'}) and ($scheme =~ /MS|DA/))
 	{
-		$dl =Gtk2::Notebook->new();
+		$dl = Gtk2::Notebook->new();
 		$dl->append_page($vbox,'Basic');
 		$dl->append_page($vbox2,'Advanced');
 	}
@@ -402,31 +401,15 @@ sub DoCommand
 	return 1;
 }
 
-# times can be formatted either XXX:??:?? or just ??:??,
-# where XXX = weekday abbr, and ??:?? hour and minutes, divided by ':'
-# hour & minute might be 1 or 2 digits long
-sub GetShortestTimeTo
+sub GetNextTime
 {
-	my @Times = @_;
+	my $timestring = shift;
 	my $Now=time;
-	my ($cSec,$cMin,$cHour,$cMday,$cMon,$cYear,$cWeekday,$cYday,$cIsdst)= localtime($Now);
-	my $Next=0;
+	my (undef,$cMin,$cHour,$cMday,$cMon,$cYear,undef,undef,undef) = localtime($Now);
 
-	for my $timestring (@Times)
-	{
-		next unless ($timestring =~ /^(\D{3})?\:?(\d{1,2})\:(\d{1,2})$/);
-
-		my $Hour = $2; my $Min = $3;
-		my $Weekday;
-
-		if (defined $1) {$Weekday = $dayvalues{$1}}
-		else {$Weekday = ((($Hour*3600)+($Min*60)+(0)) < (($cHour*3600)+($cMin*60)+$cSec))? ($cWeekday+1)%7 : $cWeekday;}
-		my $Monthday = $cMday+($Weekday-$cWeekday);
-		my $NextTime = ::mktime(0,$Min,$Hour,$Monthday,$cMon,$cYear);
-		$NextTime += (7*24*60*60) if ($NextTime < $Now); #if time we got is smaller than 'now', then next occurance is a week later
-
-		$Next = $NextTime if ((!$Next) or ($Next > $NextTime));
-	}
+	return 0 unless ($timestring =~ /^(\d{1,2})\:(\d{1,2})$/);
+	my $Next = ::mktime(0,$2,$1,$cMday,$cMon,$cYear);
+	$Next += (24*60*60) if ($Next < $Now); # if time we got is smaller than 'now', the next occurance is tomorrow
 
 	return ($Next-$Now);
 }
@@ -552,7 +535,7 @@ sub CreateNewAlarm
 
 	Dlog('Creating new alarm '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
 	if ($Alarm{$set}->{LaunchAt}) {
-		my $timetolaunch = GetShortestTimeTo($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
+		my $timetolaunch = GetNextTime($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($timetolaunch*1000,sub
 			{
 				CreateNewAlarm($set) unless ($Alarm{$set}->{IsON});
