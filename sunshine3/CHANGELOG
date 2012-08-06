@@ -1,3 +1,6 @@
+Sun Aug  5, 2012
+* Merge SetupNewAlarm with CreateNewAlarm
+
 Sat Aug  4, 2012
 * Treat alarms waiting for launch as 'on' in IsSunshineOn()
 * More consistent option names

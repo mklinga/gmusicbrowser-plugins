@@ -138,7 +138,7 @@ sub Start
 			$::Options{OPT.'preset'.$set.'Name'} = "Preset ".$set;
 		}
 	}
-	# add OPT_settings in AlarmFields for simpifying SetupNewAlarm
+	# add OPT_settings in AlarmFields for simpifying setupping alarm
 	for (keys %SleepConditions) { $AlarmFields{$SleepConditions{$_}->{OPT_setting}} = 0 if (defined $SleepConditions{$_}->{OPT_setting}); }
 }
 
@@ -187,8 +187,7 @@ sub CheckDelayConditions
 
 	for my $set (@a)
 	{
-		next unless ($Alarm{$set}->{IsOn});
-		next if ($Alarm{$set}->{WaitingForNext});
+		next if (($Alarm{$set}->{WaitingForNext}) or (!$Alarm{$set}->{IsOn}));
 
 		my ($sleepnow, $finishonnext) = (0,0);
 		my @SCs = split /\|/, $Alarm{$set}->{SC};
@@ -248,9 +247,6 @@ sub Launch
 	{
 		Dlog('Preparing to launch alarm '.$set);
 		KillAlarm($set) if ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
-		#copy values from dialog to $Alarm{$set}
-		unless (SetupNewAlarm($set)) { Dlog('SetupNewAlarm FAILED!'); return 0;}
-		# launch the actual alarm
 		unless (CreateNewAlarm($set)) { Dlog('CreateNewAlarm FAILED!'); return 0;}
 
 		CheckDelayConditions();
@@ -533,6 +529,11 @@ sub CreateNewAlarm
 {
 	my $set = shift;
 
+	Dlog('Setting properties for alarm '.$set);
+	for (keys %AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.'preset'.$set.$_}; }
+	$Alarm{$set}->{SC} = GetSCString($set);
+	$Alarm{$set}->{DelayTime} = CalculateDelayTime($set);
+
 	Dlog('Creating new alarm '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
 	if ($Alarm{$set}->{LaunchAt}) {
 		my $timetolaunch = GetNextTime($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
@@ -602,18 +603,6 @@ sub GetSCString
 			$string .= '|'.$_ if (($Alarm{$set}->{ManualSleepConditions}) and ($::Options{OPT.'preset'.$set.'MS'.$_}));
 	}
 	return (($string =~ /^(any|all)$/)? 'any|'.(keys %SleepConditions)[0] : $string);
-}
-
-sub SetupNewAlarm
-{
-	my $set = shift;
-
-	Dlog('Setting properties for alarm '.$set);
-	for (keys %AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.'preset'.$set.$_}; }
-	$Alarm{$set}->{SC} = GetSCString($set);
-	$Alarm{$set}->{DelayTime} = CalculateDelayTime($set);
-
-	return 1;
 }
 
 # KillAlarm doesn't stop ongoing fades
