@@ -527,19 +527,23 @@ sub KillFade
 
 sub CreateNewAlarm
 {
-	my $set = shift;
+	my ($set,$nosetup) = @_;
 
-	Dlog('Setting properties for alarm '.$set);
-	for (keys %AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.'preset'.$set.$_}; }
-	$Alarm{$set}->{SC} = GetSCString($set);
-	$Alarm{$set}->{DelayTime} = CalculateDelayTime($set);
+	unless ($nosetup)
+	{
+
+		Dlog('Setting properties for alarm '.$set);
+		for (keys %AlarmFields) { $Alarm{$set}->{$_} = $::Options{OPT.'preset'.$set.$_}; }
+		$Alarm{$set}->{SC} = GetSCString($set);
+		$Alarm{$set}->{DelayTime} = CalculateDelayTime($set);
+	}
 
 	Dlog('Creating new alarm '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
 	if ($Alarm{$set}->{LaunchAt}) {
 		my $timetolaunch = GetNextTime($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($timetolaunch*1000,sub
 			{
-				CreateNewAlarm($set) unless ($Alarm{$set}->{IsON});
+				CreateNewAlarm($set,1) unless ($Alarm{$set}->{IsON});
 				IsSunshineOn();
 				return 0;
 		},1);

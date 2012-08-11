@@ -1,3 +1,6 @@
+Sat Aug 11, 2012
+* Fixed bug with delayed launch (added $nosetup to createnewalarm)
+
 Sun Aug  5, 2012
 * Merge SetupNewAlarm with CreateNewAlarm
 
