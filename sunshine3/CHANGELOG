@@ -1,3 +1,7 @@
+Sun Aug 12, 2012
+* Fixed cosmetic issue where Icon stayed 'ON' when waiting alarms were killed
+* Disable 'Stop everything' unless there is something to actually stop
+
 Sat Aug 11, 2012
 * Fixed bug with delayed launch (added $nosetup to createnewalarm)
 

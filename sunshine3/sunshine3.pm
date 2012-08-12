@@ -617,7 +617,7 @@ sub KillAlarm
 
 	for my $set (@kill)
 	{
-		next unless ((defined $Alarm{$set}) and ($Alarm{$set}->{IsOn}));
+		next unless ((defined $Alarm{$set}) and (($Alarm{$set}->{IsOn}) or ($Alarm{$set}->{IsWaiting})));
 		Dlog('Killing alarm no: '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
 		Glib::Source->remove($Alarm{$set}->{alarmhandle}) if (defined $Alarm{$set}->{alarmhandle});
 		$Alarm{$set} = undef;
@@ -703,6 +703,7 @@ sub LayoutButtonMenu
 	#Stop Everything
 	my $stopitem = Gtk2::MenuItem->new('Stop Everything');
 	$stopitem->signal_connect (activate => \&KillEverything);
+	$stopitem->set_sensitive(0) if (!IsSunshineOn());
 	$menu->append($stopitem);
 
 	$menu->show_all;
