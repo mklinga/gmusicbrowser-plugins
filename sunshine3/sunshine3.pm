@@ -200,7 +200,7 @@ sub CheckDelayConditions
 			}
 		}
 
-		Dlog($sleepnow.' of '.(scalar@SCs).' conditions for alarm '.$set.'. \''.($Alarm{$set}->{Name}).'\' has finished (Required: '.$req.')');
+		Dlog($sleepnow.' of '.(scalar@SCs).' conditions for alarm '.$set.': \''.($Alarm{$set}->{Name}).'\' has finished (Required: '.$req.')');
 
 		if (($req =~ /any/) and ($sleepnow > 0)){
 			if ($sleepnow > $finishonnext) { FinishAlarm($set); }
@@ -220,7 +220,7 @@ sub FinishAlarm
 	my $set = shift;
 	return 0 unless ($Alarm{$set}->{IsOn});
 
-	Dlog('Finishing alarm '.$set.'.\''.($Alarm{$set}->{Name}).'\'');
+	Dlog('Finishing alarm '.$set.': \''.($Alarm{$set}->{Name}).'\'');
 	DoCommand($Alarm{$set}->{FinishingCommand});
 	KillAlarm($set);
 
@@ -538,7 +538,7 @@ sub CreateNewAlarm
 		$Alarm{$set}->{DelayTime} = CalculateDelayTime($set);
 	}
 
-	Dlog('Creating new alarm '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
+	Dlog('Creating new alarm '.$set.': \''.$Alarm{$set}->{Name}.'\'');
 	if ($Alarm{$set}->{LaunchAt}) {
 		my $timetolaunch = GetNextTime($Alarm{$set}->{LaunchHour}.':'.$Alarm{$set}->{LaunchMin});
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($timetolaunch*1000,sub
@@ -588,7 +588,7 @@ sub CreateNewAlarm
 
 		Dlog('Creating alarmhandle for Time ('.($Alarm{$set}->{TimeCount}*60).' sec)');
 		$Alarm{$set}->{alarmhandle} = Glib::Timeout->add($Alarm{$set}->{TimeCount}*60*1000, sub {
-				Dlog('Alarm '.$set.'. '.$Alarm{$set}->{Name}.' has finished its TimeCount');
+				Dlog('Alarm '.$set.': '.$Alarm{$set}->{Name}.' has finished its TimeCount');
 				CheckDelayConditions();
 				return 0;
 			},1);
@@ -618,7 +618,7 @@ sub KillAlarm
 	for my $set (@kill)
 	{
 		next unless ((defined $Alarm{$set}) and (($Alarm{$set}->{IsOn}) or ($Alarm{$set}->{IsWaiting})));
-		Dlog('Killing alarm no: '.$set.'. \''.$Alarm{$set}->{Name}.'\'');
+		Dlog('Killing alarm no: '.$set.': \''.$Alarm{$set}->{Name}.'\'');
 		Glib::Source->remove($Alarm{$set}->{alarmhandle}) if (defined $Alarm{$set}->{alarmhandle});
 		$Alarm{$set} = undef;
 	}

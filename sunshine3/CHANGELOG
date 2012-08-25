@@ -1,3 +1,6 @@
+Sat Aug 25, 2012
+* Cosmetic fix for sunshine3.log
+
 Sun Aug 12, 2012
 * Fixed cosmetic issue where Icon stayed 'ON' when waiting alarms were killed
 * Disable 'Stop everything' unless there is something to actually stop
