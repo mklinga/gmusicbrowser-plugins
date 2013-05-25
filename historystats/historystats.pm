@@ -130,6 +130,7 @@ sub Start {
 		$::Options{OPT.'StatisticsStartTime'} = time;
 	}
 	$::Options{OPT.'StatWeightedRandomMode'} = ((sort keys %{$::Options{SavedWRandoms}})[0]) unless (defined $::Options{OPT.'StatWeightedRandomMode'});
+	$::Options{OPT.'StatViewUpdateMode'} = ((sort keys %statupdatemodes)[0]) unless (defined $::Options{OPT.'StatViewUpdateMode'});
 
 	$globalstats{starttime} = $::Options{OPT.'StatisticsStartTime'}; 
 	$globalstats{playtime} = $::Options{OPT.'TotalPlayTime'};
