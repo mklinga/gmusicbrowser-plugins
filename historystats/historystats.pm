@@ -822,7 +822,7 @@ sub Updateoverview
 					2,$value,
 					3,$topheads[$store],
 					4,$maxvalue,
-					5,::__('%d play','%d plays',$value)
+					5,::__('%d plays','%d play',$value)
 					);
 		}
 	}
@@ -855,12 +855,12 @@ sub Updateoverview
 		my $icon;
 		my $pic; 
 		my $label = HandleStatMarkup($field,$mainchart_list[$listkey],($listkey+1).'. ',::TRUE,::TRUE);
-		my $value = ::__('%s play','%s plays',$$pcs{$mainchart_list[$listkey]});
+		my $value = ::__('%d plays','%d play',$$pcs{$mainchart_list[$listkey]});
 		
 		if (defined $$oldpcs{$mainchart_list[$listkey]}){
 			my ($num) = grep { $mainchart_list[$listkey] == $oldmainchart_list[$_] } 0..$#oldmainchart_list;
 			
-			$value .= "\n<small>".::__('%s play','%s plays',$$oldpcs{$mainchart_list[$listkey]}).((defined $num)? ' ('.($num+1).'.)' : '').' </small>';
+			$value .= "\n<small>".::__('%d plays','%d play',$$oldpcs{$mainchart_list[$listkey]}).((defined $num)? ' ('.($num+1).'.)' : '').' </small>';
 			
 			if ($::Options{OPT.'ShowOverviewIcon'}){
 				if ((defined $num) and ($num < $listkey)) {$icon = $OverviewChartIcons{down}->{icon};}
