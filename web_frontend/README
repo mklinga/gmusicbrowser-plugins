@@ -3,13 +3,18 @@ evening after becoming so lazy I couldn't be bothered to get up from the couch
 in order to play/pause gmusicbrowser.. Now all I need is my tablet and web
 browser pointed to my computer.
 
+
 :: Requirements: 
 
+
+gmusicbrowser
 php
 php-dbus extension http://pecl.php.net/package/DBus
 (I installed it through php-pear, with: sudo pecl install dbus-beta)
 
+
 :: Installation
+
 
 After installing php-dbus and cloning these files it's (hopefully) a simple
 matter of running server. Note that you must run it as local user, so apache
@@ -17,6 +22,10 @@ matter of running server. Note that you must run it as local user, so apache
 used as server (once again, note! You probably shouldn't do this if your
 computer is accessible from outside world! This is very likely not a secure
 script).
+
+
+:: Launch
+
 
 So, let's launch php server (in folder your files are):
 php -S 192.168.11.4:8003
