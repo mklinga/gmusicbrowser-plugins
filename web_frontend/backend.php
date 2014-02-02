@@ -14,12 +14,13 @@ $songInfo = $DBusProxy->CurrentSong()->getData();
 $result = "No (proper) data recieved!";
 
 if (isset($_POST['data'])) {
-	if ($_POST['data'] == "PlayPause") {
-		$DBusProxy->RunCommand("PlayPause");
-		$result = "Play/Pause <- done";
-	}
-	else
+	$data = json_decode($_POST['data']);
+
+	if ($data->cmd == "getplaying_data")
 		$result = $songInfo['artist'] . " - " . $songInfo['title'] . " <br/>";
+	else if ($data->cmd == "run_command") {
+		$result = $DBusProxy->RunCommand($data->data);
+	}
 }
 echo json_encode($result);
 
