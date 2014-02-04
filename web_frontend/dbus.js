@@ -32,7 +32,7 @@ function doAjaxMagic(data, success)
 
 function run(command) {
 	doAjaxMagic({cmd: 'run_command', data: command }, function(data) {
-		// console.log(JSON.parse(data));
+		console.log(JSON.parse(data));
 	});
 }
 
@@ -45,11 +45,26 @@ function runCommandBox() {
 function getSongInfo() {
 	doAjaxMagic(({cmd: 'getplaying_data', data: ''}), function(data) {
 		console.log(data);
-		document.getElementById("header").innerHTML = JSON.parse(data);
+		var songData = JSON.parse(data);
+		document.getElementById("header").innerHTML = "";
 	});
 }
 
+function serverSideEvent() {
+	if(typeof(EventSource)!=="undefined") {
+		var source=new EventSource("backend.php");
+		source.onmessage=function(event) {
+			console.log(event.data);
+			document.getElementById("header").innerHTML = event.data;
+		};
+	}
+	else {
+		document.getElementById("result").innerHTML="Sorry, your browser does not support server-sent events...";
+	}
+}
+
 window.onload = function() {
-	console.log("Getting song information...");
-	getSongInfo();
+	serverSideEvent();
+	// console.log("Getting song information...");
+	// getSongInfo();
 };
