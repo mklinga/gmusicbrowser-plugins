@@ -10,6 +10,11 @@ button {
 	padding: 5px;
 }
 
+button:hover {
+	background: black;
+	color: white;
+}
+
 .playbutton {
 	padding: 10px 20px;
 }
