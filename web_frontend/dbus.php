@@ -19,6 +19,7 @@
 	<input id="commandbox" placeholder="run command" /><button onclick="runCommandBox();">Run</button>
 	</p>
 	<button onclick="run('PLUGIN_ALBUMRANDOM3_GetNewAlbum');">Albumrandom3: Get new album</button><br/>
+	<button onclick="getSongInfo();">Dump song information to console</button><br/>
 
 	<span id="result"></span>
 	</body>

@@ -44,9 +44,7 @@ function runCommandBox() {
 
 function getSongInfo() {
 	doAjaxMagic(({cmd: 'getplaying_data', data: ''}), function(data) {
-		console.log(data);
-		var songData = JSON.parse(data);
-		document.getElementById("header").innerHTML = "";
+		console.log(JSON.parse(data));
 	});
 }
 
@@ -54,7 +52,6 @@ function serverSideEvent() {
 	if(typeof(EventSource)!=="undefined") {
 		var source=new EventSource("backend.php");
 		source.onmessage=function(event) {
-			console.log(event.data);
 			document.getElementById("header").innerHTML = event.data;
 		};
 	}
