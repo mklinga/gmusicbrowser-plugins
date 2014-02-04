@@ -10,7 +10,8 @@ browser pointed to my computer.
 gmusicbrowser
 php
 php-dbus extension http://pecl.php.net/package/DBus
-(I installed it through php-pear, with: sudo pecl install dbus-beta)
+(I installed it through php-pear, with: sudo pecl install dbus-beta, and 
+after that I had to add "extension=dbus.so"-line manually to php.ini)
 
 
 :: Installation
@@ -27,7 +28,7 @@ script).
 :: Launch
 
 
-So, let's launch php server (in folder your files are):
+So, let's launch php server (in the folder where these files are):
 php -S 192.168.11.4:8003
 
 Obviously, change your ip and port you wish to use accordingly.
