@@ -10,17 +10,16 @@
 	<h2>Now Playing</h2>
 	<h1 id="header"></h1>
 
-	<button onclick="run('PrevSong');">Previous song</button>
-	<button onclick="run('PlayPause');">Play/pause</button>
-	<button onclick="run('NextSong');">Next song</button><br/>
+	<button class="playbutton" onclick="run('PrevSong');">Previous song</button>
+	<button class="playbutton" onclick="run('PlayPause');">Play/pause</button>
+	<button class="playbutton" onclick="run('NextSong');">Next song</button><br/>
 
 	<p>
 	Run any gmusicbrowser command<br/>
-	<input id="commandbox" placeholder="run command" /><button onclick="runCommandBox();">Run</button>
+	<form action="#" onsubmit="runCommandBox();"><input id="commandbox" placeholder="run command" /><button type="submit">Run</button></form>
 	</p>
-	<button onclick="run('PLUGIN_ALBUMRANDOM3_GetNewAlbum');">Albumrandom3: Get new album</button><br/>
-	<button onclick="getSongInfo();">Dump song information to console</button><br/>
-
+	<button onclick="run('PLUGIN_ALBUMRANDOM3_GetNewAlbum');"><span>Get new album</span><br/><span class="pluginname">(Albumrandom3)</span></button><br/>
+	<a href="#" onclick="getSongInfo();">Dump song information to console</a><br/>
 	<span id="result"></span>
 	</body>
 </html>

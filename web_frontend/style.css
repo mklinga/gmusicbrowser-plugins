@@ -1,3 +1,21 @@
+a {
+	position: absolute;
+	bottom: 40px;
+	color: black;
+}
+
 button {
+	background: white;
+	border: 1px solid black;
+	padding: 5px;
+}
+
+.playbutton {
 	padding: 10px 20px;
 }
+
+.pluginname {
+	display: inline-block;
+	padding-bottom: 5px;
+}
+
