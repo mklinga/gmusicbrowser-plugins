@@ -65,11 +65,11 @@ sub TimeAgo
 	
 	return "n/a" if ($sec == 0);
 
-	if ($diff>31536000) {return ::__("%d years ago","%d year ago",int($diff/31536000));}
-	elsif ($diff > 2592000) {return ::__("%d months ago","%d month ago",int($diff/2592000));}
-	elsif ($diff > 602280) {return ::__("%d weeks ago","%d week ago",int($diff/604800));}
-	elsif ($diff > 86400) {return ::__("%d days ago","%d day ago",int($diff/86400));}
-	elsif ($diff > 3600) {return ::__("%d hours ago","%d hour ago",int($diff/3600));}
+	if ($diff>31536000) {return ::__("%d year ago","%d years ago",int($diff/31536000));}
+	elsif ($diff > 2592000) {return ::__("%d month ago","%d months ago",int($diff/2592000));}
+	elsif ($diff > 602280) {return ::__("%d week ago","%d weeks ago",int($diff/604800));}
+	elsif ($diff > 86400) {return ::__("%d day ago","%d days ago",int($diff/86400));}
+	elsif ($diff > 3600) {return ::__("%d hour ago","%d hours ago",int($diff/3600));}
 	else {return "Just now";}
 }
 sub QueueStraight
